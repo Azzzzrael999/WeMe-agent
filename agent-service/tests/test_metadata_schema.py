@@ -1,0 +1,88 @@
+import app.models  # noqa: F401
+from app.database.base import Base
+
+
+def test_day_one_metadata_columns_match_data_contract() -> None:
+    expected_columns = {
+        "agent_thread": {"thread_id", "user_id", "title", "created_at", "updated_at"},
+        "agent_run": {
+            "run_id",
+            "thread_id",
+            "trace_id",
+            "user_id",
+            "intent",
+            "status",
+            "question_summary",
+            "answer_summary",
+            "model_call_count",
+            "tool_call_count",
+            "input_tokens",
+            "output_tokens",
+            "duration_ms",
+            "error_code",
+            "created_at",
+            "finished_at",
+        },
+        "agent_step": {
+            "step_id",
+            "run_id",
+            "sequence_no",
+            "agent_name",
+            "node_name",
+            "status",
+            "input_summary",
+            "output_summary",
+            "duration_ms",
+            "error_code",
+            "created_at",
+        },
+        "agent_tool_call": {
+            "tool_call_id",
+            "run_id",
+            "tool_name",
+            "risk_level",
+            "sanitized_args",
+            "result_summary",
+            "status",
+            "duration_ms",
+            "created_at",
+        },
+        "user_scheduling_preference": {
+            "user_id",
+            "preferences_json",
+            "updated_from_run_id",
+            "updated_at",
+        },
+        "agent_business_event": {
+            "event_id",
+            "run_id",
+            "request_no",
+            "event_type",
+            "payload_json",
+            "processed_at",
+        },
+        "rag_document": {
+            "document_id",
+            "title",
+            "document_type",
+            "source_path",
+            "version",
+            "checksum",
+            "status",
+            "chunk_count",
+            "created_at",
+            "indexed_at",
+        },
+    }
+
+    assert set(Base.metadata.tables) == set(expected_columns)
+    for table_name, columns in expected_columns.items():
+        assert set(Base.metadata.tables[table_name].columns.keys()) == columns
+
+
+def test_preference_user_id_is_not_generated_by_python_database() -> None:
+    user_id = Base.metadata.tables["user_scheduling_preference"].c.user_id
+
+    assert user_id.primary_key is True
+    assert user_id.autoincrement is False
+

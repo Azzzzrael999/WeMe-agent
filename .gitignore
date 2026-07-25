@@ -1,0 +1,44 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# IDE and operating-system files
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Java / Maven
+business-service/target/
+business-service/.mvn/wrapper/maven-wrapper.jar
+*.log
+
+# Python / uv
+agent-service/.venv/
+agent-service/.pytest_cache/
+agent-service/.mypy_cache/
+agent-service/.ruff_cache/
+agent-service/.coverage
+agent-service/htmlcov/
+**/__pycache__/
+*.py[cod]
+
+# Node / Vite
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+
+# Mock service build output
+mock-services/**/__pycache__/
+
+# Local test and runtime artifacts
+.cache/
+coverage/
+reports/generated/
+*.pid
+

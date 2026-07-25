@@ -1,0 +1,354 @@
+name: meeting-scheduler
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  mysql:
+    image: ${MYSQL_IMAGE:?MYSQL_IMAGE is required}
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+08:00
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
+      BUSINESS_DB_NAME: ${BUSINESS_DB_NAME:-meeting_business}
+      BUSINESS_DB_USER: ${BUSINESS_DB_USER:-meeting_business}
+      BUSINESS_DB_PASSWORD: ${BUSINESS_DB_PASSWORD:?BUSINESS_DB_PASSWORD is required}
+      AGENT_DB_NAME: ${AGENT_DB_NAME:-meeting_agent}
+      AGENT_DB_USER: ${AGENT_DB_USER:-meeting_agent}
+      AGENT_DB_PASSWORD: ${AGENT_DB_PASSWORD:?AGENT_DB_PASSWORD is required}
+      TZ: ${APP_TIMEZONE:-Asia/Shanghai}
+    expose:
+      - "3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./deploy/mysql/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - backend_net
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    logging: *default-logging
+
+  redis:
+    image: ${REDIS_IMAGE:?REDIS_IMAGE is required}
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --requirepass
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      TZ: ${APP_TIMEZONE:-Asia/Shanghai}
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend_net
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    logging: *default-logging
+
+  rocketmq-namesrv:
+    image: ${ROCKETMQ_IMAGE:?ROCKETMQ_IMAGE is required}
+    restart: unless-stopped
+    command: ["sh", "mqnamesrv"]
+    environment:
+      JAVA_OPT_EXT: -server -Xms256m -Xmx256m -Xmn128m -XX:-UseContainerSupport
+      TZ: ${APP_TIMEZONE:-Asia/Shanghai}
+    expose:
+      - "9876"
+    networks:
+      - backend_net
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ': >/dev/tcp/127.0.0.1/9876'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    logging: *default-logging
+
+  rocketmq-store-init:
+    image: ${ROCKETMQ_IMAGE:?ROCKETMQ_IMAGE is required}
+    user: "0:0"
+    restart: "no"
+    command: ["sh", "-c", "chown -R 3000:3000 /home/rocketmq/store"]
+    volumes:
+      - rocketmq_broker_store:/home/rocketmq/store
+    networks:
+      - backend_net
+    logging: *default-logging
+
+  rocketmq-broker:
+    image: ${ROCKETMQ_IMAGE:?ROCKETMQ_IMAGE is required}
+    restart: unless-stopped
+    command:
+      - sh
+      - mqbroker
+      - -n
+      - rocketmq-namesrv:9876
+      - -c
+      - /home/rocketmq/rocketmq-4.9.7/conf/broker.conf
+    environment:
+      NAMESRV_ADDR: rocketmq-namesrv:9876
+      JAVA_OPT_EXT: -server -Xms384m -Xmx384m -Xmn192m -XX:-UseContainerSupport
+      TZ: ${APP_TIMEZONE:-Asia/Shanghai}
+    depends_on:
+      rocketmq-namesrv:
+        condition: service_healthy
+      rocketmq-store-init:
+        condition: service_completed_successfully
+    expose:
+      - "10909"
+      - "10911"
+      - "10912"
+    volumes:
+      - rocketmq_broker_store:/home/rocketmq/store
+      - ./deploy/rocketmq/broker.conf:/home/rocketmq/rocketmq-4.9.7/conf/broker.conf:ro
+    networks:
+      - backend_net
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ': >/dev/tcp/127.0.0.1/10911'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    logging: *default-logging
+
+  rocketmq-topic-init:
+    image: ${ROCKETMQ_IMAGE:?ROCKETMQ_IMAGE is required}
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - >-
+        sh mqadmin updateTopic -n rocketmq-namesrv:9876 -c MeetingSchedulerCluster -t ${ROCKETMQ_BOOKING_TOPIC:-meeting-booking}
+        && sh mqadmin updateTopic -n rocketmq-namesrv:9876 -c MeetingSchedulerCluster -t ${ROCKETMQ_DOMAIN_TOPIC:-meeting-domain}
+        && sh mqadmin updateSubGroup -n rocketmq-namesrv:9876 -c MeetingSchedulerCluster -g ${ROCKETMQ_BOOKING_CONSUMER_GROUP:-meeting-booking-finalizer}
+        && sh mqadmin updateSubGroup -n rocketmq-namesrv:9876 -c MeetingSchedulerCluster -g ${ROCKETMQ_RESULT_CONSUMER_GROUP:-meeting-agent-result-callback}
+    environment:
+      NAMESRV_ADDR: rocketmq-namesrv:9876
+      JAVA_OPT_EXT: -server -Xms128m -Xmx128m -XX:-UseContainerSupport
+      TZ: ${APP_TIMEZONE:-Asia/Shanghai}
+    depends_on:
+      rocketmq-broker:
+        condition: service_healthy
+    networks:
+      - backend_net
+    logging: *default-logging
+
+  qdrant:
+    image: ${QDRANT_IMAGE:?QDRANT_IMAGE is required}
+    restart: unless-stopped
+    environment:
+      TZ: ${APP_TIMEZONE:-Asia/Shanghai}
+    expose:
+      - "6333"
+      - "6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - backend_net
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ': >/dev/tcp/127.0.0.1/6333'"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    logging: *default-logging
+
+  video-provider-mock:
+    image: meeting-scheduler-video-provider-mock:${APP_IMAGE_TAG:-day4}
+    build:
+      context: ./mock-services/video-provider
+      args:
+        PYTHON_RUNTIME_IMAGE: ${PYTHON_RUNTIME_IMAGE:-python:3.11-slim@sha256:db3ff2e1800a8581e2c48a27c3995339d47bdf046da21c7627accd3d51053a93}
+    restart: unless-stopped
+    environment:
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    expose:
+      - "8010"
+    networks:
+      - backend_net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  business-service:
+    image: meeting-scheduler-business-service:${APP_IMAGE_TAG:-day4}
+    build:
+      context: ./business-service
+      args:
+        MAVEN_IMAGE: ${MAVEN_IMAGE:-maven:3.9.11-eclipse-temurin-21}
+        JAVA_RUNTIME_IMAGE: ${JAVA_RUNTIME_IMAGE:-eclipse-temurin:21-jre-jammy}
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${BUSINESS_DB_NAME:-meeting_business}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+      SPRING_DATASOURCE_USERNAME: ${BUSINESS_DB_USER:-meeting_business}
+      SPRING_DATASOURCE_PASSWORD: ${BUSINESS_DB_PASSWORD:?BUSINESS_DB_PASSWORD is required}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_EXPIRATION_SECONDS: ${JWT_EXPIRATION_SECONDS:-7200}
+      AGENT_CONTEXT_JWT_SECRET: ${AGENT_CONTEXT_JWT_SECRET:?AGENT_CONTEXT_JWT_SECRET is required}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
+      APP_DEMO_DATA_ENABLED: ${APP_DEMO_DATA_ENABLED:-true}
+      APP_HOT_BOOKING_ENABLED: ${APP_HOT_BOOKING_ENABLED:-true}
+      BOOKING_HOLD_TTL_MILLIS: ${BOOKING_HOLD_TTL_MILLIS:-30000}
+      BOOKING_IDEMPOTENCY_TTL_HOURS: ${BOOKING_IDEMPOTENCY_TTL_HOURS:-24}
+      BOOKING_DRAFT_TTL_MINUTES: ${BOOKING_DRAFT_TTL_MINUTES:-10}
+      OUTBOX_PUBLISH_INTERVAL_MILLIS: ${OUTBOX_PUBLISH_INTERVAL_MILLIS:-500}
+      OUTBOX_MAX_RETRIES: ${OUTBOX_MAX_RETRIES:-10}
+      ROCKETMQ_NAMESRV_ADDR: ${ROCKETMQ_NAMESRV_ADDR:-rocketmq-namesrv:9876}
+      ROCKETMQ_ENABLED: ${ROCKETMQ_ENABLED:-true}
+      ROCKETMQ_BOOKING_TOPIC: ${ROCKETMQ_BOOKING_TOPIC:-meeting-booking}
+      ROCKETMQ_DOMAIN_TOPIC: ${ROCKETMQ_DOMAIN_TOPIC:-meeting-domain}
+      ROCKETMQ_BOOKING_CONSUMER_GROUP: ${ROCKETMQ_BOOKING_CONSUMER_GROUP:-meeting-booking-finalizer}
+      ROCKETMQ_RESULT_CONSUMER_GROUP: ${ROCKETMQ_RESULT_CONSUMER_GROUP:-meeting-agent-result-callback}
+      AGENT_CALLBACK_ENABLED: ${AGENT_CALLBACK_ENABLED:-false}
+      AGENT_SERVICE_URL: ${AGENT_SERVICE_URL:-http://agent-service:8000}
+      VIDEO_PROVIDER_URL: ${VIDEO_PROVIDER_URL:-http://video-provider-mock:8010}
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75.0 -Duser.timezone=${APP_TIMEZONE:-Asia/Shanghai}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rocketmq-broker:
+        condition: service_healthy
+      rocketmq-topic-init:
+        condition: service_completed_successfully
+    expose:
+      - "8080"
+    networks:
+      - backend_net
+    healthcheck:
+      test: ["CMD", "java", "-cp", "/opt/meeting-health", "com.example.meeting.common.health.ContainerHealthProbe"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  agent-service:
+    image: meeting-scheduler-agent-service:${APP_IMAGE_TAG:-day4}
+    build:
+      context: ./agent-service
+      args:
+        PYTHON_RUNTIME_IMAGE: ${PYTHON_RUNTIME_IMAGE:-python:3.11-slim@sha256:db3ff2e1800a8581e2c48a27c3995339d47bdf046da21c7627accd3d51053a93}
+        UV_VERSION: ${UV_VERSION:-0.10.9}
+    restart: unless-stopped
+    environment:
+      AGENT_DATABASE_URL: mysql+pymysql://${AGENT_DB_USER:-meeting_agent}:${AGENT_DB_PASSWORD:?AGENT_DB_PASSWORD is required}@mysql:3306/${AGENT_DB_NAME:-meeting_agent}?charset=utf8mb4
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+      AGENT_MODEL_PROVIDER: ${AGENT_MODEL_PROVIDER:-fixture}
+      MODEL_TIMEOUT_SECONDS: ${MODEL_TIMEOUT_SECONDS:-45}
+      MODEL_MAX_RETRIES: ${MODEL_MAX_RETRIES:-2}
+      BUSINESS_SERVICE_URL: ${BUSINESS_SERVICE_URL:-http://business-service:8080}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}
+      AGENT_CONTEXT_JWT_SECRET: ${AGENT_CONTEXT_JWT_SECRET:?AGENT_CONTEXT_JWT_SECRET is required}
+      AGENT_CONTEXT_AUDIENCE: ${AGENT_CONTEXT_AUDIENCE:-agent-service}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379/1
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-meeting_policies}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      business-service:
+        condition: service_healthy
+    expose:
+      - "8000"
+    volumes:
+      - agent_model_cache:/models
+    networks:
+      - backend_net
+      - agent_egress_net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/internal/v1/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  frontend:
+    image: meeting-scheduler-frontend:${APP_IMAGE_TAG:-day4}
+    build:
+      context: ./frontend
+      args:
+        NODE_BUILD_IMAGE: ${NODE_BUILD_IMAGE:-node:22-alpine}
+        NGINX_RUNTIME_IMAGE: ${NGINX_RUNTIME_IMAGE:-nginx:1.27-alpine}
+    restart: unless-stopped
+    depends_on:
+      business-service:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    volumes:
+      - ./deploy/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - edge_net
+      - backend_net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+networks:
+  edge_net:
+    driver: bridge
+  backend_net:
+    driver: bridge
+    internal: true
+  agent_egress_net:
+    driver: bridge
+
+volumes:
+  mysql_data:
+  redis_data:
+  rocketmq_broker_store:
+  qdrant_data:
+  agent_model_cache:

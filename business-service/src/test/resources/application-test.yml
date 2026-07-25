@@ -1,0 +1,54 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:meeting_business;MODE=MySQL;DATABASE_TO_LOWER=TRUE;CASE_INSENSITIVE_IDENTIFIERS=TRUE;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6399
+  flyway:
+    placeholders:
+      demo-data-enabled: true
+
+app:
+  timezone: Asia/Shanghai
+  jwt:
+    secret: test-only-jwt-secret-with-at-least-thirty-two-bytes-1234567890
+    expiration-seconds: 7200
+    issuer: meeting-business-service
+  booking:
+    hold-ttl-millis: 30000
+    idempotency-ttl-hours: 24
+    redis-hold-enabled: false
+    draft-ttl-minutes: 10
+    hot-booking-enabled: true
+  internal:
+    service-token: test-only-internal-service-token
+    agent-context-secret: test-only-agent-context-secret-with-at-least-thirty-two-bytes
+    agent-context-audience: agent-service
+    agent-context-expiration-seconds: 600
+  agent-service:
+    url: http://127.0.0.1:6398
+    callback-enabled: false
+  rocketmq:
+    enabled: false
+    name-server: 127.0.0.1:9876
+    booking-topic: meeting-booking
+    domain-topic: meeting-domain
+    booking-consumer-group: meeting-booking-finalizer
+    result-consumer-group: meeting-agent-result-callback
+  outbox:
+    publish-interval-millis: 60000
+    max-retries: 10
+
+management:
+  endpoint:
+    health:
+      group:
+        readiness:
+          include: readinessState,db,rocketmq
+  health:
+    redis:
+      enabled: false

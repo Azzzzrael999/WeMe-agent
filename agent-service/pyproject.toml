@@ -1,0 +1,52 @@
+[project]
+name = "meeting-agent-service"
+version = "0.1.0"
+description = "FastAPI Multi-Agent orchestration service for the meeting scheduler."
+requires-python = ">=3.11"
+dependencies = [
+    "alembic==1.16.5",
+    "fastapi==0.116.1",
+    "httpx==0.28.1",
+    "langgraph==0.6.11",
+    "numpy==2.2.6",
+    "PyJWT==2.10.1",
+    "pydantic==2.11.7",
+    "pydantic-settings==2.10.1",
+    "pymysql[rsa]==1.1.2",
+    "qdrant-client==1.15.1",
+    "sqlalchemy==2.0.43",
+    "tzdata==2025.2",
+    "uvicorn[standard]==0.35.0",
+]
+
+[dependency-groups]
+dev = [
+    "mypy==1.17.1",
+    "pytest==8.4.1",
+    "ruff==0.12.9",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "SIM", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"alembic/versions/*.py" = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+pretty = true
+show_error_codes = true
+warn_unreachable = true
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers"
+pythonpath = ["."]
+testpaths = ["tests"]

@@ -1,0 +1,96 @@
+spring:
+  application:
+    name: meeting-business-service
+  datasource:
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      connection-timeout: 5000
+      validation-timeout: 3000
+      maximum-pool-size: 10
+      minimum-idle: 2
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:redis}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      password: ${SPRING_DATA_REDIS_PASSWORD:}
+      connect-timeout: 3s
+      timeout: 3s
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    placeholders:
+      demo-data-enabled: ${APP_DEMO_DATA_ENABLED:true}
+  jackson:
+    time-zone: ${APP_TIMEZONE:Asia/Shanghai}
+    default-property-inclusion: non_null
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    banner: false
+    db-config:
+      id-type: auto
+
+app:
+  timezone: ${APP_TIMEZONE:Asia/Shanghai}
+  jwt:
+    secret: ${JWT_SECRET}
+    expiration-seconds: ${JWT_EXPIRATION_SECONDS:7200}
+    issuer: meeting-business-service
+  booking:
+    hold-ttl-millis: ${BOOKING_HOLD_TTL_MILLIS:30000}
+    idempotency-ttl-hours: ${BOOKING_IDEMPOTENCY_TTL_HOURS:24}
+    redis-hold-enabled: ${BOOKING_REDIS_HOLD_ENABLED:true}
+    draft-ttl-minutes: ${BOOKING_DRAFT_TTL_MINUTES:10}
+    hot-booking-enabled: ${APP_HOT_BOOKING_ENABLED:true}
+  internal:
+    service-token: ${INTERNAL_SERVICE_TOKEN}
+    agent-context-secret: ${AGENT_CONTEXT_JWT_SECRET}
+    agent-context-audience: agent-service
+    agent-context-expiration-seconds: 600
+  agent-service:
+    url: ${AGENT_SERVICE_URL:http://agent-service:8000}
+    callback-enabled: ${AGENT_CALLBACK_ENABLED:false}
+  rocketmq:
+    enabled: ${ROCKETMQ_ENABLED:true}
+    name-server: ${ROCKETMQ_NAMESRV_ADDR:rocketmq-namesrv:9876}
+    booking-topic: ${ROCKETMQ_BOOKING_TOPIC:meeting-booking}
+    domain-topic: ${ROCKETMQ_DOMAIN_TOPIC:meeting-domain}
+    booking-consumer-group: ${ROCKETMQ_BOOKING_CONSUMER_GROUP:meeting-booking-finalizer}
+    result-consumer-group: ${ROCKETMQ_RESULT_CONSUMER_GROUP:meeting-agent-result-callback}
+  outbox:
+    publish-interval-millis: ${OUTBOX_PUBLISH_INTERVAL_MILLIS:500}
+    max-retries: ${OUTBOX_MAX_RETRIES:10}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,db,redis,rocketmq
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+
+server:
+  port: 8080
+  shutdown: graceful
+  error:
+    include-message: never
+
+logging:
+  pattern:
+    level: "%5p [traceId:%X{traceId:-}]"

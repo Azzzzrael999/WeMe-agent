@@ -1,0 +1,25 @@
+{
+  "name": "meeting-scheduler-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "type-check": "vue-tsc --noEmit",
+    "build": "npm run type-check && vite build",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "vue": "3.5.18",
+    "vue-router": "4.5.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.1",
+    "typescript": "5.8.3",
+    "vite": "7.3.6",
+    "vue-tsc": "3.0.4"
+  }
+}
