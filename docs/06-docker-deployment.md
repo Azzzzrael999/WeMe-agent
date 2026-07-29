@@ -104,44 +104,47 @@ agent_model_cache
 `.env.example`至少包含：
 
 ```dotenv
-# Tested starting baseline; Day 7 records the resolved image digests
+# Tested starting baseline; Day 7 records resolved content IDs in docs/image-manifest-day7.json
 MYSQL_IMAGE=mysql:8.4
 REDIS_IMAGE=redis:7.4-alpine
-ROCKETMQ_IMAGE=apache/rocketmq:4.9.8
+ROCKETMQ_IMAGE=apache/rocketmq:4.9.7
 QDRANT_IMAGE=qdrant/qdrant:v1.12.5
-JAVA_RUNTIME_IMAGE=eclipse-temurin:21-jre
-PYTHON_RUNTIME_IMAGE=python:3.11-slim
+MAVEN_IMAGE=maven:3.9.11-eclipse-temurin-21
+JAVA_RUNTIME_IMAGE=eclipse-temurin:21-jre-jammy
+PYTHON_RUNTIME_IMAGE=python:3.11-slim@sha256:db3ff2e1800a8581e2c48a27c3995339d47bdf046da21c7627accd3d51053a93
 NODE_BUILD_IMAGE=node:22-alpine
-NGINX_IMAGE=nginx:1.27-alpine
+NGINX_RUNTIME_IMAGE=nginx:1.27-alpine
+UV_VERSION=0.10.9
+APP_IMAGE_TAG=day7
 
 # Database
-MYSQL_ROOT_PASSWORD=change-me
+MYSQL_ROOT_PASSWORD=__REPLACE_WITH_RANDOM_ROOT_PASSWORD__
 BUSINESS_DB_NAME=meeting_business
 BUSINESS_DB_USER=meeting_business
-BUSINESS_DB_PASSWORD=change-me
+BUSINESS_DB_PASSWORD=__REPLACE_WITH_RANDOM_BUSINESS_PASSWORD__
 AGENT_DB_NAME=meeting_agent
 AGENT_DB_USER=meeting_agent
-AGENT_DB_PASSWORD=change-me
+AGENT_DB_PASSWORD=__REPLACE_WITH_RANDOM_AGENT_PASSWORD__
 
 # Redis
-REDIS_PASSWORD=change-me
-REDIS_URL=redis://:change-me@redis:6379/0
-AGENT_CHECKPOINT_REDIS_URL=redis://:change-me@redis:6379/1
+REDIS_PASSWORD=__REPLACE_WITH_RANDOM_REDIS_PASSWORD__
+REDIS_URL=redis://:__REPLACE_WITH_RANDOM_REDIS_PASSWORD__@redis:6379/0
+AGENT_CHECKPOINT_REDIS_URL=redis://:__REPLACE_WITH_RANDOM_REDIS_PASSWORD__@redis:6379/1
 
 # RocketMQ
 ROCKETMQ_NAMESRV_ADDR=rocketmq-namesrv:9876
 ROCKETMQ_BROKER_NAME=meeting-broker
 
 # Java security
-JWT_SECRET=replace-with-at-least-32-random-bytes
-AGENT_CONTEXT_JWT_SECRET=replace-with-another-random-secret
-INTERNAL_SERVICE_TOKEN=replace-with-random-service-token
+JWT_SECRET=__REPLACE_WITH_AT_LEAST_32_RANDOM_BYTES__
+AGENT_CONTEXT_JWT_SECRET=__REPLACE_WITH_ANOTHER_RANDOM_SECRET__
+INTERNAL_SERVICE_TOKEN=__REPLACE_WITH_RANDOM_SERVICE_TOKEN__
 
 # Agent
 AGENT_MODEL_PROVIDER=fixture
 DEEPSEEK_API_KEY=
 DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_MODEL=deepseek-v4-pro
+DEEPSEEK_MODEL=deepseek-chat
 MODEL_TIMEOUT_SECONDS=45
 MODEL_MAX_RETRIES=2
 EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
@@ -164,11 +167,11 @@ ROCKETMQ_BOOKING_TOPIC=meeting-booking
 ROCKETMQ_DOMAIN_TOPIC=meeting-domain
 ROCKETMQ_BOOKING_CONSUMER_GROUP=meeting-booking-finalizer
 ROCKETMQ_RESULT_CONSUMER_GROUP=meeting-agent-result-callback
-AGENT_CALLBACK_ENABLED=false
+AGENT_CALLBACK_ENABLED=true
 LOG_LEVEL=INFO
 ```
 
-`AGENT_MODEL_PROVIDER=fixture` 是 Day 4 的确定性本地 Smoke/Test Provider；切换为 `deepseek` 时才允许调用配置的 OpenAI-compatible DeepSeek 端点。无论 Provider 选择如何，未配置 DeepSeek Key 时健康接口仍返回 HTTP 200 / `DEGRADED`。`agent-service` 同时接收 `INTERNAL_SERVICE_TOKEN` 和 `AGENT_CONTEXT_JWT_SECRET`，仅用于验证 Java 代理的内部上下文并在调用 Java 白名单 Tool 时透传，日志、Trace 和 SSE 中不得输出它们。
+`AGENT_MODEL_PROVIDER=fixture` 是 Day 4/5 的确定性本地 Smoke/Test Provider；切换为 `deepseek` 时才允许调用配置的 OpenAI-compatible DeepSeek 端点。无论 Provider 选择如何，未配置 DeepSeek Key 时健康接口仍返回 HTTP 200 / `DEGRADED`。`agent-service` 同时接收 `INTERNAL_SERVICE_TOKEN` 和 `AGENT_CONTEXT_JWT_SECRET`，仅用于验证 Java 代理的内部上下文并在调用 Java 白名单 Tool 时透传，日志、Trace 和 SSE 中不得输出它们。`AGENT_CHECKPOINT_REDIS_URL` 必须指向 Redis 的隔离 DB 1，用于保留 24 小时的 LangGraph checkpoint；`REDIS_URL` 保留 DB 0 给其他 Agent Redis 用途。Day 5 以 `AGENT_CALLBACK_ENABLED=true` 为默认值，使 Java 的 `BOOKING_RESULT` 消费者能在事务提交后恢复等待中的 Agent Run。
 
 要求：
 
@@ -207,21 +210,16 @@ MySQL首次启动执行 `00-create-databases.sh`：
 - 失败时容器退出，不在不完整Schema上启动API。
 - Agent checkpoint存放Redis，不依赖MySQL迁移才能恢复图状态；Agent Run元数据依赖MySQL。
 
-### 7.4 RAG初始化
+### 7.4 RAG 初始化
 
-`rag-init`为一次性Compose profile：
+当前 P0 使用固定、可复现的最小政策语料，而不是可变的文件导入任务。`agent-service` 的确定性 Retriever 首次执行政策检索时，会对 Qdrant collection `meeting_policies` 做幂等创建和 upsert：
 
-```text
-docker compose --profile seed run --rm rag-init
-```
+1. 使用版本内固定的 `SEED_CHUNKS`、稳定 chunk ID 与确定性 hash embedding；不下载外部模型。
+2. collection 不存在时创建，存在时按相同 ID 覆盖写入，因此容器重启和空卷首次启动都可重复执行。
+3. 政策节点只在成功检索后返回带 `chunkId`、`title`、`headingPath`、`page` 的可验证引用。
+4. Day 7 空卷 Smoke 通过真实 Agent Golden Path 触发该初始化并验证完整链路；无需、也不存在 `rag-init` Compose profile。
 
-行为：
-
-1. 等待agent-service和Qdrant健康。
-2. 读取只读挂载 `/data/rag-documents`。
-3. 计算文件checksum。
-4. 已入库且checksum相同则跳过。
-5. 文档变化时删除旧版本chunk再重新入库。
+将来若加入外部文档导入，必须另行版本化 checksum/删除策略和验收用例；不能把当前确定性语料误称为文件同步器。
 
 ## 8. Compose骨架
 
@@ -365,20 +363,6 @@ services:
       timeout: 3s
       retries: 20
 
-  rag-init:
-    build:
-      context: ./agent-service
-    profiles: ["seed"]
-    env_file: .env
-    command: ["python", "-m", "app.rag.ingest", "/data/rag-documents"]
-    volumes:
-      - ./deploy/rag-documents:/data/rag-documents:ro
-      - agent_model_cache:/models
-    depends_on:
-      agent-service:
-        condition: service_healthy
-    networks: [backend_net, agent_egress_net]
-
 networks:
   edge_net: {}
   agent_egress_net: {}
@@ -443,7 +427,7 @@ docker compose -f compose.yaml -f compose.dev.yaml up -d --build
 - 安装依赖后再复制源码。
 - 使用非root用户。
 - 模型缓存通过命名卷挂载，不打入镜像。
-- API进程与RAG init复用同一镜像、不同command。
+- API 进程内的确定性 Retriever 在首次政策检索时执行幂等 Qdrant seed；不需要额外的 RAG init 容器。
 
 ### 10.3 Frontend
 
@@ -510,11 +494,9 @@ DeepSeek Key未配置时，`/internal/v1/health` 必须返回 HTTP 200，响应�
 ### 13.1 首次启动
 
 ```powershell
-Copy-Item .env.example .env
-docker compose config
-docker compose build
-docker compose up -d
-docker compose --profile seed run --rm rag-init
+.\scripts\New-LocalEnv.ps1
+docker compose config --quiet
+docker compose up -d --build --wait
 docker compose ps
 ```
 
@@ -547,6 +529,8 @@ docker compose config --quiet
 - 8 CPU线程。
 - 10 GB可用内存；本地Embedding首次加载时建议更多。
 - 15 GB可用磁盘。
+
+当前 `compose.yaml` 还声明了可由 Docker Compose 在本地引擎执行的硬上限：常驻服务合计最多约 **4.2 GiB RAM / 5.75 CPU**，一次性 RocketMQ 初始化容器另有最多 **384 MiB / 0.75 CPU** 的短暂上限。关键单服务上限为 MySQL、RocketMQ Broker、Java 和 Python 各 768 MiB；Qdrant、NameServer 各 384 MiB；Redis 192 MiB；前端和 Video Mock 各 128 MiB。实际性能报告必须同时记录宿主机/Docker Desktop 分配，而不能把这些上限当作已测得使用量。
 
 如果机器资源不足：
 

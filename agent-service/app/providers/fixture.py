@@ -47,6 +47,17 @@ class FixtureModelProvider:
             intent = "CANCEL_MEETING"
         elif any(term in message for term in ("改期", "调整", "修改")):
             intent = "MODIFY_MEETING"
+        elif any(term in message for term in ("共同空闲", "共同时间", "大家有空")):
+            intent = "FIND_COMMON_TIME"
+        elif "推荐" in message:
+            intent = "RECOMMEND_ROOM"
+        elif any(term in message for term in ("偏好", "以后", "避免")):
+            intent = "UPDATE_PREFERENCE"
+        target_meeting_id = (
+            self._target_meeting_id(message)
+            if intent in {"MODIFY_MEETING", "CANCEL_MEETING"}
+            else None
+        )
         duration = self._duration_minutes(message)
         participants = [
             {"name": name, "employeeId": None}
@@ -58,6 +69,8 @@ class FixtureModelProvider:
             features.append("LARGE_SCREEN")
         if "白板" in message:
             features.append("WHITEBOARD")
+        if "视频会议设备" in message or "视频会议" in message:
+            features.append("VIDEO_CONFERENCE")
         window_start, window_end = self._time_window(message)
         title = "架构评审" if "架构评审" in message else "会议安排"
         return {
@@ -73,12 +86,12 @@ class FixtureModelProvider:
                 "requiredParticipants": participants,
                 "optionalGroups": [],
                 "requiredFeatures": features,
-                "minimumCapacity": max(1, len(participants)),
+                "minimumCapacity": self._minimum_capacity(message, len(participants)),
                 "preferredBuildings": [],
                 "hardConstraints": [],
                 "softConstraints": [],
-                "createVideoConference": False,
-                "targetMeetingId": None,
+                "createVideoConference": "视频会议设备" in message or "视频会议" in message,
+                "targetMeetingId": target_meeting_id,
             },
             "missingFields": [] if participants else ["requiredParticipants"],
             "needsPolicy": False,
@@ -94,6 +107,18 @@ class FixtureModelProvider:
         if hours:
             return int(hours.group(1)) * 60
         return 60
+
+    @staticmethod
+    def _minimum_capacity(message: str, participant_count: int) -> int:
+        explicit = re.search(r"(\d{1,4})\s*人", message)
+        if explicit is None:
+            return max(1, participant_count)
+        return max(1, participant_count, int(explicit.group(1)))
+
+    @staticmethod
+    def _target_meeting_id(message: str) -> int | None:
+        target = re.search(r"(?:会议\s*(?:ID)?\s*|#)(\d{1,9})", message, re.IGNORECASE)
+        return int(target.group(1)) if target is not None else None
 
     def _time_window(self, message: str) -> tuple[datetime, datetime]:
         base = self.now

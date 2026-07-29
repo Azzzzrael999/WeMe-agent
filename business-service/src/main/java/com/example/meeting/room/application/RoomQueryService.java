@@ -1,5 +1,8 @@
 package com.example.meeting.room.application;
 
+import com.example.meeting.common.error.BusinessException;
+import com.example.meeting.common.error.ErrorCode;
+import com.example.meeting.common.security.AuthenticatedUser;
 import com.example.meeting.room.api.RoomFeatureView;
 import com.example.meeting.room.api.RoomItemView;
 import com.example.meeting.room.api.RoomListView;
@@ -23,15 +26,48 @@ public class RoomQueryService {
 
   @Transactional(readOnly = true)
   public RoomListView findActiveRooms() {
+    List<RoomItemView> items = toViews(meetingRoomMapper.findActiveRoomsWithFeatures());
+    return new RoomListView(items, items.size());
+  }
+
+  @Transactional(readOnly = true)
+  public RoomListView findVisibleRooms(AuthenticatedUser actor) {
+    List<RoomWithFeatureRow> rows =
+        actor.roles().contains("ADMIN")
+            ? meetingRoomMapper.findAllRoomsWithFeatures()
+            : meetingRoomMapper.findActiveRoomsWithFeatures();
+    List<RoomItemView> items = toViews(rows);
+    return new RoomListView(items, items.size());
+  }
+
+  @Transactional(readOnly = true)
+  public RoomItemView findVisibleRoom(long roomId, AuthenticatedUser actor) {
+    List<RoomItemView> items = toViews(meetingRoomMapper.findRoomWithFeaturesById(roomId));
+    if (items.isEmpty()
+        || (!actor.roles().contains("ADMIN") && !"ACTIVE".equals(items.getFirst().status()))) {
+      throw new BusinessException(ErrorCode.ROOM_NOT_FOUND);
+    }
+    return items.getFirst();
+  }
+
+  @Transactional(readOnly = true)
+  public RoomItemView findRoomForAdministration(long roomId) {
+    List<RoomItemView> items = toViews(meetingRoomMapper.findRoomWithFeaturesById(roomId));
+    if (items.isEmpty()) {
+      throw new BusinessException(ErrorCode.ROOM_NOT_FOUND);
+    }
+    return items.getFirst();
+  }
+
+  private List<RoomItemView> toViews(List<RoomWithFeatureRow> rows) {
     Map<Long, MutableRoom> rooms = new LinkedHashMap<>();
-    for (RoomWithFeatureRow row : meetingRoomMapper.findActiveRoomsWithFeatures()) {
+    for (RoomWithFeatureRow row : rows) {
       MutableRoom room = rooms.computeIfAbsent(row.getRoomId(), ignored -> new MutableRoom(row));
       if (row.getFeatureCode() != null) {
         room.features.add(new RoomFeatureView(row.getFeatureCode(), row.getFeatureName()));
       }
     }
-    List<RoomItemView> items = rooms.values().stream().map(MutableRoom::toView).toList();
-    return new RoomListView(items, items.size());
+    return rooms.values().stream().map(MutableRoom::toView).toList();
   }
 
   private static final class MutableRoom {
@@ -54,6 +90,7 @@ public class RoomQueryService {
           row.getRoomType(),
           Boolean.TRUE.equals(row.getHot()),
           row.getStatus(),
+          row.getVersion(),
           features);
     }
   }

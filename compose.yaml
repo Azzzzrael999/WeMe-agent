@@ -10,6 +10,8 @@ services:
   mysql:
     image: ${MYSQL_IMAGE:?MYSQL_IMAGE is required}
     restart: unless-stopped
+    mem_limit: 768m
+    cpus: "1.00"
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_0900_ai_ci
@@ -41,6 +43,8 @@ services:
   redis:
     image: ${REDIS_IMAGE:?REDIS_IMAGE is required}
     restart: unless-stopped
+    mem_limit: 192m
+    cpus: "0.25"
     command:
       - redis-server
       - --appendonly
@@ -69,6 +73,8 @@ services:
   rocketmq-namesrv:
     image: ${ROCKETMQ_IMAGE:?ROCKETMQ_IMAGE is required}
     restart: unless-stopped
+    mem_limit: 384m
+    cpus: "0.50"
     command: ["sh", "mqnamesrv"]
     environment:
       JAVA_OPT_EXT: -server -Xms256m -Xmx256m -Xmn128m -XX:-UseContainerSupport
@@ -89,6 +95,8 @@ services:
     image: ${ROCKETMQ_IMAGE:?ROCKETMQ_IMAGE is required}
     user: "0:0"
     restart: "no"
+    mem_limit: 128m
+    cpus: "0.25"
     command: ["sh", "-c", "chown -R 3000:3000 /home/rocketmq/store"]
     volumes:
       - rocketmq_broker_store:/home/rocketmq/store
@@ -99,6 +107,8 @@ services:
   rocketmq-broker:
     image: ${ROCKETMQ_IMAGE:?ROCKETMQ_IMAGE is required}
     restart: unless-stopped
+    mem_limit: 768m
+    cpus: "1.00"
     command:
       - sh
       - mqbroker
@@ -135,6 +145,8 @@ services:
   rocketmq-topic-init:
     image: ${ROCKETMQ_IMAGE:?ROCKETMQ_IMAGE is required}
     restart: "no"
+    mem_limit: 256m
+    cpus: "0.50"
     command:
       - sh
       - -c
@@ -157,6 +169,8 @@ services:
   qdrant:
     image: ${QDRANT_IMAGE:?QDRANT_IMAGE is required}
     restart: unless-stopped
+    mem_limit: 384m
+    cpus: "0.50"
     environment:
       TZ: ${APP_TIMEZONE:-Asia/Shanghai}
     expose:
@@ -175,12 +189,14 @@ services:
     logging: *default-logging
 
   video-provider-mock:
-    image: meeting-scheduler-video-provider-mock:${APP_IMAGE_TAG:-day4}
+    image: meeting-scheduler-video-provider-mock:${APP_IMAGE_TAG:-day7}
     build:
       context: ./mock-services/video-provider
       args:
         PYTHON_RUNTIME_IMAGE: ${PYTHON_RUNTIME_IMAGE:-python:3.11-slim@sha256:db3ff2e1800a8581e2c48a27c3995339d47bdf046da21c7627accd3d51053a93}
     restart: unless-stopped
+    mem_limit: 128m
+    cpus: "0.25"
     environment:
       APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
@@ -199,13 +215,15 @@ services:
     logging: *default-logging
 
   business-service:
-    image: meeting-scheduler-business-service:${APP_IMAGE_TAG:-day4}
+    image: meeting-scheduler-business-service:${APP_IMAGE_TAG:-day7}
     build:
       context: ./business-service
       args:
         MAVEN_IMAGE: ${MAVEN_IMAGE:-maven:3.9.11-eclipse-temurin-21}
         JAVA_RUNTIME_IMAGE: ${JAVA_RUNTIME_IMAGE:-eclipse-temurin:21-jre-jammy}
     restart: unless-stopped
+    mem_limit: 768m
+    cpus: "1.00"
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${BUSINESS_DB_NAME:-meeting_business}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
       SPRING_DATASOURCE_USERNAME: ${BUSINESS_DB_USER:-meeting_business}
@@ -231,7 +249,7 @@ services:
       ROCKETMQ_DOMAIN_TOPIC: ${ROCKETMQ_DOMAIN_TOPIC:-meeting-domain}
       ROCKETMQ_BOOKING_CONSUMER_GROUP: ${ROCKETMQ_BOOKING_CONSUMER_GROUP:-meeting-booking-finalizer}
       ROCKETMQ_RESULT_CONSUMER_GROUP: ${ROCKETMQ_RESULT_CONSUMER_GROUP:-meeting-agent-result-callback}
-      AGENT_CALLBACK_ENABLED: ${AGENT_CALLBACK_ENABLED:-false}
+      AGENT_CALLBACK_ENABLED: ${AGENT_CALLBACK_ENABLED:-true}
       AGENT_SERVICE_URL: ${AGENT_SERVICE_URL:-http://agent-service:8000}
       VIDEO_PROVIDER_URL: ${VIDEO_PROVIDER_URL:-http://video-provider-mock:8010}
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75.0 -Duser.timezone=${APP_TIMEZONE:-Asia/Shanghai}
@@ -259,13 +277,15 @@ services:
     logging: *default-logging
 
   agent-service:
-    image: meeting-scheduler-agent-service:${APP_IMAGE_TAG:-day4}
+    image: meeting-scheduler-agent-service:${APP_IMAGE_TAG:-day7}
     build:
       context: ./agent-service
       args:
         PYTHON_RUNTIME_IMAGE: ${PYTHON_RUNTIME_IMAGE:-python:3.11-slim@sha256:db3ff2e1800a8581e2c48a27c3995339d47bdf046da21c7627accd3d51053a93}
         UV_VERSION: ${UV_VERSION:-0.10.9}
     restart: unless-stopped
+    mem_limit: 768m
+    cpus: "1.00"
     environment:
       AGENT_DATABASE_URL: mysql+pymysql://${AGENT_DB_USER:-meeting_agent}:${AGENT_DB_PASSWORD:?AGENT_DB_PASSWORD is required}@mysql:3306/${AGENT_DB_NAME:-meeting_agent}?charset=utf8mb4
       APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
@@ -279,7 +299,8 @@ services:
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}
       AGENT_CONTEXT_JWT_SECRET: ${AGENT_CONTEXT_JWT_SECRET:?AGENT_CONTEXT_JWT_SECRET is required}
       AGENT_CONTEXT_AUDIENCE: ${AGENT_CONTEXT_AUDIENCE:-agent-service}
-      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379/1
+      REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379/0}
+      AGENT_CHECKPOINT_REDIS_URL: ${AGENT_CHECKPOINT_REDIS_URL:-redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379/1}
       QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-meeting_policies}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
@@ -310,13 +331,15 @@ services:
     logging: *default-logging
 
   frontend:
-    image: meeting-scheduler-frontend:${APP_IMAGE_TAG:-day4}
+    image: meeting-scheduler-frontend:${APP_IMAGE_TAG:-day7}
     build:
       context: ./frontend
       args:
         NODE_BUILD_IMAGE: ${NODE_BUILD_IMAGE:-node:22-alpine}
         NGINX_RUNTIME_IMAGE: ${NGINX_RUNTIME_IMAGE:-nginx:1.27-alpine}
     restart: unless-stopped
+    mem_limit: 128m
+    cpus: "0.25"
     depends_on:
       business-service:
         condition: service_healthy

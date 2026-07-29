@@ -32,6 +32,15 @@ class Settings(BaseSettings):
     business_service_url: str = Field(
         default="http://business-service:8080", validation_alias="BUSINESS_SERVICE_URL"
     )
+    agent_checkpoint_redis_url: str = Field(
+        default="redis://redis:6379/1", validation_alias="AGENT_CHECKPOINT_REDIS_URL", min_length=1
+    )
+    agent_checkpoint_ttl_seconds: int = Field(
+        default=24 * 60 * 60,
+        validation_alias="AGENT_CHECKPOINT_TTL_SECONDS",
+        ge=60,
+        le=24 * 60 * 60,
+    )
     internal_service_token: SecretStr = Field(
         default=SecretStr(""), validation_alias="INTERNAL_SERVICE_TOKEN"
     )

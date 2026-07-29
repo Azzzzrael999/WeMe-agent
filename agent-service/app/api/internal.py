@@ -1,27 +1,69 @@
 """Internal endpoints called only by the Java public-API gateway."""
 
+from __future__ import annotations
+
 import json
+import logging
 import time
 import uuid
-from collections.abc import Iterator
-from typing import Annotated
+from collections.abc import Callable, Iterator
+from contextlib import suppress
+from functools import wraps
+from queue import Empty, Queue
+from threading import Thread
+from typing import Annotated, Any, ParamSpec, TypeVar
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Response, status
 from fastapi.responses import JSONResponse, StreamingResponse
+from langgraph.checkpoint.base import BaseCheckpointSaver
 
+from app.checkpoints import RedisCheckpointSaver
 from app.config import Settings, get_settings
 from app.database.engine import get_engine
 from app.database.health import probe_database
+from app.models.metadata import AgentRun
 from app.persistence import MetadataRepository, question_summary
 from app.providers import ModelProvider, build_model_provider
 from app.rag import PolicyRetriever, build_policy_retriever
-from app.schemas.agent import AgentState, AgentStreamRequest, RunStatus
+from app.run_locks import run_execution_locks
+from app.schemas.agent import (
+    AgentResumeRequest,
+    AgentState,
+    AgentStreamRequest,
+    BookingResultStatus,
+    BusinessResultCallback,
+    Route,
+    RunStatus,
+)
 from app.schemas.health import ComponentStatus, HealthResponse, ServiceStatus
 from app.security import AgentContext, InternalAuthenticationError, authenticate_agent_context
 from app.tools import JavaReadToolClient
-from app.workflow import WorkflowError, build_workflow_run
+from app.workflow import WorkflowError, WorkflowRun, build_workflow_run
 
 router = APIRouter(prefix="/internal/v1", tags=["internal"])
+logger = logging.getLogger(__name__)
+
+_SSE_STREAM_END = object()
+_SSE_PRODUCER_START_TIMEOUT_SECONDS = 5
+
+Params = ParamSpec("Params")
+ReturnT = TypeVar("ReturnT")
+
+
+def _serialize_run_transition(
+    endpoint: Callable[Params, ReturnT],
+) -> Callable[Params, ReturnT]:
+    """Prevent a business callback from racing the same run's resume stream."""
+
+    @wraps(endpoint)
+    def wrapped(*args: Params.args, **kwargs: Params.kwargs) -> ReturnT:
+        run_id = kwargs.get("run_id")
+        if not isinstance(run_id, str):
+            return endpoint(*args, **kwargs)
+        with run_execution_locks.lock(run_id):
+            return endpoint(*args, **kwargs)
+
+    return wrapped
 
 
 def get_repository() -> MetadataRepository:
@@ -44,6 +86,15 @@ def get_java_tools(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> JavaReadToolClient:
     return JavaReadToolClient(settings)
+
+
+def get_checkpoint_saver(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> RedisCheckpointSaver:
+    return RedisCheckpointSaver.from_url(
+        settings.agent_checkpoint_redis_url,
+        ttl_seconds=settings.agent_checkpoint_ttl_seconds,
+    )
 
 
 def get_agent_context(
@@ -73,26 +124,26 @@ def health(
     response: Response,
     settings: Annotated[Settings, Depends(get_settings)],
     database: Annotated[ComponentStatus, Depends(probe_database)],
+    checkpoint_saver: Annotated[RedisCheckpointSaver, Depends(get_checkpoint_saver)],
 ) -> HealthResponse:
     deepseek = (
         ComponentStatus.CONFIGURED
         if settings.deepseek_is_configured
         else ComponentStatus.NOT_CONFIGURED
     )
-
-    if database is ComponentStatus.DOWN:
+    redis_checkpoint = ComponentStatus.UP if checkpoint_saver.probe() else ComponentStatus.DOWN
+    if database is ComponentStatus.DOWN or redis_checkpoint is ComponentStatus.DOWN:
         service_status = ServiceStatus.DOWN
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     elif deepseek is ComponentStatus.NOT_CONFIGURED:
         service_status = ServiceStatus.DEGRADED
     else:
         service_status = ServiceStatus.UP
-
     return HealthResponse(
         status=service_status,
         deepseek=deepseek,
         database=database,
-        redis_checkpoint=ComponentStatus.NOT_CHECKED,
+        redis_checkpoint=redis_checkpoint,
         qdrant=ComponentStatus.NOT_CHECKED,
         business_service=ComponentStatus.NOT_CHECKED,
     )
@@ -107,6 +158,7 @@ def stream_agent_run(
     provider: Annotated[ModelProvider, Depends(get_model_provider)],
     retriever: Annotated[PolicyRetriever, Depends(get_policy_retriever)],
     tools: Annotated[JavaReadToolClient, Depends(get_java_tools)],
+    checkpoint_saver: Annotated[BaseCheckpointSaver[Any], Depends(get_checkpoint_saver)],
 ) -> StreamingResponse:
     thread_id = body.thread_id or f"thread_{uuid.uuid4().hex}"
     try:
@@ -140,90 +192,362 @@ def stream_agent_run(
         roles=list(context.roles),
         message=body.message,
     )
-    workflow = build_workflow_run(
+    workflow = _workflow(
         settings=settings,
         repository=repository,
         provider=provider,
         retriever=retriever,
         tools=tools,
         context=context,
+        checkpoint_saver=checkpoint_saver,
     )
 
-    def generate() -> Iterator[str]:
-        started = time.perf_counter()
-        yield _sse(
-            "run.started",
-            {
-                "runId": context.run_id,
-                "threadId": thread_id,
-                "traceId": context.trace_id,
-                "status": RunStatus.RUNNING.value,
-            },
+    def produce(frames: Queue[object]) -> None:
+        # ``StreamingResponse`` advances a synchronous iterator through the
+        # AnyIO worker pool.  A LangGraph iterator owns context/exit state
+        # across yields, so execute it on this dedicated producer thread and
+        # put only completed SSE frames on the response iterator.
+        with run_execution_locks.lock(context.run_id):
+            started = time.perf_counter()
+            frames.put(
+                _sse(
+                    "run.started",
+                    {
+                        "runId": context.run_id,
+                        "threadId": thread_id,
+                        "traceId": context.trace_id,
+                        "status": RunStatus.RUNNING.value,
+                    },
+                )
+            )
+            _emit_workflow_sse_frames(
+                frames=frames,
+                repository=repository,
+                workflow=workflow,
+                fallback_state=initial_state,
+                started_at=started,
+                operation=lambda: workflow.stream(initial_state),
+            )
+
+    return _streaming_response(_start_sse_producer(produce))
+
+
+@router.post("/agent-runs/{run_id}/resume")
+def resume_agent_run(
+    run_id: Annotated[str, Path(min_length=1, max_length=64)],
+    body: AgentResumeRequest,
+    context: Annotated[AgentContext, Depends(get_agent_context)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    repository: Annotated[MetadataRepository, Depends(get_repository)],
+    provider: Annotated[ModelProvider, Depends(get_model_provider)],
+    retriever: Annotated[PolicyRetriever, Depends(get_policy_retriever)],
+    tools: Annotated[JavaReadToolClient, Depends(get_java_tools)],
+    checkpoint_saver: Annotated[BaseCheckpointSaver[Any], Depends(get_checkpoint_saver)],
+) -> StreamingResponse:
+    startup: Queue[HTTPException | None] = Queue(maxsize=1)
+
+    def produce(frames: Queue[object]) -> None:
+        # Acquire the transition lock before loading a checkpoint.  This
+        # makes duplicate ACCEPT requests observe the first durable transition
+        # instead of both resuming an old WAITING_CONFIRMATION state.
+        with run_execution_locks.lock(run_id):
+            try:
+                run = _owned_run(repository=repository, run_id=run_id, context=context)
+                _require_context_run(context=context, run_id=run_id)
+                if run.status != RunStatus.WAITING_CONFIRMATION.value:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="RUN_NOT_WAITING_CONFIRMATION",
+                    )
+                workflow = _workflow(
+                    settings=settings,
+                    repository=repository,
+                    provider=provider,
+                    retriever=retriever,
+                    tools=tools,
+                    context=context,
+                    checkpoint_saver=checkpoint_saver,
+                )
+                state = _load_checkpoint_or_503(
+                    workflow=workflow,
+                    thread_id=run.thread_id,
+                    run_id=run_id,
+                )
+                if state is None or state.status is not RunStatus.WAITING_CONFIRMATION:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="CHECKPOINT_NOT_WAITING_CONFIRMATION",
+                    )
+                if body.confirmation_token != state.confirmation_token:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="CONFIRMATION_TOKEN_INVALID",
+                    )
+            except HTTPException as exc:
+                startup.put(exc)
+                return
+            except Exception:
+                logger.exception("Unable to initialise resume producer for run %s", run_id)
+                startup.put(
+                    HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail="AGENT_RESUME_UNAVAILABLE",
+                    )
+                )
+                return
+
+            startup.put(None)
+            started = time.perf_counter()
+            frames.put(_sse("run.resumed", {"runId": run_id, "status": RunStatus.RUNNING.value}))
+            _emit_workflow_sse_frames(
+                frames=frames,
+                repository=repository,
+                workflow=workflow,
+                fallback_state=state,
+                started_at=started,
+                operation=lambda: workflow.resume(state, body),
+            )
+
+    stream = _start_sse_producer(produce)
+    try:
+        startup_result = startup.get(timeout=_SSE_PRODUCER_START_TIMEOUT_SECONDS)
+    except Empty as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AGENT_RESUME_UNAVAILABLE",
+        ) from exc
+    if startup_result is not None:
+        raise startup_result
+    return _streaming_response(stream)
+
+
+@router.post("/agent-runs/{run_id}/business-result")
+@_serialize_run_transition
+def receive_business_result(
+    run_id: Annotated[str, Path(min_length=1, max_length=64)],
+    body: BusinessResultCallback,
+    context: Annotated[AgentContext, Depends(get_agent_context)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    repository: Annotated[MetadataRepository, Depends(get_repository)],
+    provider: Annotated[ModelProvider, Depends(get_model_provider)],
+    retriever: Annotated[PolicyRetriever, Depends(get_policy_retriever)],
+    tools: Annotated[JavaReadToolClient, Depends(get_java_tools)],
+    checkpoint_saver: Annotated[BaseCheckpointSaver[Any], Depends(get_checkpoint_saver)],
+) -> JSONResponse:
+    run = _owned_run(repository=repository, run_id=run_id, context=context)
+    _require_context_run(context=context, run_id=run_id)
+    if _callback_already_recorded(repository=repository, event_id=body.event_id):
+        return _safe_callback_response(
+            status_value="IGNORED", reason="DUPLICATE", candidate_count=0
         )
+    if run.status != RunStatus.WAITING_BUSINESS_RESULT.value:
+        if run.status == RunStatus.WAITING_CONFIRMATION.value:
+            # A HOT confirmation may publish its result before the resume
+            # graph has flushed the PENDING checkpoint and run status. Do not
+            # consume the at-least-once event here: Java must retry it.
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="AGENT_CALLBACK_RETRY",
+            )
+        _record_callback_event(repository=repository, run_id=run_id, body=body)
+        return _safe_callback_response(
+            status_value="IGNORED", reason="RUN_NOT_WAITING", candidate_count=0
+        )
+
+    workflow = _workflow(
+        settings=settings,
+        repository=repository,
+        provider=provider,
+        retriever=retriever,
+        tools=tools,
+        context=context,
+        checkpoint_saver=checkpoint_saver,
+    )
+    state = _load_checkpoint_or_503(workflow=workflow, thread_id=run.thread_id, run_id=run_id)
+    if state is None or state.status is not RunStatus.WAITING_BUSINESS_RESULT:
+        # Persisted run status is already waiting, but the LangGraph saver is
+        # still catching up. Retrying is safer than recording an event that
+        # would otherwise be lost forever.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AGENT_CALLBACK_RETRY",
+        )
+    if state.pending_request_no != body.request_no:
+        _record_callback_event(repository=repository, run_id=run_id, body=body)
+        return _safe_callback_response(
+            status_value="IGNORED", reason="CHECKPOINT_MISMATCH", candidate_count=0
+        )
+    if body.status is BookingResultStatus.SUCCESS:
         try:
-            yield from (_sse(event, payload) for event, payload in workflow.stream(initial_state))
-            final_state = workflow.latest_state or initial_state
-            duration_ms = int((time.perf_counter() - started) * 1000)
             repository.complete_run(
-                run_id=final_state.run_id,
-                intent=final_state.intent,
-                status=final_state.status,
-                answer_summary=final_state.answer_summary,
-                model_call_count=final_state.model_call_count,
-                tool_call_count=final_state.tool_call_count,
-                duration_ms=duration_ms,
+                run_id=run_id,
+                intent=state.intent,
+                status=RunStatus.SUCCEEDED,
+                answer_summary="异步预约确认成功。",
+                model_call_count=state.model_call_count,
+                tool_call_count=state.tool_call_count,
+                duration_ms=run.duration_ms or 0,
                 error_code=None,
             )
-            yield _sse(
-                "run.completed",
-                {
-                    "runId": final_state.run_id,
-                    "status": final_state.status.value,
-                    "answerSummary": final_state.answer_summary or "已完成结构化处理",
-                    "citations": [
-                        citation.model_dump(by_alias=True, mode="json")
-                        for citation in final_state.citations
-                    ],
-                },
+            _record_business_result_step(
+                repository=repository,
+                state=state,
+                summary="异步预约确认成功。",
             )
-        except WorkflowError as exc:
-            failed_state = workflow.latest_state or initial_state
-            duration_ms = int((time.perf_counter() - started) * 1000)
-            repository.complete_run(
-                run_id=failed_state.run_id,
-                intent=failed_state.intent,
-                status=RunStatus.FAILED,
-                answer_summary=None,
-                model_call_count=failed_state.model_call_count,
-                tool_call_count=failed_state.tool_call_count,
-                duration_ms=duration_ms,
-                error_code=exc.code,
-            )
-            yield _sse(
-                "run.failed",
-                {
-                    "runId": failed_state.run_id,
-                    "status": RunStatus.FAILED.value,
-                    "errorCode": exc.code,
-                    "message": exc.message,
-                },
-            )
+            _record_callback_event(repository=repository, run_id=run_id, body=body)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="AGENT_CALLBACK_UNAVAILABLE",
+            ) from exc
+        # The terminal Run and event id are durable before cleanup. A cleanup
+        # failure cannot make a Java retry lose the already-known result.
+        with suppress(WorkflowError):
+            workflow.delete_checkpoint(thread_id=run.thread_id, run_id=run_id)
+        return _safe_callback_response(
+            status_value="PROCESSED", reason="SUCCESS", candidate_count=0
+        )
 
-    return StreamingResponse(
-        generate(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    # CONFLICT must discard all old availability/candidates/draft before the
+    # new graph run invokes Java READ tools again.  The callback itself has no
+    # user-visible token or model/prompt data in its response.
+    callback_step_count = state.step_count + 1
+    _record_business_result_step(
+        repository=repository,
+        state=state,
+        summary="收到预约冲突结果，正在基于最新可用性重新调度。",
     )
+    replanning_state = state.model_copy(
+        update={
+            "availability_snapshot": None,
+            "schedule_candidates": [],
+            "selected_candidate_id": None,
+            "unsat_analysis": None,
+            "draft": None,
+            "confirmation_token": None,
+            "draft_expires_at": None,
+            "draft_tool_call_id": None,
+            "confirm_tool_call_id": None,
+            "confirm_idempotency_key": None,
+            "pending_request_no": None,
+            "business_result": body,
+            "resume_action": None,
+            "edited_draft": None,
+            "answer_summary": None,
+            "status": RunStatus.RUNNING,
+            "next_route": Route.REQUIREMENT,
+            "step_count": callback_step_count,
+        }
+    )
+    try:
+        workflow.delete_checkpoint(thread_id=run.thread_id, run_id=run_id)
+        list(workflow.stream(replanning_state))
+        latest = workflow.latest_state or replanning_state
+        if latest.status in {RunStatus.WAITING_CONFIRMATION, RunStatus.WAITING_BUSINESS_RESULT}:
+            repository.update_run_progress(
+                run_id=run_id,
+                intent=latest.intent,
+                status=latest.status,
+                answer_summary=latest.answer_summary,
+                model_call_count=latest.model_call_count,
+                tool_call_count=latest.tool_call_count,
+                duration_ms=run.duration_ms or 0,
+                error_code=None,
+            )
+        else:
+            repository.complete_run(
+                run_id=run_id,
+                intent=latest.intent,
+                status=latest.status,
+                answer_summary=latest.answer_summary,
+                model_call_count=latest.model_call_count,
+                tool_call_count=latest.tool_call_count,
+                duration_ms=run.duration_ms or 0,
+                error_code=None,
+            )
+        _record_callback_event(repository=repository, run_id=run_id, body=body)
+        return _safe_callback_response(
+            status_value="REPLANNED",
+            reason=latest.status.value,
+            candidate_count=len(latest.schedule_candidates),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        # The event id is intentionally not recorded on a failed replan. Put
+        # the original waiting state back through the real LangGraph saver so
+        # the same at-least-once Java callback can safely retry.
+        attempted_state = workflow.latest_state or state
+        retry_state = state.model_copy(
+            update={
+                "step_count": max(
+                    state.step_count,
+                    attempted_state.step_count,
+                    repository.highest_step_sequence(run_id),
+                ),
+                "model_call_count": max(state.model_call_count, attempted_state.model_call_count),
+                "tool_call_count": max(state.tool_call_count, attempted_state.tool_call_count),
+            }
+        )
+        with suppress(WorkflowError):
+            workflow.restore_checkpoint_state(retry_state)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AGENT_CALLBACK_UNAVAILABLE",
+        ) from exc
 
 
 @router.get("/agent-runs/{run_id}")
 def get_agent_run(
     run_id: Annotated[str, Path(min_length=1, max_length=64)],
     context: Annotated[AgentContext, Depends(get_agent_context)],
+    settings: Annotated[Settings, Depends(get_settings)],
     repository: Annotated[MetadataRepository, Depends(get_repository)],
+    provider: Annotated[ModelProvider, Depends(get_model_provider)],
+    retriever: Annotated[PolicyRetriever, Depends(get_policy_retriever)],
+    tools: Annotated[JavaReadToolClient, Depends(get_java_tools)],
+    checkpoint_saver: Annotated[BaseCheckpointSaver[Any], Depends(get_checkpoint_saver)],
 ) -> JSONResponse:
+    run = _owned_run(repository=repository, run_id=run_id, context=context)
+    _require_context_run(context=context, run_id=run_id)
     trace = _trace_for_visible_run(repository=repository, run_id=run_id, context=context)
-    return JSONResponse(trace["run"])
+    run_view = trace["run"]
+    if not isinstance(run_view, dict):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="AGENT_METADATA_INVALID"
+        )
+    view = dict(run_view)
+    workflow = _workflow(
+        settings=settings,
+        repository=repository,
+        provider=provider,
+        retriever=retriever,
+        tools=tools,
+        context=context,
+        checkpoint_saver=checkpoint_saver,
+    )
+    state = _load_checkpoint_or_503(workflow=workflow, thread_id=run.thread_id, run_id=run_id)
+    if (
+        state is not None
+        and state.status is RunStatus.WAITING_CONFIRMATION
+        and state.draft is not None
+        and state.confirmation_token is not None
+        and state.draft_expires_at
+    ):
+        view.update(
+            {
+                "candidates": [
+                    candidate.model_dump(by_alias=True, mode="json")
+                    for candidate in state.schedule_candidates
+                ],
+                "draft": state.draft.model_dump(by_alias=True, mode="json"),
+                "confirmationToken": state.confirmation_token,
+                "expiresAt": state.draft_expires_at.isoformat(),
+            }
+        )
+    return JSONResponse(view, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/agent-runs/{run_id}/trace")
@@ -232,8 +556,190 @@ def get_agent_trace(
     context: Annotated[AgentContext, Depends(get_agent_context)],
     repository: Annotated[MetadataRepository, Depends(get_repository)],
 ) -> JSONResponse:
+    _require_context_run(context=context, run_id=run_id)
     return JSONResponse(
         _trace_for_visible_run(repository=repository, run_id=run_id, context=context)
+    )
+
+
+def _workflow(
+    *,
+    settings: Settings,
+    repository: MetadataRepository,
+    provider: ModelProvider,
+    retriever: PolicyRetriever,
+    tools: JavaReadToolClient,
+    context: AgentContext,
+    checkpoint_saver: BaseCheckpointSaver[Any],
+) -> WorkflowRun:
+    return build_workflow_run(
+        settings=settings,
+        repository=repository,
+        provider=provider,
+        retriever=retriever,
+        tools=tools,
+        context=context,
+        checkpoint_saver=checkpoint_saver,
+    )
+
+
+def _load_checkpoint_or_503(
+    *, workflow: WorkflowRun, thread_id: str, run_id: str
+) -> AgentState | None:
+    try:
+        return workflow.load_state(thread_id=thread_id, run_id=run_id)
+    except WorkflowError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AGENT_CHECKPOINT_UNAVAILABLE",
+        ) from exc
+
+
+def _finish_stream(
+    *,
+    repository: MetadataRepository,
+    workflow: WorkflowRun,
+    fallback_state: AgentState,
+    duration_ms: int,
+) -> Iterator[str]:
+    final_state = workflow.latest_state or fallback_state
+    if final_state.status in {RunStatus.WAITING_CONFIRMATION, RunStatus.WAITING_BUSINESS_RESULT}:
+        repository.update_run_progress(
+            run_id=final_state.run_id,
+            intent=final_state.intent,
+            status=final_state.status,
+            answer_summary=final_state.answer_summary,
+            model_call_count=final_state.model_call_count,
+            tool_call_count=final_state.tool_call_count,
+            duration_ms=duration_ms,
+            error_code=None,
+        )
+        return
+    repository.complete_run(
+        run_id=final_state.run_id,
+        intent=final_state.intent,
+        status=final_state.status,
+        answer_summary=final_state.answer_summary,
+        model_call_count=final_state.model_call_count,
+        tool_call_count=final_state.tool_call_count,
+        duration_ms=duration_ms,
+        error_code=None,
+    )
+    yield _sse(
+        "run.completed",
+        {
+            "runId": final_state.run_id,
+            "status": final_state.status.value,
+            "answerSummary": final_state.answer_summary or "已完成结构化处理",
+            "citations": [
+                citation.model_dump(by_alias=True, mode="json")
+                for citation in final_state.citations
+            ],
+        },
+    )
+
+
+def _fail_stream(
+    *,
+    repository: MetadataRepository,
+    workflow: WorkflowRun,
+    fallback_state: AgentState,
+    duration_ms: int,
+    error: WorkflowError,
+) -> Iterator[str]:
+    failed_state = workflow.latest_state or fallback_state
+    repository.complete_run(
+        run_id=failed_state.run_id,
+        intent=failed_state.intent,
+        status=RunStatus.FAILED,
+        answer_summary=None,
+        model_call_count=failed_state.model_call_count,
+        tool_call_count=failed_state.tool_call_count,
+        duration_ms=duration_ms,
+        error_code=error.code,
+    )
+    yield _sse(
+        "run.failed",
+        {
+            "runId": failed_state.run_id,
+            "status": RunStatus.FAILED.value,
+            "errorCode": error.code,
+            "message": error.message,
+        },
+    )
+
+
+def _owned_run(*, repository: MetadataRepository, run_id: str, context: AgentContext) -> AgentRun:
+    run = repository.get_run(run_id)
+    if run is None or (run.user_id != context.user_id and not context.is_admin):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AGENT_RUN_NOT_FOUND")
+    return run
+
+
+def _require_context_run(*, context: AgentContext, run_id: str) -> None:
+    if context.run_id != run_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="AGENT_CONTEXT_INVALID"
+        )
+
+
+def _safe_callback_response(
+    *, status_value: str, reason: str, candidate_count: int
+) -> JSONResponse:
+    return JSONResponse(
+        {
+            "status": status_value,
+            "reason": reason,
+            "candidateCount": candidate_count,
+        }
+    )
+
+
+def _callback_already_recorded(*, repository: MetadataRepository, event_id: str) -> bool:
+    try:
+        return repository.has_business_event(event_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AGENT_METADATA_UNAVAILABLE",
+        ) from exc
+
+
+def _record_callback_event(
+    *, repository: MetadataRepository, run_id: str, body: BusinessResultCallback
+) -> None:
+    try:
+        inserted = repository.record_business_event_once(
+            event_id=body.event_id,
+            run_id=run_id,
+            request_no=body.request_no,
+            event_type=body.status.value,
+            payload=body.model_dump(by_alias=True, mode="json"),
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AGENT_METADATA_UNAVAILABLE",
+        ) from exc
+    if not inserted:
+        # A concurrent delivery has already completed the same transition.
+        # The caller can safely treat the resulting 2xx response as a no-op.
+        return
+
+
+def _record_business_result_step(
+    *, repository: MetadataRepository, state: AgentState, summary: str
+) -> None:
+    repository.record_step(
+        step_id=f"step_{uuid.uuid4().hex}",
+        run_id=state.run_id,
+        sequence_no=state.step_count + 1,
+        agent_name="deterministic",
+        node_name="business_result",
+        status="SUCCEEDED",
+        input_summary="Process a validated asynchronous booking result.",
+        output_summary=summary,
+        duration_ms=0,
     )
 
 
@@ -251,6 +757,84 @@ def _trace_for_visible_run(
     if run["userId"] != context.user_id and not context.is_admin:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AGENT_RUN_NOT_FOUND")
     return trace
+
+
+def _streaming_response(generate: Iterator[str]) -> StreamingResponse:
+    return StreamingResponse(
+        generate,
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+def _start_sse_producer(produce: Callable[[Queue[object]], None]) -> Iterator[str]:
+    """Run a LangGraph-producing operation on one stable thread.
+
+    Starlette/AnyIO may advance a synchronous ``StreamingResponse`` iterator
+    on different worker threads between yielded frames.  The response iterator
+    below only dequeues immutable strings; the graph iterator itself remains
+    entirely inside this producer thread, preserving both context affinity and
+    progressive SSE delivery.
+    """
+
+    frames: Queue[object] = Queue()
+
+    def worker() -> None:
+        try:
+            produce(frames)
+        except Exception:
+            # Endpoint-specific code emits a safe terminal event for expected
+            # workflow failures.  This guard only ensures a programming or
+            # infrastructure failure cannot leave the SSE response hanging.
+            logger.exception("Agent SSE producer crashed")
+        finally:
+            frames.put(_SSE_STREAM_END)
+
+    Thread(target=worker, name="agent-sse-producer", daemon=True).start()
+    return _queued_sse_frames(frames)
+
+
+def _queued_sse_frames(frames: Queue[object]) -> Iterator[str]:
+    while True:
+        frame = frames.get()
+        if frame is _SSE_STREAM_END:
+            return
+        if not isinstance(frame, str):
+            logger.error("Ignoring invalid Agent SSE producer frame")
+            continue
+        yield frame
+
+
+def _emit_workflow_sse_frames(
+    *,
+    frames: Queue[object],
+    repository: MetadataRepository,
+    workflow: WorkflowRun,
+    fallback_state: AgentState,
+    started_at: float,
+    operation: Callable[[], Iterator[tuple[str, dict[str, object]]]],
+) -> None:
+    """Execute and frame a graph without letting its iterator leave its thread."""
+
+    try:
+        for event_name, payload in operation():
+            frames.put(_sse(event_name, payload))
+        for frame in _finish_stream(
+            repository=repository,
+            workflow=workflow,
+            fallback_state=fallback_state,
+            duration_ms=int((time.perf_counter() - started_at) * 1000),
+        ):
+            frames.put(frame)
+    except WorkflowError as exc:
+        for frame in _fail_stream(
+            repository=repository,
+            workflow=workflow,
+            fallback_state=fallback_state,
+            duration_ms=int((time.perf_counter() - started_at) * 1000),
+            error=exc,
+        ):
+            frames.put(frame)
 
 
 def _sse(event_name: str, data: dict[str, object]) -> str:

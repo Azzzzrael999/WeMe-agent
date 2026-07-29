@@ -19,7 +19,9 @@ body {
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
 }
 
@@ -98,13 +100,35 @@ input {
   background: #ffffff;
 }
 
+select,
+textarea {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  padding: 11px 12px;
+  color: #0f172a;
+  background: #ffffff;
+}
+
+textarea {
+  resize: vertical;
+  line-height: 1.55;
+}
+
 input:focus {
   border-color: #2563eb;
   outline: 3px solid rgb(37 99 235 / 14%);
 }
 
+select:focus,
+textarea:focus {
+  border-color: #2563eb;
+  outline: 3px solid rgb(37 99 235 / 14%);
+}
+
 .primary-button,
-.secondary-button {
+.secondary-button,
+.danger-button {
   border-radius: 9px;
   padding: 10px 16px;
   font-weight: 700;
@@ -128,6 +152,17 @@ input:focus {
 
 .secondary-button:hover:not(:disabled) {
   background: #f8fafc;
+}
+
+.danger-button {
+  border: 1px solid #dc2626;
+  color: #b91c1c;
+  background: #fff;
+}
+
+.danger-button:hover:not(:disabled) {
+  color: #fff;
+  background: #dc2626;
 }
 
 .demo-hint {
@@ -172,6 +207,10 @@ code {
   margin-bottom: 24px;
 }
 
+.app-topbar {
+  margin-bottom: 14px;
+}
+
 .topbar h1 {
   margin-bottom: 0;
 }
@@ -188,6 +227,29 @@ code {
 
 .content-panel {
   padding: 28px;
+}
+
+.app-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.app-nav a {
+  border: 1px solid #d5deea;
+  border-radius: 999px;
+  padding: 8px 13px;
+  color: #475569;
+  font-size: 0.88rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.app-nav a.router-link-active {
+  border-color: #2563eb;
+  color: #fff;
+  background: #2563eb;
 }
 
 .section-heading {
@@ -254,6 +316,21 @@ code {
   background: #ffedd5;
 }
 
+.badge-success {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.badge-warning {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.badge-danger {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+
 .feature-chip {
   color: #1e40af;
   background: #dbeafe;
@@ -298,6 +375,386 @@ code {
   text-align: right;
 }
 
+.compact-heading {
+  margin-bottom: 18px;
+}
+
+.compact-stack {
+  margin-top: 0;
+}
+
+.form-actions,
+.inline-actions,
+.hitl-actions,
+.run-summary,
+.booking-status,
+.room-admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.form-span-2 {
+  grid-column: span 2;
+}
+
+.form-help {
+  margin: -4px 0 0;
+  font-size: 0.86rem;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding-top: 25px;
+}
+
+.checkbox-label input {
+  width: auto;
+}
+
+.inline-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.inline-filter select {
+  width: auto;
+  padding: 8px 10px;
+}
+
+.chat-layout,
+.management-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(340px, 0.9fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.chat-composer {
+  min-height: 400px;
+}
+
+.run-summary {
+  justify-content: space-between;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.run-summary > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
+.run-summary a,
+.booking-status a,
+.primary-link {
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+.answer-summary,
+.citation-list,
+.booking-status {
+  margin-top: 18px;
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: #f8fafc;
+}
+
+.answer-summary h3,
+.citation-list h3 {
+  margin-bottom: 8px;
+  font-size: 1rem;
+}
+
+.answer-summary p,
+.citation-list ul {
+  margin-bottom: 0;
+}
+
+.citation-list ul {
+  padding-left: 20px;
+}
+
+.candidate-panel,
+.hitl-panel,
+.pending-panel,
+.availability-panel,
+.room-admin-panel,
+.edit-meeting-panel,
+.trace-header,
+.recovery-panel {
+  margin-top: 20px;
+}
+
+.candidate-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.candidate-card {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #dbe3ec;
+  border-radius: 12px;
+  padding: 18px;
+  background: #fbfdff;
+}
+
+.candidate-card--selected {
+  border-color: #60a5fa;
+  background: #eff6ff;
+}
+
+.candidate-card__header,
+.meeting-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.candidate-card h3,
+.meeting-card h3 {
+  margin-bottom: 0;
+}
+
+.candidate-facts,
+.draft-facts,
+.meeting-facts,
+.trace-run-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.candidate-facts div,
+.draft-facts div,
+.meeting-facts div,
+.trace-run-facts div {
+  min-width: 0;
+}
+
+.candidate-facts dt,
+.draft-facts dt,
+.meeting-facts dt,
+.trace-run-facts dt {
+  color: #64748b;
+  font-size: 0.75rem;
+}
+
+.candidate-facts dd,
+.draft-facts dd,
+.meeting-facts dd,
+.trace-run-facts dd {
+  overflow-wrap: anywhere;
+  margin: 4px 0 0;
+  color: #334155;
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+.cost-summary {
+  margin: 0;
+  color: #475569;
+  font-size: 0.83rem;
+  line-height: 1.5;
+}
+
+.hitl-panel {
+  border-color: #bfdbfe;
+}
+
+.hitl-actions {
+  margin-top: 20px;
+}
+
+.edit-draft-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 20px;
+  padding: 16px;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.edit-draft-form .muted,
+.edit-draft-form .error-message {
+  grid-column: span 2;
+}
+
+.timeline-panel {
+  min-height: 400px;
+}
+
+.timeline-list {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.timeline-entry {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  gap: 10px;
+  padding-bottom: 13px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.timeline-entry:last-child {
+  border-bottom: 0;
+}
+
+.timeline-marker {
+  width: 10px;
+  height: 10px;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: #3b82f6;
+}
+
+.timeline-entry__title,
+.tool-summary-card > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.timeline-entry p,
+.tool-summary-card p {
+  margin: 7px 0;
+  line-height: 1.5;
+}
+
+.timeline-entry small {
+  color: #64748b;
+}
+
+.tool-summary-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.tool-summary-list h3 {
+  margin-bottom: 0;
+  font-size: 1rem;
+}
+
+.tool-summary-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 13px;
+  background: #fbfdff;
+}
+
+.sanitized-args {
+  overflow: auto;
+  margin: 8px 0 0;
+  border-radius: 7px;
+  padding: 9px;
+  color: #334155;
+  background: #f1f5f9;
+  font: 0.75rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.compact-empty {
+  padding: 20px;
+}
+
+.meeting-list {
+  display: grid;
+  gap: 13px;
+}
+
+.meeting-card {
+  border: 1px solid #dbe3ec;
+  border-radius: 12px;
+  padding: 18px;
+  background: #fbfdff;
+}
+
+.meeting-card .inline-actions {
+  margin-top: 16px;
+}
+
+.availability-slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.availability-slots > p {
+  width: 100%;
+  margin: 0 0 2px;
+}
+
+.availability-slot {
+  border-radius: 999px;
+  padding: 6px 9px;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.availability-slot--free {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.availability-slot--busy {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.room-admin-actions {
+  margin-top: 18px;
+}
+
+.trace-summaries {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.trace-summaries > div {
+  border-radius: 10px;
+  padding: 14px;
+  background: #f8fafc;
+}
+
+.trace-summaries h3 {
+  margin-bottom: 7px;
+  font-size: 0.95rem;
+}
+
+.trace-summaries p {
+  margin-bottom: 0;
+  line-height: 1.5;
+}
+
 @media (max-width: 640px) {
   .auth-card,
   .content-panel {
@@ -321,5 +778,31 @@ code {
 
   .user-summary {
     text-align: left;
+  }
+
+  .chat-layout,
+  .management-layout,
+  .form-grid,
+  .edit-draft-form,
+  .trace-summaries {
+    grid-template-columns: 1fr;
+  }
+
+  .form-span-2,
+  .edit-draft-form .muted,
+  .edit-draft-form .error-message {
+    grid-column: span 1;
+  }
+
+  .candidate-facts,
+  .draft-facts,
+  .meeting-facts,
+  .trace-run-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .run-summary {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

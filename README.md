@@ -1,42 +1,106 @@
 # 企业会议智能调度系统
 
-一个面向简历展示的 Java + Python Multi-Agent 完整项目。系统使用 Java 承担会议业务、高并发预约和可靠异步执行，使用 Python、LangGraph、DeepSeek 与 OR-Tools 承担自然语言理解、会议规划、规则检索和冲突优化。
+一个用于技术展示的企业会议智能调度系统。Java 负责鉴权、会议事实源、并发预约、幂等、Outbox 和 RocketMQ；Python 负责固定的四个运行时 Agent、结构化理解、政策检索、OR-Tools、HITL 与恢复；Vue 将完整链路呈现给浏览器。Day 7 已完成交付证据、空卷部署验收和项目包装。
 
-## 项目定位
+## 能力与架构边界
 
-- 技术展示优先，业务功能保持最小闭环。
-- Java 侧重点：并发一致性、Redis、MySQL 事务、RocketMQ、Transactional Outbox、幂等和服务边界。
-- Python 侧重点：Supervisor + 3 个专业 Agent、Tool Calling、HITL、持久化恢复、约束求解、简化 RAG 和 Agent 评测。
-- 前端侧重点：聊天、候选方案确认、会议基础管理和 Agent Trace。
-- 部署方式：Docker Compose 一键启动。
+- 浏览器只访问 Java 的 `/api/v1/**`；前端绝不直连 Python。
+- Java 是会议、房间和预约结果的唯一业务事实源；MySQL 唯一约束是并发最终裁决，Redis 仅作预占、缓存和 checkpoint。
+- Python 只访问自己的 `meeting_agent` 元数据、Redis DB 1 checkpoint、Qdrant collection，以及 Java 白名单 Tool API；不会读写 Java 业务表。
+- 运行时 Agent 固定为 **Supervisor + Requirement + Policy + Scheduling**。Retriever、OR-Tools、HITL 和 Tool 都是确定性节点，不伪装为 Agent。
+- 默认 `AGENT_MODEL_PROVIDER=fixture`，所有 Smoke、评测和自动测试均不调用真实 DeepSeek；切换为 `deepseek` 时仅在本机 `.env` 填入真实 Key。
 
-## 规范文档
+```mermaid
+flowchart LR
+    U["Browser"] --> F["Vue + Nginx"]
+    F -->|"/api/v1 only"| J["Java business-service"]
+    J -->|"SSE proxy + Java-issued AgentContext"| P["Python agent-service"]
+    P -->|"READ/confirmed WRITE Tool"| J
+    P --> Q["Qdrant policy corpus"]
+    P --> AR["meeting_agent MySQL metadata"]
+    P --> RC["Redis DB 1 checkpoint"]
+    J --> MB["meeting_business MySQL"]
+    J --> R0["Redis DB 0 pre-hold/idempotency"]
+    J --> O["Transactional Outbox"]
+    O --> MQ["RocketMQ"]
+    MQ --> J
+    J --> V["Idempotent video-provider mock"]
+```
 
-1. [Spec 总入口与冻结决策](SPEC.md)
-2. [项目总览与范围](docs/00-project-overview.md)
-3. [功能与验收规范](docs/01-functional-spec.md)
-4. [系统架构规范](docs/02-system-architecture.md)
-5. [Java 后端规范](docs/03-java-backend-spec.md)
-6. [Multi-Agent 规范](docs/04-agent-spec.md)
-7. [数据模型与 API 契约](docs/05-data-and-api-spec.md)
-8. [Docker 部署规范](docs/06-docker-deployment.md)
-9. [测试与评测规范](docs/07-test-and-evaluation.md)
-10. [开发计划](docs/08-development-plan.md)
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant J as Java public API
+    participant P as Python LangGraph
+    participant Q as Qdrant
+    participant M as MySQL / Redis / MQ
 
-## Day 1 / Day 2 / Day 3 / Day 4 本地启动
+    B->>J: Chinese scheduling request (SSE)
+    J->>P: Signed context + runId + traceId
+    P->>Q: Deterministic policy retrieval
+    P->>J: READ tools (rooms / busy slots)
+    P-->>J: candidates + HITL token + structured trace
+    J-->>B: Standard SSE events
+    B->>J: ACCEPT / EDIT / REJECT
+    J->>P: Resume with Java-issued context
+    P->>J: Confirmed WRITE Tool only after HITL
+    J->>M: Transaction + slots + idempotency + Outbox
+    M-->>J: Sync result or HOT async callback
+    J-->>B: booking.completed / recovery SSE
+```
 
-当前真实进度与验证证据以 [开发交接](docs/HANDOFF.md) 为准。首次启动先生成仅保存在本机、且已被 Git 忽略的随机环境变量文件：
+## 快速启动
+
+前置条件：Docker Desktop（Compose v2+）和 PowerShell。首次使用会生成被 Git 忽略的本地 `.env`，不会覆盖已有的非空安全配置，也不会输出秘密。
 
 ```powershell
 .\scripts\New-LocalEnv.ps1
 docker compose config --quiet
-docker compose -f compose.yaml -f compose.dev.yaml up -d --build
+docker compose up -d --build --wait
 docker compose ps
 ```
 
-基础 `compose.yaml` 只发布前端端口；`compose.dev.yaml` 额外发布 Java、Python、Mock 和基础设施端口，供本地联调。演示账号为 `zhangsan / demo-password`。
+打开 [http://localhost](http://localhost)。基础 `compose.yaml` 只发布前端端口；需要直接调试 Java、Python、MySQL 等端口时使用开发覆盖：
 
-模块质量门槛：
+```powershell
+docker compose -f compose.yaml -f compose.dev.yaml up -d --build --wait
+```
+
+演示账号：
+
+| 角色 | 用户名 | 密码 |
+|---|---|---|
+| 员工 | `zhangsan` | `demo-password` |
+| 管理员 | `admin` | `demo-password` |
+
+这些仅是虚构演示数据；`.env` 中的数据库、JWT 和服务间密钥必须由 `New-LocalEnv.ps1` 随机生成，永不提交。
+
+## 演示脚本
+
+1. 以 `zhangsan` 登录，在聊天页输入：`下周三下午帮张三安排一个90分钟架构评审，要大屏`。
+2. 观察 Java 代理的 SSE 时间线、结构化候选、政策引用和安全 Trace；选择 ACCEPT、EDIT 或 REJECT。EDIT 会重新求解，不能绕过确认写入。
+3. 输入 `下周三下午帮张三安排一个90分钟架构评审，10人，要大屏`，可演示 HOT 房间的异步预约、冲突回调和恢复草案。
+4. 在“我的会议”创建、修改、取消手动会议；以 `admin` 登录后可在“会议室”创建、编辑或启停会议室。员工只能读取 ACTIVE 房间。
+
+自动 Smoke（均使用虚构数据，成功写入的 Smoke 会议会被取消）：
+
+```powershell
+# Day 4：Java SSE 代理、Read Tool、Qdrant 引用、Trace
+python .\scripts\smoke-day4.py
+
+# Day 5：HITL、EDIT/ACCEPT、HOT conflict recovery；基础 Compose 用 public trace
+python .\scripts\smoke-day5.py --public-trace
+
+# Day 6：浏览器所用 public API、手动会议、房间管理、SSE/Trace
+python .\scripts\smoke-day6.py
+
+# Day 7：全新项目/全新命名卷，完整 Golden Path 连续 3 次；不删除任何卷
+.\scripts\Test-Day7EmptyVolume.ps1
+```
+
+`Test-Day7EmptyVolume.ps1` 使用独立的 Compose project、临时安全 `.env` 和空命名卷；成功后只停止临时容器/网络，**从不**使用 `down -v`。`-KeepProject` 可保留隔离环境进行人工检查。
+
+## 质量门槛与验收材料
 
 ```powershell
 Push-Location business-service
@@ -55,47 +119,37 @@ npm ci
 npm run type-check
 npm run build
 Pop-Location
+
+# Java HTTP 并发压测：一个房间槽位只能有一个成功；相同幂等键只产生一个会议
+python .\scripts\concurrency-day2.py --mode room --requests 100 --workers 32
+python .\scripts\concurrency-day2.py --mode idempotency --requests 100 --workers 32
 ```
 
-Day 2 增加 Java 手动会议创建、列表、详情、修改、取消、Redis Lua 预占、MySQL 最终唯一约束和创建幂等。完整 Compose 启动后可执行：
+Day 7 的实际运行证据、指标和环境条件在 [docs/REPORTS.md](docs/REPORTS.md)，本次验收使用的已解析镜像内容标识在 [docs/image-manifest-day7.json](docs/image-manifest-day7.json)。跨服务实现状态和下一条允许任务以 [docs/HANDOFF.md](docs/HANDOFF.md) 为准。
 
-```powershell
-# 顺序验证：90分钟、幂等、修改失败回滚、查询和取消
-.\scripts\smoke-day2.ps1
+## 目录说明
 
-# 100请求抢同一房间/槽位：恰好一个成功
-python .\scripts\concurrency-day2.py --mode room
+| 目录 | 职责 |
+|---|---|
+| `business-service/` | Spring Boot / Java 21：鉴权、会议、并发、Outbox、RocketMQ、Tool Gateway、SSE 代理 |
+| `agent-service/` | FastAPI / LangGraph：四 Agent、Provider、RAG、OR-Tools、HITL、checkpoint、Trace、评测 |
+| `frontend/` | Vue 3 + TypeScript：聊天、候选确认、Trace、会议与房间管理 |
+| `mock-services/` | 独立、幂等的视频会议 Provider Mock |
+| `deploy/` | MySQL 初始化、Nginx、RocketMQ 配置 |
+| `scripts/` | 可复现 Smoke、并发和空卷验收脚本 |
 
-# 100个相同幂等请求：全部返回同一个meetingId
-python .\scripts\concurrency-day2.py --mode idempotency
-```
+## 当前范围与限制
 
-Day 3 增加 Transactional Outbox、RocketMQ 热门预约最终执行、业务结果事件、草案/确认令牌、内部 Tool Gateway 和 Java SSE 代理边界。完整 Compose 启动后执行：
+- 无真实邮件、日历、视频会议或 IoT 供应商；视频会议只使用本地 Mock。
+- Qdrant 中是固定的最小政策语料与确定性 hash embedding，不是通用文档同步、OCR、知识图谱或 rerank 系统。
+- 不包含 SSO、多租户、多级审批、复杂访客流程、自动移动他人会议、Kubernetes、服务网格、完整 OpenTelemetry/Grafana 或故障注入平台。
+- RocketMQ 采用至少一次投递与业务幂等，不宣称 exactly-once。
+- DeepSeek 是可替换的 OpenAI-compatible Provider；默认 fixture 用于离线可复现验收，不代表真实模型质量。
 
-```powershell
-# Tool 鉴权、查询工具、HOT 草案、PENDING、MQ SUCCESS/CONFLICT、Tool 重放
-python .\scripts\smoke-day3.py
+## 规范与协作入口
 
-# 使用上一步输出的成功 requestNo 重放同一 BOOKING_COMMAND，验证消费者幂等
-.\scripts\replay-day3-booking-command.ps1 -RequestNo BR202608120001
-```
-
-Compose 会通过一次性 `rocketmq-topic-init` 创建 `meeting-booking`、`meeting-domain` 和固定 Consumer Group。`APP_HOT_BOOKING_ENABLED=true` 时，选择演示 HOT 房间 103 的草案确认走异步链路。
-
-Day 4 增加了 Supervisor、Requirement、Policy、Scheduling 四个固定 Agent、Pydantic 结构化状态、OpenAI-compatible DeepSeek Provider、Java 只读 Tool Client、Qdrant 政策检索、Agent 元数据和 Java 代理 SSE。默认 `AGENT_MODEL_PROVIDER=fixture` 使用确定性本地模型，适合不配置 DeepSeek Key 的开发/Smoke；此时健康接口仍如实显示 `DEGRADED`。要使用 DeepSeek，请仅在本地 `.env` 设置 `AGENT_MODEL_PROVIDER=deepseek` 和真实 Key，切勿提交该文件。
-
-完整 Compose 以 fixture 运行后，可验证一条经 Nginx → Java → Python → Java Tool 的无副作用 Day 4 请求，并核对 SSE 与持久化 Trace：
-
-```powershell
-python .\scripts\smoke-day4.py
-```
-
-Day 4 不包含 OR-Tools 候选求解、草案/确认 HITL、Redis checkpoint、热门预约结果恢复或视频会议写工具；这些能力严格留给 Day 5。
-
-## 首版成功标准
-
-以下演示链路必须完整运行：
-
-> “下周三下午帮张三、李四安排一个 90 分钟架构评审，要大屏，尽量在研发楼，并创建视频会议。”
-
-系统应完成需求提取、制度检索、多人忙闲查询、OR-Tools 求解、候选方案解释、用户确认、Java 并发预约、热门预约异步处理、Agent 恢复和 Trace 展示。
+1. [SPEC.md](SPEC.md)：冻结决策。
+2. [AGENTS.md](AGENTS.md)：目录所有权、架构边界和验证规则。
+3. [docs/05-data-and-api-spec.md](docs/05-data-and-api-spec.md)：公共 API、Tool、SSE 与数据契约。
+4. [docs/07-test-and-evaluation.md](docs/07-test-and-evaluation.md)：并发、Agent 评测和 Docker 验收标准。
+5. [docs/HANDOFF.md](docs/HANDOFF.md)：真实进度、命令证据与唯一下一步。

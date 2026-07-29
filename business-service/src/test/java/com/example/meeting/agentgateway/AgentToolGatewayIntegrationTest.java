@@ -258,6 +258,69 @@ class AgentToolGatewayIntegrationTest {
   }
 
   @Test
+  void sequentialHotDraftsRemainPendingAfterPreviousHotConflict() throws Exception {
+    String date = "2026-09-05";
+    createManualMeeting(103, date + "T10:00:00+08:00", date + "T11:00:00+08:00");
+    PendingBooking first = createHotPending(date, "sequential_conflict_first");
+
+    bookingCommandProcessor.process(commandEvent(first.requestNo()));
+
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT status FROM booking_request WHERE request_no=?",
+                String.class,
+                first.requestNo()))
+        .isEqualTo("CONFLICT");
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT is_hot FROM meeting_room WHERE id=103", Boolean.class))
+        .isTrue();
+
+    PendingBooking second = createHotPending(date, "sequential_conflict_second");
+
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT status FROM booking_request WHERE request_no=?",
+                String.class,
+                second.requestNo()))
+        .isEqualTo("PENDING");
+    assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM meeting", Integer.class))
+        .isEqualTo(1);
+  }
+
+  @Test
+  void sequentialHotDraftsRemainPendingAfterPreviousHotSuccess() throws Exception {
+    String date = "2026-09-06";
+    PendingBooking first = createHotPending(date, "sequential_success_first");
+
+    bookingCommandProcessor.process(commandEvent(first.requestNo()));
+
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT status FROM booking_request WHERE request_no=?",
+                String.class,
+                first.requestNo()))
+        .isEqualTo("SUCCESS");
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT is_hot FROM meeting_room WHERE id=103", Boolean.class))
+        .isTrue();
+
+    PendingBooking second =
+        createHotPending(
+            date, "sequential_success_second", 1, "T13:00:00+08:00", "T14:00:00+08:00");
+
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT status FROM booking_request WHERE request_no=?",
+                String.class,
+                second.requestNo()))
+        .isEqualTo("PENDING");
+    assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM meeting", Integer.class))
+        .isEqualTo(1);
+  }
+
+  @Test
   void rescheduleAndCancellationDraftsHaveNoEffectBeforeIdempotentConfirmation() throws Exception {
     long meetingId =
         createManualMeeting(101, "2026-09-04T09:00:00+08:00", "2026-09-04T10:00:00+08:00");
@@ -396,11 +459,18 @@ class AgentToolGatewayIntegrationTest {
   }
 
   private PendingBooking createHotPending(String date, String prefix) throws Exception {
+    return createHotPending(
+        date, prefix, prefix.contains("conflict") ? 1 : 0, "T10:00:00+08:00", "T11:00:00+08:00");
+  }
+
+  private PendingBooking createHotPending(
+      String date, String prefix, int expectedExistingMeetings, String startTime, String endTime)
+      throws Exception {
     ToolIdentity draftIdentity = identity("run_" + prefix, "tool_" + prefix + "_draft");
     MvcResult draftResult =
         performTool(
                 "/internal/v1/tools/booking-drafts",
-                meetingBody("热门预约", 103, date + "T10:00:00+08:00", date + "T11:00:00+08:00"),
+                meetingBody("热门预约", 103, date + startTime, date + endTime),
                 draftIdentity,
                 SERVICE_TOKEN,
                 true)
@@ -408,7 +478,7 @@ class AgentToolGatewayIntegrationTest {
             .andReturn();
     String confirmationToken = data(draftResult).get("confirmationToken").asText();
     assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM meeting", Integer.class))
-        .isEqualTo(prefix.contains("conflict") ? 1 : 0);
+        .isEqualTo(expectedExistingMeetings);
 
     ToolIdentity confirmIdentity = identity("run_" + prefix, "tool_" + prefix + "_confirm");
     MvcResult confirmResult =

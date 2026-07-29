@@ -1,0 +1,76 @@
+{
+  "schemaVersion": "day7-image-manifest-v1",
+  "resolvedAt": "2026-08-11T21:50:00+08:00",
+  "acceptanceTag": "day7",
+  "images": [
+    {
+      "name": "meeting-scheduler-business-service:day7",
+      "contentId": "sha256:b2be0cf1271e7b05c51f8b895859c649f2e5a16cf8e7e7556568d1d0e9ab0c58",
+      "kind": "locally-built"
+    },
+    {
+      "name": "meeting-scheduler-agent-service:day7",
+      "contentId": "sha256:643925d206f8840840e3b97c68d7cedf40e7464358706b463b6a822941ab8c83",
+      "kind": "locally-built"
+    },
+    {
+      "name": "meeting-scheduler-frontend:day7",
+      "contentId": "sha256:c886a89bacd3e03ae554bf56c79a2f1393632e492ca46998762a426ee6ce3691",
+      "kind": "locally-built"
+    },
+    {
+      "name": "meeting-scheduler-video-provider-mock:day7",
+      "contentId": "sha256:5e08130a8ed703b0ac62c0387b5fbcdf003a75838399caf4de616903889834a1",
+      "kind": "locally-built"
+    },
+    {
+      "name": "mysql:8.4",
+      "contentId": "sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb",
+      "kind": "upstream-pinned-tag"
+    },
+    {
+      "name": "redis:7.4-alpine",
+      "contentId": "sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2",
+      "kind": "upstream-pinned-tag"
+    },
+    {
+      "name": "apache/rocketmq:4.9.7",
+      "contentId": "sha256:c0ffc9f5abd3ee8fb59682f9f2c84abba031f0a83500d60a7330ade2d9b7ccca",
+      "kind": "upstream-pinned-tag"
+    },
+    {
+      "name": "qdrant/qdrant:v1.12.5",
+      "contentId": "sha256:05fecce7dce45d1254e0468bc037e8210e187fd56fa847688b012293d5f08aae",
+      "kind": "upstream-pinned-tag"
+    },
+    {
+      "name": "maven:3.9.11-eclipse-temurin-21",
+      "contentId": "sha256:6fdc855a6ed81d288ca7ca37ac6ff5e9308b612485c0801d70b25a858c83d237",
+      "kind": "build-image"
+    },
+    {
+      "name": "eclipse-temurin:21-jre-jammy",
+      "contentId": "sha256:3097cbbebb7d490494a98aed2301f284b38f79eba158eef098c6fc8c8af11c23",
+      "kind": "runtime-image"
+    },
+    {
+      "name": "python:3.11-slim",
+      "contentId": "sha256:db3ff2e1800a8581e2c48a27c3995339d47bdf046da21c7627accd3d51053a93",
+      "kind": "runtime-image"
+    },
+    {
+      "name": "node:22-alpine",
+      "contentId": "sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32",
+      "kind": "build-image"
+    },
+    {
+      "name": "nginx:1.27-alpine",
+      "contentId": "sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10",
+      "kind": "runtime-image"
+    }
+  ],
+  "notes": [
+    "Local application image content IDs are recorded from docker image inspect after Day 7 acceptance.",
+    "Tags remain in compose for readable local development; this file freezes the content observed by the accepted build."
+  ]
+}

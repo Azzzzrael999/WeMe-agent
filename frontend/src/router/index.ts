@@ -17,8 +17,26 @@ export const router = createRouter({
       component: () => import('../views/RoomsView.vue'),
       meta: { requiresAuth: true },
     },
-    { path: '/', redirect: '/rooms' },
-    { path: '/:pathMatch(.*)*', redirect: '/rooms' },
+    {
+      path: '/chat',
+      name: 'chat',
+      component: () => import('../views/ChatView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/meetings',
+      name: 'meetings',
+      component: () => import('../views/MeetingsView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/agent/runs/:runId',
+      name: 'agent-run',
+      component: () => import('../views/AgentRunView.vue'),
+      meta: { requiresAuth: true },
+    },
+    { path: '/', redirect: '/chat' },
+    { path: '/:pathMatch(.*)*', redirect: '/chat' },
   ],
 })
 
@@ -39,7 +57,7 @@ router.beforeEach(async (to) => {
   }
 
   if (to.meta.guestOnly && authStore.isAuthenticated.value) {
-    return { name: 'rooms' }
+    return { name: 'chat' }
   }
 
   return true

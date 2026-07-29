@@ -1,6 +1,7 @@
 package com.example.meeting.agentgateway;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -152,6 +153,134 @@ class AgentGatewaySseProxyIntegrationTest {
         .andExpect(jsonPath("$.code").value("AGENT_UNAVAILABLE"));
   }
 
+  @Test
+  void relaysResumeSseByteForByteWithTheExistingRunContext() throws Exception {
+    String runId = "run_resume_fixture";
+    UPSTREAM_RESPONSE.set(
+        new UpstreamResponse(
+            200,
+            "text/event-stream; charset=utf-8",
+            AgentGatewaySseProxyIntegrationTest::resumeSse));
+
+    MvcResult started =
+        resumeRequest(runId)
+            .andExpect(status().isOk())
+            .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM))
+            .andExpect(request().asyncStarted())
+            .andExpect(header().string("X-Trace-Id", TRACE_ID))
+            .andExpect(header().string("X-Run-Id", runId))
+            .andReturn();
+
+    started.getAsyncResult(5_000);
+
+    assertThat(started.getResponse().getContentAsByteArray()).isEqualTo(resumeSse(runId, TRACE_ID));
+
+    CapturedUpstreamRequest captured = CAPTURED_REQUEST.get();
+    assertThat(captured).isNotNull();
+    assertThat(captured.path()).isEqualTo("/internal/v1/agent-runs/" + runId + "/resume");
+    assertThat(captured.method()).isEqualTo("POST");
+    assertThat(captured.accept()).isEqualTo(MediaType.TEXT_EVENT_STREAM_VALUE);
+    assertThat(captured.upgrade()).isNull();
+    assertThat(captured.serviceToken()).isEqualTo(SERVICE_TOKEN);
+    assertThat(captured.traceId()).isEqualTo(TRACE_ID);
+    assertThat(captured.runId()).isEqualTo(runId);
+
+    AgentContextIdentity context =
+        agentContextTokenService.parse(captured.authorization().substring("Bearer ".length()));
+    assertThat(context.userId()).isEqualTo(1001L);
+    assertThat(context.traceId()).isEqualTo(TRACE_ID);
+    assertThat(context.runId()).isEqualTo(runId);
+
+    JsonNode body = objectMapper.readTree(captured.body());
+    assertThat(body.get("action").asText()).isEqualTo("EDIT");
+    assertThat(body.get("confirmationToken").asText()).isEqualTo("cfm_resume_fixture");
+    assertThat(body.get("editedDraft").get("roomId").asLong()).isEqualTo(102L);
+    assertThat(body.get("editedDraft").get("startAt").asText())
+        .isEqualTo("2026-08-19T15:30:00+08:00");
+    assertThat(body.has("actionPayloadValid")).isFalse();
+  }
+
+  @Test
+  void resumeRequiresAnAuthenticatedEmployee() throws Exception {
+    mockMvc
+        .perform(
+            post("/api/v1/agent/runs/run_resume_fixture/resume")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"action\":\"REJECT\",\"confirmationToken\":\"cfm_resume_fixture\"}"))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  void returnsNoStoreRecoveryViewWithItsJavaIssuedContext() throws Exception {
+    String runId = "run_recovery_fixture";
+    UPSTREAM_RESPONSE.set(
+        new UpstreamResponse(
+            200,
+            MediaType.APPLICATION_JSON_VALUE,
+            (ignoredRunId, ignoredTraceId) ->
+                """
+                {"runId":"run_recovery_fixture","status":"WAITING_CONFIRMATION","candidates":[{"candidateId":"cand_fixture","roomId":102}],"draft":{"roomId":102},"confirmationToken":"cfm_recovery_fixture","expiresAt":"2026-08-19T15:40:00+08:00"}
+                """
+                    .getBytes(StandardCharsets.UTF_8)));
+
+    getRunRequest(runId)
+        .andExpect(status().isOk())
+        .andExpect(header().string("Cache-Control", "no-store"))
+        .andExpect(jsonPath("$.traceId").value(TRACE_ID))
+        .andExpect(jsonPath("$.data.runId").value(runId))
+        .andExpect(jsonPath("$.data.candidates[0].candidateId").value("cand_fixture"))
+        .andExpect(jsonPath("$.data.draft.roomId").value(102))
+        .andExpect(jsonPath("$.data.confirmationToken").value("cfm_recovery_fixture"));
+
+    assertRecoveryRequest(runId, "/internal/v1/agent-runs/" + runId);
+  }
+
+  @Test
+  void stripsConfirmationAndInternalTokensFromTraceRecoveryResponse() throws Exception {
+    String runId = "run_recovery_fixture";
+    UPSTREAM_RESPONSE.set(
+        new UpstreamResponse(
+            200,
+            MediaType.APPLICATION_JSON_VALUE,
+            (ignoredRunId, ignoredTraceId) ->
+                """
+                {"run":{"runId":"run_recovery_fixture","status":"WAITING_CONFIRMATION"},"confirmationToken":"cfm_should_not_escape","agentContextToken":"ctx_should_not_escape","nested":{"serviceToken":"service_should_not_escape"}}
+                """
+                    .getBytes(StandardCharsets.UTF_8)));
+
+    getTraceRequest(runId)
+        .andExpect(status().isOk())
+        .andExpect(header().string("Cache-Control", "no-store"))
+        .andExpect(jsonPath("$.data.run.runId").value(runId))
+        .andExpect(jsonPath("$.data.confirmationToken").doesNotExist())
+        .andExpect(jsonPath("$.data.agentContextToken").doesNotExist())
+        .andExpect(jsonPath("$.data.nested.serviceToken").doesNotExist());
+
+    assertRecoveryRequest(runId, "/internal/v1/agent-runs/" + runId + "/trace");
+  }
+
+  @Test
+  void recoveryViewRequiresAnAuthenticatedEmployee() throws Exception {
+    mockMvc
+        .perform(get("/api/v1/agent/runs/run_recovery_fixture"))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  void recoveryViewMapsAnUnavailablePythonServiceToStableError() throws Exception {
+    String runId = "run_recovery_fixture";
+    UPSTREAM_RESPONSE.set(
+        new UpstreamResponse(
+            503,
+            MediaType.APPLICATION_JSON_VALUE,
+            (ignoredRunId, ignoredTraceId) ->
+                "{\"code\":\"UNAVAILABLE\"}".getBytes(StandardCharsets.UTF_8)));
+
+    getRunRequest(runId)
+        .andExpect(status().isServiceUnavailable())
+        .andExpect(jsonPath("$.code").value("AGENT_UNAVAILABLE"));
+  }
+
   private org.springframework.test.web.servlet.ResultActions streamRequest() throws Exception {
     return mockMvc.perform(
         post("/api/v1/agent/runs/stream")
@@ -165,6 +294,56 @@ class AgentGatewaySseProxyIntegrationTest {
                 """));
   }
 
+  private org.springframework.test.web.servlet.ResultActions resumeRequest(String runId)
+      throws Exception {
+    return mockMvc.perform(
+        post("/api/v1/agent/runs/{runId}/resume", runId)
+            .header("Authorization", "Bearer " + userAccessToken())
+            .header("X-Trace-Id", TRACE_ID)
+            .contentType(MediaType.APPLICATION_JSON)
+            .accept(MediaType.TEXT_EVENT_STREAM)
+            .content(
+                """
+                {"action":"EDIT","confirmationToken":"cfm_resume_fixture","editedDraft":{"roomId":102,"startAt":"2026-08-19T15:30:00+08:00"},"feedback":null}
+                """));
+  }
+
+  private org.springframework.test.web.servlet.ResultActions getRunRequest(String runId)
+      throws Exception {
+    return mockMvc.perform(
+        get("/api/v1/agent/runs/{runId}", runId)
+            .header("Authorization", "Bearer " + userAccessToken())
+            .header("X-Trace-Id", TRACE_ID)
+            .accept(MediaType.APPLICATION_JSON));
+  }
+
+  private org.springframework.test.web.servlet.ResultActions getTraceRequest(String runId)
+      throws Exception {
+    return mockMvc.perform(
+        get("/api/v1/agent/runs/{runId}/trace", runId)
+            .header("Authorization", "Bearer " + userAccessToken())
+            .header("X-Trace-Id", TRACE_ID)
+            .accept(MediaType.APPLICATION_JSON));
+  }
+
+  private void assertRecoveryRequest(String runId, String path) {
+    CapturedUpstreamRequest captured = CAPTURED_REQUEST.get();
+    assertThat(captured).isNotNull();
+    assertThat(captured.path()).isEqualTo(path);
+    assertThat(captured.method()).isEqualTo("GET");
+    assertThat(captured.accept()).isEqualTo(MediaType.APPLICATION_JSON_VALUE);
+    assertThat(captured.upgrade()).isNull();
+    assertThat(captured.serviceToken()).isEqualTo(SERVICE_TOKEN);
+    assertThat(captured.traceId()).isEqualTo(TRACE_ID);
+    assertThat(captured.runId()).isEqualTo(runId);
+
+    AgentContextIdentity context =
+        agentContextTokenService.parse(captured.authorization().substring("Bearer ".length()));
+    assertThat(context.userId()).isEqualTo(1001L);
+    assertThat(context.traceId()).isEqualTo(TRACE_ID);
+    assertThat(context.runId()).isEqualTo(runId);
+  }
+
   private String userAccessToken() {
     return jwtService.issue(1001, "zhangsan", java.util.List.of("EMPLOYEE"));
   }
@@ -174,6 +353,15 @@ class AgentGatewaySseProxyIntegrationTest {
       HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
       server.createContext(
           "/internal/v1/agent-runs/stream", AgentGatewaySseProxyIntegrationTest::handle);
+      server.createContext(
+          "/internal/v1/agent-runs/run_resume_fixture/resume",
+          AgentGatewaySseProxyIntegrationTest::handle);
+      server.createContext(
+          "/internal/v1/agent-runs/run_recovery_fixture",
+          AgentGatewaySseProxyIntegrationTest::handle);
+      server.createContext(
+          "/internal/v1/agent-runs/run_recovery_fixture/trace",
+          AgentGatewaySseProxyIntegrationTest::handle);
       server.start();
       return server;
     } catch (IOException exception) {
@@ -190,6 +378,7 @@ class AgentGatewaySseProxyIntegrationTest {
     String traceId = exchange.getRequestHeaders().getFirst("X-Trace-Id");
     CAPTURED_REQUEST.set(
         new CapturedUpstreamRequest(
+            exchange.getRequestURI().getPath(),
             exchange.getRequestMethod(),
             exchange.getRequestHeaders().getFirst("Accept"),
             exchange.getRequestHeaders().getFirst("Upgrade"),
@@ -231,7 +420,21 @@ class AgentGatewaySseProxyIntegrationTest {
     return payload.getBytes(StandardCharsets.UTF_8);
   }
 
+  private static byte[] resumeSse(String runId, String traceId) {
+    String payload =
+        "event: run.resumed\r\n"
+            + "data: {\"runId\":\""
+            + runId
+            + "\",\"status\":\"RUNNING\"}\r\n\r\n"
+            + "event: hitl.required\r\n"
+            + "data: {\"runId\":\""
+            + runId
+            + "\",\"status\":\"WAITING_CONFIRMATION\",\"confirmationToken\":\"cfm_resume_fixture\"}\r\n\r\n";
+    return payload.getBytes(StandardCharsets.UTF_8);
+  }
+
   private record CapturedUpstreamRequest(
+      String path,
       String method,
       String accept,
       String upgrade,

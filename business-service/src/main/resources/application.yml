@@ -54,7 +54,7 @@ app:
     agent-context-expiration-seconds: 600
   agent-service:
     url: ${AGENT_SERVICE_URL:http://agent-service:8000}
-    callback-enabled: ${AGENT_CALLBACK_ENABLED:false}
+    callback-enabled: ${AGENT_CALLBACK_ENABLED:true}
   rocketmq:
     enabled: ${ROCKETMQ_ENABLED:true}
     name-server: ${ROCKETMQ_NAMESRV_ADDR:rocketmq-namesrv:9876}

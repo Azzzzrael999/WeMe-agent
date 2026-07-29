@@ -62,7 +62,7 @@ function safeRedirect(): string {
   if (typeof redirect === 'string' && redirect.startsWith('/') && !redirect.startsWith('//')) {
     return redirect
   }
-  return '/rooms'
+  return '/chat'
 }
 
 async function submitLogin(): Promise<void> {

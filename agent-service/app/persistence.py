@@ -11,11 +11,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.metadata import AgentRun, AgentStep, AgentThread, AgentToolCall
+from app.models.metadata import AgentBusinessEvent, AgentRun, AgentStep, AgentThread, AgentToolCall
 from app.schemas.agent import Intent, RunStatus
 
 
@@ -190,6 +191,82 @@ class MetadataRepository:
             run.error_code = error_code
             run.finished_at = datetime.now(ZoneInfo("Asia/Shanghai"))
             session.commit()
+
+    def update_run_progress(
+        self,
+        *,
+        run_id: str,
+        intent: Intent | None,
+        status: RunStatus,
+        answer_summary: str | None,
+        model_call_count: int,
+        tool_call_count: int,
+        duration_ms: int,
+        error_code: str | None,
+    ) -> None:
+        """Persist a paused/non-terminal Run without changing its immutable trace.
+
+        ``finished_at`` intentionally remains untouched here.  A paused HITL
+        or HOT request is a durable in-progress state, not a completed run.
+        """
+
+        with Session(self.engine) as session:
+            run = session.get(AgentRun, run_id)
+            if run is None:
+                raise LookupError("agent run was not found")
+            run.intent = intent.value if intent is not None else "UNKNOWN"
+            run.status = status.value
+            run.answer_summary = safe_summary(answer_summary or "", 1000) or None
+            run.model_call_count = model_call_count
+            run.tool_call_count = tool_call_count
+            run.duration_ms = max(0, duration_ms)
+            run.error_code = error_code
+            session.commit()
+
+    def record_business_event_once(
+        self,
+        *,
+        event_id: str,
+        run_id: str,
+        request_no: str,
+        event_type: str,
+        payload: dict[str, object],
+    ) -> bool:
+        """Store an MQ callback exactly once at the local metadata boundary.
+
+        Java delivery is at-least-once.  The event primary key makes a repeat
+        callback a harmless successful no-op without claiming end-to-end
+        exactly-once processing.
+        """
+
+        with Session(self.engine) as session:
+            session.add(
+                AgentBusinessEvent(
+                    event_id=event_id,
+                    run_id=run_id,
+                    request_no=request_no,
+                    event_type=safe_summary(event_type, 64),
+                    payload_json=payload,
+                    processed_at=datetime.now(ZoneInfo("Asia/Shanghai")),
+                )
+            )
+            try:
+                session.commit()
+                return True
+            except IntegrityError:
+                session.rollback()
+                return False
+
+    def has_business_event(self, event_id: str) -> bool:
+        with Session(self.engine) as session:
+            return session.get(AgentBusinessEvent, event_id) is not None
+
+    def highest_step_sequence(self, run_id: str) -> int:
+        with Session(self.engine) as session:
+            value = session.scalar(
+                select(func.max(AgentStep.sequence_no)).where(AgentStep.run_id == run_id)
+            )
+            return int(value or 0)
 
     def get_run(self, run_id: str) -> AgentRun | None:
         with Session(self.engine, expire_on_commit=False) as session:

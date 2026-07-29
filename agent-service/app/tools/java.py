@@ -1,7 +1,8 @@
-"""Python client for the allow-listed Java READ Tool API only.
+"""Explicit, allow-listed Java Tool client.
 
-There are intentionally no draft or confirmation methods in this module.
-Day 5 adds those bounded write transitions after HITL exists.
+The model-facing scheduling plan may select READ operations only.  Draft and
+write operations deliberately have dedicated Python methods; deterministic
+workflow nodes invoke them after solver and HITL guards respectively.
 """
 
 from __future__ import annotations
@@ -9,18 +10,19 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Any
+from datetime import datetime, timedelta
+from typing import Any, Literal
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
 from app.config import Settings
+from app.schemas.agent import AgentSchema, BookingDraft
 from app.security import AgentContext
 
 
-class ToolInput(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+class ToolInput(AgentSchema):
+    """Strict schema base for every Java Tool argument."""
 
 
 class ResolveEmployeesInput(ToolInput):
@@ -60,6 +62,64 @@ class RecentMeetingInput(ToolInput):
     limit: int = Field(default=5, ge=1, le=5)
 
 
+class CreateBookingDraftInput(ToolInput):
+    title: str = Field(min_length=1, max_length=128)
+    meeting_type: str = Field(min_length=1, max_length=32, serialization_alias="meetingType")
+    room_id: int = Field(ge=1, serialization_alias="roomId")
+    start_at: datetime = Field(serialization_alias="startAt")
+    end_at: datetime = Field(serialization_alias="endAt")
+    required_participant_ids: list[int] = Field(
+        min_length=1, max_length=100, serialization_alias="requiredParticipantIds"
+    )
+    optional_participant_ids: list[int] = Field(
+        default_factory=list, max_length=100, serialization_alias="optionalParticipantIds"
+    )
+    create_video_conference: bool = Field(
+        default=False, serialization_alias="createVideoConference"
+    )
+
+    @model_validator(mode="after")
+    def validate_draft_window(self) -> CreateBookingDraftInput:
+        if self.end_at <= self.start_at:
+            raise ValueError("draft endAt must be after startAt")
+        if self.start_at.minute % 30 or self.end_at.minute % 30:
+            raise ValueError("draft times must use 30-minute slots")
+        if self.start_at.second or self.end_at.second:
+            raise ValueError("draft times must not contain seconds")
+        if self.start_at.tzinfo is None or self.end_at.tzinfo is None:
+            raise ValueError("draft times must include an offset")
+        shanghai_offset = timedelta(hours=8)
+        if (
+            self.start_at.utcoffset() != shanghai_offset
+            or self.end_at.utcoffset() != shanghai_offset
+        ):
+            raise ValueError("draft times must use the +08:00 Asia/Shanghai offset")
+        if set(self.required_participant_ids).intersection(self.optional_participant_ids):
+            raise ValueError("an employee cannot be both required and optional")
+        return self
+
+
+class CreateBookingDraftResponse(AgentSchema):
+    confirmation_token: str = Field(min_length=1, max_length=80)
+    expires_at: datetime
+    draft: BookingDraft
+
+
+class ConfirmBookingResponse(AgentSchema):
+    status: Literal["SUCCESS", "PENDING"]
+    meeting_id: int | None = Field(default=None, ge=1)
+    request_no: str | None = Field(default=None, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_confirmation_shape(self) -> ConfirmBookingResponse:
+        if self.status == "SUCCESS":
+            if self.meeting_id is None or self.request_no is not None:
+                raise ValueError("SUCCESS confirmation requires meetingId and no requestNo")
+        elif self.request_no is None or self.meeting_id is not None:
+            raise ValueError("PENDING confirmation requires requestNo and no meetingId")
+        return self
+
+
 class JavaToolError(RuntimeError):
     def __init__(self, code: str) -> None:
         super().__init__(code)
@@ -70,32 +130,34 @@ class JavaToolError(RuntimeError):
 class ToolOutcome:
     tool_call_id: str
     tool_name: str
-    risk_level: str
+    risk_level: Literal["READ", "DRAFT", "WRITE"]
     data: dict[str, Any]
     summary: str
     duration_ms: int
+    idempotency_key: str | None = None
+    http_status: int | None = None
 
 
 @dataclass
 class JavaReadToolClient:
+    """Java client with model-safe reads and explicitly-gated mutation methods."""
+
     settings: Settings
     http_client: httpx.Client | None = None
 
     def resolve_employees(
         self, *, context: AgentContext, names: list[str], department_names: list[str] | None = None
     ) -> ToolOutcome:
-        payload = ResolveEmployeesInput(
-            names=names,
-            department_names=department_names or [],
-        )
+        payload = ResolveEmployeesInput(names=names, department_names=department_names or [])
         outcome = self._invoke(
             context=context,
             tool_name="resolve_employees",
             path="/internal/v1/tools/resolve-employees",
             payload=payload,
+            risk_level="READ",
         )
         employee_count = len(outcome.data.get("employees", []))
-        return ToolOutcome(**{**outcome.__dict__, "summary": f"已解析 {employee_count} 名员工"})
+        return _with_summary(outcome, f"已解析 {employee_count} 名员工")
 
     def get_employee_free_busy(
         self,
@@ -105,18 +167,16 @@ class JavaReadToolClient:
         from_: datetime,
         to: datetime,
     ) -> ToolOutcome:
-        payload = FreeBusyInput(employee_ids=employee_ids, from_=from_, to=to)
         outcome = self._invoke(
             context=context,
             tool_name="get_employee_free_busy",
             path="/internal/v1/tools/get-employee-free-busy",
-            payload=payload,
+            payload=FreeBusyInput(employee_ids=employee_ids, from_=from_, to=to),
+            risk_level="READ",
         )
-        return ToolOutcome(
-            **{
-                **outcome.__dict__,
-                "summary": f"已查询 {len(outcome.data.get('employees', []))} 名员工的忙闲信息",
-            }
+        return _with_summary(
+            outcome,
+            f"已查询 {len(outcome.data.get('employees', []))} 名员工的忙闲信息",
         )
 
     def search_available_rooms(
@@ -128,39 +188,95 @@ class JavaReadToolClient:
         minimum_capacity: int,
         required_features: list[str],
     ) -> ToolOutcome:
-        payload = SearchRoomsInput(
-            from_=from_,
-            to=to,
-            minimum_capacity=minimum_capacity,
-            required_features=required_features,
-        )
         outcome = self._invoke(
             context=context,
             tool_name="search_available_rooms",
             path="/internal/v1/tools/search-available-rooms",
-            payload=payload,
+            payload=SearchRoomsInput(
+                from_=from_,
+                to=to,
+                minimum_capacity=minimum_capacity,
+                required_features=required_features,
+            ),
+            risk_level="READ",
         )
-        return ToolOutcome(
-            **{
-                **outcome.__dict__,
-                "summary": f"已查询 {len(outcome.data.get('rooms', []))} 间可用会议室",
-            }
-        )
+        return _with_summary(outcome, f"已查询 {len(outcome.data.get('rooms', []))} 间可用会议室")
 
     def get_recent_meeting(self, *, context: AgentContext, limit: int = 5) -> ToolOutcome:
-        payload = RecentMeetingInput(limit=limit)
         outcome = self._invoke(
             context=context,
             tool_name="get_recent_meeting",
             path="/internal/v1/tools/get-recent-meeting",
+            payload=RecentMeetingInput(limit=limit),
+            risk_level="READ",
+        )
+        return _with_summary(outcome, f"已查询 {len(outcome.data.get('meetings', []))} 条最近会议")
+
+    def create_booking_draft(
+        self,
+        *,
+        context: AgentContext,
+        payload: CreateBookingDraftInput,
+        tool_call_id: str | None = None,
+    ) -> tuple[ToolOutcome, CreateBookingDraftResponse]:
+        """Create a non-reserving Java draft after deterministic solver validation.
+
+        This method is intentionally not represented by ``SchedulingPlan``;
+        callers must construct the validated payload themselves.
+        """
+
+        outcome = self._invoke(
+            context=context,
+            tool_name="create_booking_draft",
+            path="/internal/v1/tools/booking-drafts",
             payload=payload,
+            risk_level="DRAFT",
+            tool_call_id=tool_call_id,
         )
-        return ToolOutcome(
-            **{
-                **outcome.__dict__,
-                "summary": f"已查询 {len(outcome.data.get('meetings', []))} 条最近会议",
-            }
+        try:
+            draft = CreateBookingDraftResponse.model_validate(outcome.data)
+        except ValueError as exc:
+            raise JavaToolError("TOOL_RESPONSE_INVALID") from exc
+        if outcome.http_status not in {None, 200}:
+            raise JavaToolError("TOOL_RESPONSE_INVALID")
+        return _with_summary(outcome, "已创建待确认预约草案"), draft
+
+    def confirm_booking(
+        self,
+        *,
+        context: AgentContext,
+        confirmation_token: str,
+        tool_call_id: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> tuple[ToolOutcome, ConfirmBookingResponse]:
+        """Confirm a draft only after a validated HITL ``ACCEPT`` transition."""
+
+        if not confirmation_token or len(confirmation_token) > 80:
+            raise JavaToolError("CONFIRMATION_TOKEN_INVALID")
+        stable_tool_call_id = tool_call_id or stable_tool_identity(
+            context.run_id, "confirm_booking", confirmation_token
         )
+        stable_idempotency_key = idempotency_key or stable_idempotency_identity(
+            context.run_id, "confirm_booking", confirmation_token
+        )
+        outcome = self._invoke(
+            context=context,
+            tool_name="confirm_booking",
+            path=f"/internal/v1/tools/booking-drafts/{confirmation_token}/confirm",
+            payload=ToolInput(),
+            risk_level="WRITE",
+            idempotency_key=stable_idempotency_key,
+            tool_call_id=stable_tool_call_id,
+        )
+        try:
+            confirmation = ConfirmBookingResponse.model_validate(outcome.data)
+        except ValueError as exc:
+            raise JavaToolError("TOOL_RESPONSE_INVALID") from exc
+        expected_status = 200 if confirmation.status == "SUCCESS" else 202
+        if outcome.http_status not in {None, expected_status}:
+            raise JavaToolError("TOOL_RESPONSE_INVALID")
+        summary = "预约确认已完成" if confirmation.status == "SUCCESS" else "预约请求已进入排队"
+        return _with_summary(outcome, summary), confirmation
 
     def _invoke(
         self,
@@ -169,8 +285,11 @@ class JavaReadToolClient:
         tool_name: str,
         path: str,
         payload: ToolInput,
+        risk_level: Literal["READ", "DRAFT", "WRITE"],
+        idempotency_key: str | None = None,
+        tool_call_id: str | None = None,
     ) -> ToolOutcome:
-        tool_call_id = f"tool_{uuid.uuid4().hex}"
+        tool_call_id = tool_call_id or f"tool_{uuid.uuid4().hex}"
         started = time.perf_counter()
         headers = {
             "Authorization": f"Bearer {context.token}",
@@ -179,27 +298,31 @@ class JavaReadToolClient:
             "X-Run-Id": context.run_id,
             "X-Tool-Call-Id": tool_call_id,
         }
-        response = self._post_with_retry(
+        if idempotency_key is not None:
+            headers["Idempotency-Key"] = idempotency_key
+        status_code, body = self._post_with_retry(
             path=path,
             headers=headers,
             payload=payload.model_dump(by_alias=True, mode="json"),
         )
         duration_ms = int((time.perf_counter() - started) * 1000)
-        data = response.get("data")
+        data = body.get("data")
         if not isinstance(data, dict):
             raise JavaToolError("TOOL_RESPONSE_INVALID")
         return ToolOutcome(
             tool_call_id=tool_call_id,
             tool_name=tool_name,
-            risk_level="READ",
+            risk_level=risk_level,
             data=data,
-            summary="Java READ tool completed",
+            summary="Java Tool completed",
             duration_ms=duration_ms,
+            idempotency_key=idempotency_key,
+            http_status=status_code,
         )
 
     def _post_with_retry(
         self, *, path: str, headers: dict[str, str], payload: dict[str, Any]
-    ) -> dict[str, Any]:
+    ) -> tuple[int, dict[str, Any]]:
         owned_client = self.http_client is None
         client = self.http_client or httpx.Client(timeout=self.settings.model_timeout_seconds)
         try:
@@ -219,11 +342,12 @@ class JavaReadToolClient:
                         raise JavaToolError("TOOL_CONFLICT")
                     if response.status_code == 503:
                         raise JavaToolError("TOOL_UNAVAILABLE")
-                    response.raise_for_status()
+                    if response.status_code >= 400:
+                        raise JavaToolError("TOOL_REJECTED")
                     body = response.json()
                     if not isinstance(body, dict):
                         raise JavaToolError("TOOL_RESPONSE_INVALID")
-                    return body
+                    return response.status_code, body
                 except httpx.TimeoutException as exc:
                     if attempt < self.settings.model_max_retries:
                         time.sleep(0.1 * (2**attempt))
@@ -238,3 +362,28 @@ class JavaReadToolClient:
             if owned_client:
                 client.close()
         raise JavaToolError("TOOL_UNAVAILABLE")
+
+
+def _with_summary(outcome: ToolOutcome, summary: str) -> ToolOutcome:
+    return ToolOutcome(
+        tool_call_id=outcome.tool_call_id,
+        tool_name=outcome.tool_name,
+        risk_level=outcome.risk_level,
+        data=outcome.data,
+        summary=summary,
+        duration_ms=outcome.duration_ms,
+        idempotency_key=outcome.idempotency_key,
+        http_status=outcome.http_status,
+    )
+
+
+def stable_tool_identity(run_id: str, operation: str, stable_input: str) -> str:
+    """Derive a repeat-safe Java Tool identity without exposing sensitive input."""
+
+    value = uuid.uuid5(uuid.NAMESPACE_URL, f"meeting-agent:{run_id}:{operation}:{stable_input}")
+    return f"tool_{value.hex}"
+
+
+def stable_idempotency_identity(run_id: str, operation: str, stable_input: str) -> str:
+    value = uuid.uuid5(uuid.NAMESPACE_OID, f"meeting-agent:{run_id}:{operation}:{stable_input}")
+    return f"idem_{value.hex}"

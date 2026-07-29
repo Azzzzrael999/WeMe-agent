@@ -13,6 +13,7 @@ public record RoomItemView(
     String roomType,
     @JsonProperty("isHot") boolean hot,
     String status,
+    int version,
     List<RoomFeatureView> features) {
 
   public RoomItemView {

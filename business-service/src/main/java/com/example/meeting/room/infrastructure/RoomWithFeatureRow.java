@@ -11,6 +11,7 @@ public class RoomWithFeatureRow {
   private String roomType;
   private Boolean hot;
   private String status;
+  private Integer version;
   private String featureCode;
   private String featureName;
 
@@ -84,6 +85,14 @@ public class RoomWithFeatureRow {
 
   public void setStatus(String status) {
     this.status = status;
+  }
+
+  public Integer getVersion() {
+    return version;
+  }
+
+  public void setVersion(Integer version) {
+    this.version = version;
   }
 
   public String getFeatureCode() {
