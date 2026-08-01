@@ -1,9 +1,9 @@
 <template>
   <main class="auth-page">
+    <div class="auth-grid" aria-hidden="true"></div>
     <section class="auth-card" aria-labelledby="login-title">
-      <p class="eyebrow">企业会议智能调度系统</p>
-      <h1 id="login-title">登录</h1>
-      <p class="muted">使用企业账号进入会议室查询。</p>
+      <div class="auth-brand"><div class="brand-mark">M</div><div><strong>MeetOps</strong><span>企业协作编排助手</span></div></div>
+      <div class="auth-heading"><h1 id="login-title">欢迎回来</h1><p>使用企业账号进入协作工作台</p></div>
 
       <form class="stack" @submit.prevent="submitLogin">
         <label>
@@ -29,13 +29,14 @@
           />
         </label>
 
-        <p class="demo-hint">演示账号：<code>zhangsan</code> / <code>demo-password</code></p>
+        <p class="demo-hint">演示账号已预填，可直接进入工作台。</p>
         <p v-if="errorMessage" class="error-message" role="alert">{{ errorMessage }}</p>
 
         <button class="primary-button" type="submit" :disabled="submitting">
-          {{ submitting ? '登录中…' : '登录' }}
+          {{ submitting ? '正在验证…' : '登录 MeetOps' }}
         </button>
       </form>
+      <p class="auth-security">安全会话仅保存在当前浏览器标签页</p>
     </section>
   </main>
 </template>

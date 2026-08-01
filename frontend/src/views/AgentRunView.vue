@@ -1,5 +1,6 @@
 <template>
-  <AppShell title="Agent Trace">
+  <AppShell title="Agent Run 详情" description="查看脱敏的 Agent 步骤、工具摘要与业务结果。" eyebrow="系统 / Agent Run">
+    <template #actions><RouterLink class="ui-button ui-button--outline" :to="{ name: 'chat', query: { runId } }">← 返回智能编排</RouterLink><button class="ui-button ui-button--outline" type="button" :disabled="loading" @click="loadData">{{ loading ? '刷新中…' : '刷新' }}</button></template>
     <section class="content-panel trace-header" aria-labelledby="trace-title">
       <div class="section-heading compact-heading">
         <div>
@@ -7,18 +8,16 @@
           <h2 id="trace-title">{{ runId }}</h2>
           <p class="muted">此页面只使用 Java 公共 API 返回的脱敏 Run、Step 与 Tool 摘要。</p>
         </div>
-        <button class="secondary-button" type="button" :disabled="loading" @click="loadData">
-          {{ loading ? '刷新中…' : '刷新' }}
-        </button>
+        <StatusBadge v-if="run" :status="run.status" />
       </div>
 
-      <p v-if="errorMessage" class="error-message" role="alert">{{ errorMessage }}</p>
-      <div v-else-if="loading && run === null" class="status-message">正在加载 Run 和 Trace…</div>
+      <ErrorState v-if="errorMessage" :message="errorMessage" retryable @retry="loadData" />
+      <LoadingState v-else-if="loading && run === null" title="正在加载 Run 和 Trace" />
 
       <dl v-else-if="run" class="trace-run-facts">
         <div>
           <dt>状态</dt>
-          <dd><span class="badge" :class="statusClass(run.status)">{{ run.status }}</span></dd>
+          <dd><StatusBadge :status="run.status" /></dd>
         </div>
         <div>
           <dt>意图</dt>
@@ -71,7 +70,7 @@
       <p v-if="run.candidates?.length" class="muted">当前恢复视图包含 {{ run.candidates.length }} 个已验证候选；请在聊天页选择或编辑后重新校验。</p>
     </section>
 
-    <AgentTimeline :steps="trace?.steps ?? []" :tools="trace?.toolCalls ?? []" />
+    <section class="content-panel run-timeline-panel"><div class="section-heading"><div><h2>运行时间线</h2><p>Agent 节点与确定性 Tool Call 按序展示。</p></div></div><TraceTimeline :steps="trace?.steps ?? []" :tools="trace?.toolCalls ?? []" /></section>
   </AppShell>
 </template>
 
@@ -81,8 +80,11 @@ import { RouterLink, useRoute } from 'vue-router'
 
 import { ApiError, apiRequest } from '../api/client'
 import type { AgentRunRecovery, AgentTrace } from '../api/types'
-import AgentTimeline from '../components/AgentTimeline.vue'
 import AppShell from '../components/AppShell.vue'
+import ErrorState from '../components/ErrorState.vue'
+import LoadingState from '../components/LoadingState.vue'
+import StatusBadge from '../components/StatusBadge.vue'
+import TraceTimeline from '../components/TraceTimeline.vue'
 import { formatDateTime, formatDuration } from '../utils/format'
 
 const route = useRoute()
@@ -111,16 +113,6 @@ async function loadData(): Promise<void> {
   } finally {
     loading.value = false
   }
-}
-
-function statusClass(status: string): string {
-  if (status === 'FAILED' || status === 'CONFLICT' || status === 'CANCELLED') {
-    return 'badge-danger'
-  }
-  if (status.startsWith('WAITING') || status === 'PENDING') {
-    return 'badge-warning'
-  }
-  return 'badge-success'
 }
 
 onMounted(() => {

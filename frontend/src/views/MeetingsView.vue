@@ -1,7 +1,8 @@
 <template>
-  <AppShell title="我的会议">
-    <div class="management-layout">
-      <section class="content-panel" aria-labelledby="manual-meeting-title">
+  <AppShell title="我的会议" description="查看本人发起或参与的会议，并通过 Java 事务服务手动管理预约。" eyebrow="协作 / 我的会议">
+    <template #actions><button class="ui-button ui-button--outline" type="button" :disabled="listLoading" @click="loadMeetings">{{ listLoading ? '刷新中…' : '刷新' }}</button><button class="ui-button ui-button--default" type="button" @click="createDialogOpen=true">＋ 创建会议</button></template>
+    <div class="management-layout management-layout--single">
+      <Teleport to="body"><div v-if="createDialogOpen" class="dialog-layer"><button class="drawer-overlay" aria-label="关闭创建会议" @click="createDialogOpen=false" /><section class="ui-dialog meeting-form-dialog" aria-labelledby="manual-meeting-title">
         <div class="section-heading compact-heading">
           <div>
             <p class="eyebrow">手动预约</p>
@@ -46,13 +47,13 @@
           </label>
           <p class="form-span-2 muted form-help">以逗号分隔员工 ID；组织者会由服务端加入必须参会者。会议固定为 30 分钟槽位。</p>
           <p v-if="createError" class="error-message form-span-2" role="alert">{{ createError }}</p>
-          <div class="form-actions form-span-2">
+          <div class="form-actions form-span-2"><button class="secondary-button" type="button" @click="createDialogOpen=false">关闭</button>
             <button class="primary-button" type="submit" :disabled="createSubmitting || rooms.length === 0">
               {{ createSubmitting ? '正在创建…' : '创建并确认' }}
             </button>
           </div>
         </form>
-      </section>
+      </section></div></Teleport>
 
       <section class="content-panel" aria-labelledby="meeting-list-title">
         <div class="section-heading compact-heading">
@@ -80,14 +81,15 @@
         <p v-else-if="listLoading" class="status-message">正在加载会议…</p>
         <div v-else-if="meetings.length === 0" class="empty-state">暂时没有符合条件的会议。</div>
 
-        <div v-else class="meeting-list">
+        <div v-else class="meeting-table-wrap"><table class="meeting-table"><thead><tr><th>会议</th><th>时间</th><th>会议室</th><th>组织者 / 来源</th><th>状态</th><th><span class="sr-only">操作</span></th></tr></thead><tbody><tr v-for="meeting in meetings" :key="meeting.id"><td><strong>{{ meeting.title }}</strong><span>{{ meeting.meetingNo }}</span></td><td>{{ formatDateTime(meeting.startAt) }}<span>至 {{ formatDateTime(meeting.endAt) }}</span></td><td>{{ meeting.roomName }}</td><td>{{ meeting.organizerName }}<span>{{ meeting.source === 'AGENT' ? '智能编排' : '手动创建' }}</span></td><td><StatusBadge :status="meeting.status" /></td><td><div v-if="meeting.status==='CONFIRMED'" class="table-actions"><button class="text-button" type="button" @click="beginEdit(meeting)">修改</button><button class="text-button danger-text" type="button" @click="pendingCancel=meeting">取消</button></div></td></tr></tbody></table></div>
+        <div v-if="!listLoading && !listError && meetings.length" class="meeting-list meeting-list--mobile">
           <article v-for="meeting in meetings" :key="meeting.id" class="meeting-card">
             <div class="meeting-card__header">
               <div>
                 <p class="room-code">{{ meeting.meetingNo }} · {{ meeting.source }}</p>
                 <h3>{{ meeting.title }}</h3>
               </div>
-              <span class="badge" :class="meetingStatusClass(meeting.status)">{{ meeting.status }}</span>
+              <StatusBadge :status="meeting.status" />
             </div>
             <dl class="meeting-facts">
               <div><dt>会议室</dt><dd>{{ meeting.roomName }}</dd></div>
@@ -97,7 +99,7 @@
             </dl>
             <div v-if="meeting.status === 'CONFIRMED'" class="inline-actions">
               <button class="secondary-button" type="button" @click="beginEdit(meeting)">修改</button>
-              <button class="danger-button" type="button" @click="cancelMeeting(meeting)">取消会议</button>
+              <button class="danger-button" type="button" @click="pendingCancel=meeting">取消会议</button>
             </div>
           </article>
         </div>
@@ -105,7 +107,7 @@
       </section>
     </div>
 
-    <section v-if="editingMeeting" class="content-panel edit-meeting-panel" aria-labelledby="edit-meeting-title">
+    <Teleport to="body"><div v-if="editingMeeting" class="dialog-layer"><button class="drawer-overlay" aria-label="关闭编辑会议" @click="editingMeeting=null" /><section class="ui-dialog meeting-form-dialog" aria-labelledby="edit-meeting-title">
       <div class="section-heading compact-heading">
         <div>
           <p class="eyebrow">修改会议</p>
@@ -131,12 +133,13 @@
         <p v-if="updateError" class="error-message form-span-2" role="alert">{{ updateError }}</p>
         <div class="form-actions form-span-2"><button class="primary-button" type="submit" :disabled="updateSubmitting">{{ updateSubmitting ? '正在保存…' : '保存并重新校验' }}</button></div>
       </form>
-    </section>
+    </section></div></Teleport>
+    <Teleport to="body"><div v-if="pendingCancel" class="dialog-layer"><button class="drawer-overlay" aria-label="关闭取消确认" @click="pendingCancel=null" /><section class="ui-dialog ui-dialog--sm" role="alertdialog" aria-modal="true" aria-labelledby="cancel-meeting-title"><h2 id="cancel-meeting-title">取消“{{ pendingCancel.title }}”？</h2><p>正式槽位将被释放。只有当前为已确认状态的会议可以取消。</p><footer><button class="ui-button ui-button--outline" type="button" @click="pendingCancel=null">返回</button><button class="ui-button ui-button--destructive" type="button" @click="confirmCancel">确认取消</button></footer></section></div></Teleport>
   </AppShell>
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 
 import { ApiError, apiRequest } from '../api/client'
 import type {
@@ -148,6 +151,8 @@ import type {
   RoomListResult,
 } from '../api/types'
 import AppShell from '../components/AppShell.vue'
+import StatusBadge from '../components/StatusBadge.vue'
+import { useModalFocus } from '../composables/useModalFocus'
 import { createClientRequestId, formatDateTime, parseEmployeeIds, toShanghaiDateTimeLocal, toShanghaiOffset } from '../utils/format'
 
 interface MeetingForm {
@@ -172,6 +177,9 @@ const createError = ref('')
 const updateSubmitting = ref(false)
 const updateError = ref('')
 const editingMeeting = ref<Meeting | null>(null)
+const createDialogOpen = ref(false)
+const pendingCancel = ref<Meeting | null>(null)
+useModalFocus(computed(() => createDialogOpen.value || editingMeeting.value !== null || pendingCancel.value !== null), () => { createDialogOpen.value=false; editingMeeting.value=null; pendingCancel.value=null })
 let createIdempotencyKey: string | null = null
 
 const createForm = reactive<MeetingForm>({
@@ -329,9 +337,6 @@ async function updateMeeting(): Promise<void> {
 }
 
 async function cancelMeeting(meeting: Meeting): Promise<void> {
-  if (!window.confirm(`确认取消“${meeting.title}”吗？此操作会释放正式槽位。`)) {
-    return
-  }
   listError.value = ''
   try {
     await apiRequest<Meeting>(`/meetings/${meeting.id}`, { method: 'DELETE' })
@@ -341,20 +346,12 @@ async function cancelMeeting(meeting: Meeting): Promise<void> {
   }
 }
 
+async function confirmCancel(): Promise<void> { const meeting = pendingCancel.value; if (meeting === null) return; pendingCancel.value = null; await cancelMeeting(meeting) }
+
 function participantSummary(meeting: Meeting): string {
   return meeting.participants.length > 0
     ? meeting.participants.map((participant) => participant.displayName).join('、')
     : '无额外参会者'
-}
-
-function meetingStatusClass(status: string): string {
-  if (status === 'CANCELLED') {
-    return 'badge-danger'
-  }
-  if (status === 'PENDING' || status === 'PROCESSING') {
-    return 'badge-warning'
-  }
-  return 'badge-success'
 }
 
 onMounted(() => {

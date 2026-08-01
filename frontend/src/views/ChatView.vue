@@ -1,103 +1,33 @@
 <template>
-  <AppShell title="智能调度">
-    <div class="chat-layout">
-      <section class="content-panel chat-composer" aria-labelledby="chat-title">
-        <div class="section-heading compact-heading">
-          <div>
-            <h2 id="chat-title">描述你的会议需求</h2>
-            <p class="muted">将由 Supervisor、专业 Agent 和 Java 业务规则共同处理。</p>
-          </div>
-          <button class="secondary-button" type="button" :disabled="streaming" @click="resetConversation">
-            新建会话
-          </button>
+  <AppShell title="智能编排" description="用自然语言发起会议任务，在执行前审阅 Agent 的结构化计划。" eyebrow="工作台 / 智能编排">
+    <template #actions><button class="ui-button ui-button--outline" type="button" :disabled="streaming" @click="resetConversation">＋ 新建会话</button></template>
+    <div class="mobile-workspace-tabs" role="tablist" aria-label="智能编排区域"><button type="button" :class="{ active: mobilePane === 'conversation' }" @click="mobilePane='conversation'">对话</button><button type="button" :class="{ active: mobilePane === 'result' }" @click="mobilePane='result'">编排结果</button></div>
+    <div class="orchestration-grid" :class="`orchestration-grid--${mobilePane}`">
+      <section class="conversation-pane" aria-labelledby="conversation-title">
+        <header class="pane-header"><div><h2 id="conversation-title">协作会话</h2><p>Supervisor 协调三个专业 Agent 与确定性工具</p></div><span class="agent-online"><span />Agent 就绪</span></header>
+        <div class="conversation-scroll" aria-live="polite">
+          <div v-if="submittedMessage" class="message-row message-row--user"><div class="message-bubble"><span>你</span><p>{{ submittedMessage }}</p></div></div>
+          <div v-if="runId || answerSummary || streaming" class="message-row message-row--agent"><div class="message-avatar">M</div><div class="message-bubble"><span>MeetOps Agent</span><p v-if="answerSummary">{{ answerSummary }}</p><p v-else-if="streaming">正在解析需求、检查政策并查询资源…</p><p v-else>已保存当前 Run，可继续查看结构化编排结果。</p><div v-if="bookingRequest" class="message-meta"><StatusBadge :status="bookingRequest.status" /><span>请求号 {{ bookingRequest.requestNo }}</span></div></div></div>
+          <div v-if="!submittedMessage && !runId" class="welcome-message"><div class="message-avatar">M</div><div><h3>你好，我是 MeetOps</h3><p>告诉我参会人、时间和资源要求。我会给出经过硬约束验证的候选，并在执行前请你确认。</p><div class="prompt-chips"><button v-for="example in examples" :key="example" type="button" @click="message=example">{{ example }}</button></div></div></div>
+          <LoadingState v-if="streaming" title="正在协同处理" description="Agent 步骤会实时写入安全运行轨迹。" />
+          <ErrorState v-if="errorMessage" :message="errorMessage" />
         </div>
-
-        <form class="stack compact-stack" @submit.prevent="startRun">
-          <label>
-            <span>调度需求</span>
-            <textarea
-              v-model.trim="message"
-              rows="5"
-              maxlength="4000"
-              placeholder="例如：下周三下午帮张三安排一个 90 分钟架构评审，要大屏"
-              :disabled="streaming || decisionBusy"
-              required
-            ></textarea>
-          </label>
-          <p v-if="errorMessage" class="error-message" role="alert">{{ errorMessage }}</p>
-          <div class="form-actions">
-            <button class="primary-button" type="submit" :disabled="streaming || decisionBusy || message.length === 0">
-              {{ streaming ? '正在处理…' : '开始调度' }}
-            </button>
-            <button
-              v-if="runId"
-              class="secondary-button"
-              type="button"
-              :disabled="streaming || recoveryLoading"
-              @click="loadRecovery(runId)"
-            >
-              {{ recoveryLoading ? '加载中…' : '刷新当前 Run' }}
-            </button>
-          </div>
-        </form>
-
-        <div v-if="runId" class="run-summary" aria-live="polite">
-          <div>
-            <strong>Run：{{ runId }}</strong>
-            <span class="badge" :class="statusClass(runStatus)">{{ runStatus || 'RUNNING' }}</span>
-          </div>
-          <RouterLink :to="{ name: 'agent-run', params: { runId } }">查看安全 Trace</RouterLink>
-        </div>
-
-        <div v-if="answerSummary" class="answer-summary">
-          <h3>业务结果</h3>
-          <p>{{ answerSummary }}</p>
-        </div>
-
-        <div v-if="citations.length > 0" class="citation-list">
-          <h3>可验证引用</h3>
-          <ul>
-            <li v-for="citation in citations" :key="citation.chunkId">
-              {{ citation.title }} · {{ citation.headingPath.join(' / ') }}
-              <span v-if="citation.page">（第 {{ citation.page }} 页）</span>
-            </li>
-          </ul>
-        </div>
-
-        <div v-if="bookingRequest" class="booking-status">
-          <strong>热门预约状态：{{ bookingRequest.status }}</strong>
-          <span v-if="bookingRequest.requestNo">请求号 {{ bookingRequest.requestNo }}</span>
-          <span v-if="bookingRequest.errorMessage">{{ bookingRequest.errorMessage }}</span>
-          <RouterLink v-if="bookingRequest.meetingId" :to="{ name: 'meetings' }">前往我的会议</RouterLink>
+        <div class="composer-area"><RunStatusBar :run-id="runId" :status="runStatus" :loading="recoveryLoading" @refresh="runId && loadRecovery(runId)" @trace="traceOpen=true" /><AgentComposer v-model="message" :disabled="streaming || decisionBusy" :streaming="streaming" @submit="startRun" /></div>
+      </section>
+      <section class="result-pane" aria-labelledby="result-title">
+        <header class="pane-header"><div><h2 id="result-title">编排结果</h2><p>业务结果优先，运行细节可按需查看</p></div><button v-if="runId" class="text-button" type="button" @click="traceOpen=true">查看运行过程</button></header>
+        <div class="result-tabs" role="tablist"><button v-for="tab in resultTabs" :key="tab.id" type="button" role="tab" :aria-selected="resultTab===tab.id" :class="{ active: resultTab===tab.id }" @click="resultTab=tab.id">{{ tab.label }}<span v-if="tab.id==='candidates' && candidates.length">{{ candidates.length }}</span></button></div>
+        <div class="result-scroll">
+          <RequirementSummary v-if="resultTab==='requirements'" :draft="draft" />
+          <CandidateComparison v-else-if="resultTab==='candidates'" :candidates="candidates" :draft="draft" @select="selectCandidate" />
+          <ResourceTimeline v-else-if="resultTab==='resources'" :slots="[]" />
+          <div v-else class="citations-panel"><article v-for="citation in citations" :key="citation.chunkId"><span>政策依据</span><h3>{{ citation.title }}</h3><p>{{ citation.headingPath.join(' / ') }}<template v-if="citation.page"> · 第 {{ citation.page }} 页</template></p><code>{{ citation.chunkId }}</code></article><EmptyState v-if="citations.length===0" title="暂无政策依据" description="仅当 Agent 返回可验证引用时展示，不会根据请求文本推测政策。" icon="§" /></div>
+          <div v-if="runStatus==='WAITING_BUSINESS_RESULT'" class="pending-callout"><StatusBadge status="WAITING_BUSINESS_RESULT" /><div><strong>热门预约正在异步裁决</strong><p>业务服务将通过 RocketMQ 返回最终结果；冲突后 Agent 会恢复并重新规划。</p></div></div>
         </div>
       </section>
-
-      <AgentTimeline :steps="steps" :tools="tools" />
     </div>
-
-    <CandidateCards
-      v-if="runStatus === 'WAITING_CONFIRMATION' && draft && confirmationToken"
-      :candidates="candidates"
-      :draft="draft"
-      @select="selectCandidate"
-    />
-
-    <HitlDecisionPanel
-      v-if="draft && confirmationToken"
-      :draft="draft"
-      :expires-at="expiresAt"
-      :busy="decisionBusy || streaming"
-      :feedback="hitlFeedback"
-      @update:feedback="hitlFeedback = $event"
-      @accept="resumeRun('ACCEPT')"
-      @reject="resumeRun('REJECT')"
-      @edit="(changes) => resumeRun('EDIT', changes)"
-    />
-
-    <section v-if="runStatus === 'WAITING_BUSINESS_RESULT' && !bookingRequest" class="content-panel pending-panel">
-      <h2>预约正在异步处理</h2>
-      <p class="muted">热门时段由业务服务最终裁决。刷新当前 Run 后可查看恢复状态；冲突后会给出新的候选草案。</p>
-    </section>
+    <HitlReviewBar v-if="draft && confirmationToken" :draft="draft" :expires-at="expiresAt" :busy="decisionBusy || streaming" :feedback="hitlFeedback" @update:feedback="hitlFeedback=$event" @accept="resumeRun('ACCEPT')" @reject="resumeRun('REJECT')" @edit="(changes) => resumeRun('EDIT', changes)" />
+    <TraceDrawer v-model:open="traceOpen" :run-id="runId" :steps="steps" :tools="tools" />
   </AppShell>
 </template>
 
@@ -117,10 +47,18 @@ import type {
   AgentToolEvent,
   BookingRequest,
 } from '../api/types'
-import AgentTimeline from '../components/AgentTimeline.vue'
+import AgentComposer from '../components/AgentComposer.vue'
 import AppShell from '../components/AppShell.vue'
-import CandidateCards from '../components/CandidateCards.vue'
-import HitlDecisionPanel from '../components/HitlDecisionPanel.vue'
+import CandidateComparison from '../components/CandidateComparison.vue'
+import EmptyState from '../components/EmptyState.vue'
+import ErrorState from '../components/ErrorState.vue'
+import HitlReviewBar from '../components/HitlReviewBar.vue'
+import LoadingState from '../components/LoadingState.vue'
+import RequirementSummary from '../components/RequirementSummary.vue'
+import ResourceTimeline from '../components/ResourceTimeline.vue'
+import RunStatusBar from '../components/RunStatusBar.vue'
+import StatusBadge from '../components/StatusBadge.vue'
+import TraceDrawer from '../components/TraceDrawer.vue'
 import { createClientRequestId } from '../utils/format'
 
 const route = useRoute()
@@ -144,6 +82,15 @@ const errorMessage = ref('')
 const streaming = ref(false)
 const decisionBusy = ref(false)
 const recoveryLoading = ref(false)
+const traceOpen = ref(false)
+const mobilePane = ref<'conversation' | 'result'>('conversation')
+const resultTab = ref<'requirements' | 'candidates' | 'resources' | 'citations'>('requirements')
+const submittedMessage = ref('')
+const examples = ['下周三下午安排 90 分钟架构评审，要大屏', '找一个 10 人、有视频设备的会议室', '客户会议能不能使用 VIP 会议室？']
+const resultTabs = [
+  { id: 'requirements' as const, label: '需求解析' }, { id: 'candidates' as const, label: '候选计划' },
+  { id: 'resources' as const, label: '资源日历' }, { id: 'citations' as const, label: '政策依据' },
+]
 
 let activeAbort: AbortController | null = null
 let pollTimer: ReturnType<typeof setTimeout> | null = null
@@ -434,6 +381,8 @@ async function startRun(): Promise<void> {
     return
   }
   clearRunState()
+  submittedMessage.value = message.value
+  mobilePane.value = 'result'
   await consumeStream('/agent/runs/stream', {
     threadId: threadId.value,
     message: message.value,
@@ -493,6 +442,7 @@ function resetConversation(): void {
   activeAbort?.abort()
   threadId.value = null
   errorMessage.value = ''
+  submittedMessage.value = ''
   clearRunState()
 }
 

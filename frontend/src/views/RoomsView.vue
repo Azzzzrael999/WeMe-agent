@@ -1,14 +1,12 @@
 <template>
-  <AppShell title="会议室">
+  <AppShell title="会议室资源" description="查看会议室设备与 30 分钟可用槽位；管理员可维护资源状态。" eyebrow="协作 / 会议室资源">
+    <template #actions><button class="ui-button ui-button--outline" type="button" :disabled="loading" @click="loadRooms">{{ loading ? '刷新中…' : '刷新资源' }}</button><button v-if="isAdmin" class="ui-button ui-button--default" type="button" @click="openAdminCreate">＋ 新增会议室</button></template>
     <section class="content-panel" aria-labelledby="room-list-title">
       <div class="section-heading compact-heading">
         <div>
           <h2 id="room-list-title">会议室与设备</h2>
           <p class="muted">员工可查询可用会议室；管理员可以维护会议室和热门标记。</p>
         </div>
-        <button class="secondary-button" type="button" :disabled="loading" @click="loadRooms">
-          {{ loading ? '加载中…' : '刷新' }}
-        </button>
       </div>
 
       <p v-if="errorMessage" class="error-message" role="alert">{{ errorMessage }}</p>
@@ -23,8 +21,8 @@
               <h3>{{ room.name }}</h3>
             </div>
             <div class="badges">
-              <span v-if="room.isHot" class="badge badge-hot">热门</span>
-              <span class="badge" :class="room.status === 'ACTIVE' ? 'badge-success' : 'badge-danger'">{{ room.status }}</span>
+              <span v-if="room.isHot" class="preview-badge room-hot-badge">热门</span>
+              <StatusBadge :status="room.status" />
             </div>
           </div>
 
@@ -40,8 +38,9 @@
           </div>
 
           <div v-if="isAdmin" class="room-admin-actions">
+            <button class="secondary-button" type="button" @click="openRoomDetails(room)">查看详情</button>
             <button class="secondary-button" type="button" @click="beginRoomEdit(room)">编辑</button>
-            <button class="danger-button" type="button" @click="toggleRoomStatus(room)">
+            <button class="danger-button" type="button" @click="pendingStatusRoom=room">
               {{ room.status === 'ACTIVE' ? '停用' : '启用' }}
             </button>
           </div>
@@ -72,26 +71,18 @@
       </form>
       <div v-if="availability" class="availability-slots" aria-live="polite">
         <p class="muted">{{ formatDateTime(availability.from) }} 至 {{ formatDateTime(availability.to) }}</p>
-        <span
-          v-for="slot in availability.availableSlots"
-          :key="`${slot.startAt}-${slot.endAt}`"
-          class="availability-slot"
-          :class="slot.available ? 'availability-slot--free' : 'availability-slot--busy'"
-        >
-          {{ formatDateTime(slot.startAt) }} {{ slot.available ? '可用' : '已占用' }}
-        </span>
-        <p v-if="availability.availableSlots.length === 0" class="empty-state compact-empty">此窗口没有可展示的槽位。</p>
+        <ResourceTimeline :slots="availability.availableSlots" />
       </div>
     </section>
 
-    <section v-if="isAdmin" class="content-panel room-admin-panel" aria-labelledby="room-admin-title">
+    <Teleport to="body"><div v-if="isAdmin && adminPanelOpen" class="drawer-layer"><button class="drawer-overlay" aria-label="关闭会议室编辑" @click="closeAdminPanel" /><aside class="trace-drawer room-admin-panel" role="dialog" aria-modal="true" aria-labelledby="room-admin-title">
       <div class="section-heading compact-heading">
         <div>
           <p class="eyebrow">管理员</p>
           <h2 id="room-admin-title">{{ editingRoom ? '修改会议室' : '新增会议室' }}</h2>
           <p class="muted">写入使用 Java 管理接口；更新和启停都携带当前版本。</p>
         </div>
-        <button v-if="editingRoom" class="secondary-button" type="button" :disabled="adminSubmitting" @click="resetRoomForm">新增会议室</button>
+        <button class="secondary-button" type="button" :disabled="adminSubmitting" @click="closeAdminPanel">关闭</button>
       </div>
       <form class="form-grid" @submit.prevent="saveRoom">
         <label><span>编码</span><input v-model.trim="roomForm.code" maxlength="32" required :disabled="adminSubmitting" /></label>
@@ -105,7 +96,9 @@
         <p v-if="adminError" class="error-message form-span-2" role="alert">{{ adminError }}</p>
         <div class="form-actions form-span-2"><button class="primary-button" type="submit" :disabled="adminSubmitting">{{ adminSubmitting ? '正在保存…' : editingRoom ? '保存修改' : '新增会议室' }}</button></div>
       </form>
-    </section>
+    </aside></div></Teleport>
+    <Teleport to="body"><div v-if="selectedRoom" class="drawer-layer"><button class="drawer-overlay" aria-label="关闭会议室详情" @click="selectedRoom=null" /><aside class="trace-drawer room-detail-drawer" role="dialog" aria-modal="true" aria-labelledby="room-detail-title"><header><div><p>{{ selectedRoom.code }}</p><h2 id="room-detail-title">{{ selectedRoom.name }}</h2></div><button class="icon-button" type="button" aria-label="关闭会议室详情" @click="selectedRoom=null">×</button></header><div class="room-detail-hero"><StatusBadge :status="selectedRoom.status" /><span v-if="selectedRoom.isHot" class="preview-badge">热门资源</span></div><dl class="draft-facts"><div><dt>位置</dt><dd>{{ selectedRoom.building }} · {{ selectedRoom.floor }}</dd></div><div><dt>容量</dt><dd>{{ selectedRoom.capacity }} 人</dd></div><div><dt>类型</dt><dd>{{ selectedRoom.roomType }}</dd></div><div><dt>资源版本</dt><dd>{{ selectedRoom.version }}</dd></div></dl><div class="feature-list"><span v-for="feature in selectedRoom.features" :key="feature.code" class="feature-chip">{{ feature.name }}</span></div><button class="ui-button ui-button--outline" type="button" @click="selectForAvailability(selectedRoom)">查询此会议室可用性</button></aside></div></Teleport>
+    <Teleport to="body"><div v-if="pendingStatusRoom" class="dialog-layer"><button class="drawer-overlay" aria-label="关闭状态确认" @click="pendingStatusRoom=null" /><section class="ui-dialog ui-dialog--sm" role="alertdialog" aria-modal="true" aria-labelledby="room-status-title"><h2 id="room-status-title">{{ pendingStatusRoom.status==='ACTIVE' ? '停用' : '启用' }}“{{ pendingStatusRoom.name }}”？</h2><p>{{ pendingStatusRoom.status==='ACTIVE' ? '停用后员工将无法查询或预约此会议室。' : '启用后会议室将重新对员工可见。' }}</p><footer><button class="ui-button ui-button--outline" type="button" @click="pendingStatusRoom=null">返回</button><button class="ui-button ui-button--destructive" type="button" @click="confirmRoomStatus">确认{{ pendingStatusRoom.status==='ACTIVE' ? '停用' : '启用' }}</button></footer></section></div></Teleport>
   </AppShell>
 </template>
 
@@ -123,6 +116,9 @@ import type {
 } from '../api/types'
 import { authStore } from '../auth/store'
 import AppShell from '../components/AppShell.vue'
+import ResourceTimeline from '../components/ResourceTimeline.vue'
+import StatusBadge from '../components/StatusBadge.vue'
+import { useModalFocus } from '../composables/useModalFocus'
 import { formatDateTime, toShanghaiOffset } from '../utils/format'
 
 interface RoomForm {
@@ -149,6 +145,10 @@ const availabilityError = ref('')
 const editingRoom = ref<MeetingRoom | null>(null)
 const adminSubmitting = ref(false)
 const adminError = ref('')
+const adminPanelOpen = ref(false)
+const selectedRoom = ref<MeetingRoom | null>(null)
+const pendingStatusRoom = ref<MeetingRoom | null>(null)
+useModalFocus(computed(() => adminPanelOpen.value || selectedRoom.value !== null || pendingStatusRoom.value !== null), () => { adminPanelOpen.value=false; selectedRoom.value=null; pendingStatusRoom.value=null })
 
 const roomForm = reactive<RoomForm>({
   code: '',
@@ -235,6 +235,7 @@ function roomPayload(): RoomMutation | null {
 }
 
 function beginRoomEdit(room: MeetingRoom): void {
+  adminPanelOpen.value = true
   editingRoom.value = room
   adminError.value = ''
   roomForm.code = room.code
@@ -246,6 +247,11 @@ function beginRoomEdit(room: MeetingRoom): void {
   roomForm.isHot = room.isHot
   roomForm.featureCodes = room.features.map((feature) => feature.code).join(', ')
 }
+
+function openAdminCreate(): void { resetRoomForm(); adminPanelOpen.value = true }
+function closeAdminPanel(): void { adminPanelOpen.value = false; resetRoomForm() }
+function openRoomDetails(room: MeetingRoom): void { selectedRoom.value = room }
+function selectForAvailability(room: MeetingRoom): void { availabilityRoomId.value = room.id; selectedRoom.value = null; document.querySelector('.availability-panel')?.scrollIntoView({ behavior: 'smooth' }) }
 
 function resetRoomForm(): void {
   editingRoom.value = null
@@ -289,9 +295,6 @@ async function saveRoom(): Promise<void> {
 
 async function toggleRoomStatus(room: MeetingRoom): Promise<void> {
   const nextStatus = room.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'
-  if (!window.confirm(`确认将“${room.name}”${nextStatus === 'ACTIVE' ? '启用' : '停用'}吗？`)) {
-    return
-  }
   adminError.value = ''
   try {
     const request: RoomStatusMutation = { status: nextStatus, expectedVersion: room.version }
@@ -304,6 +307,8 @@ async function toggleRoomStatus(room: MeetingRoom): Promise<void> {
     adminError.value = error instanceof ApiError ? error.message : '会议室状态更新失败。'
   }
 }
+
+async function confirmRoomStatus(): Promise<void> { const room = pendingStatusRoom.value; if (room === null) return; pendingStatusRoom.value = null; await toggleRoomStatus(room) }
 
 onMounted(() => {
   void loadRooms()
