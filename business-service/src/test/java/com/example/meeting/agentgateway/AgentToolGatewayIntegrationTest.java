@@ -492,7 +492,6 @@ class AgentToolGatewayIntegrationTest {
                 List.of(),
                 "optionalParticipantIds",
                 List.of()));
-    rescheduleBody.put("createVideoConference", false);
     rescheduleBody.put("expectedVersion", 0);
     MvcResult preview =
         performTool(
@@ -827,9 +826,7 @@ class AgentToolGatewayIntegrationTest {
             "requiredParticipantIds",
             List.of(),
             "optionalParticipantIds",
-            List.of(1002),
-            "createVideoConference",
-            false));
+            List.of(1002)));
   }
 
   private String rescheduleBody(
@@ -854,7 +851,6 @@ class AgentToolGatewayIntegrationTest {
                 List.of(),
                 "optionalParticipantIds",
                 List.of(1002)));
-    body.put("createVideoConference", false);
     body.put("expectedVersion", expectedVersion);
     return objectMapper.writeValueAsString(body);
   }

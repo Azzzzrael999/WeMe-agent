@@ -14,5 +14,4 @@ public record CreateMeetingRequest(
     @NotNull(message = "REQUIRED") OffsetDateTime startAt,
     @NotNull(message = "REQUIRED") OffsetDateTime endAt,
     @NotNull(message = "REQUIRED") @Size(max = 100, message = "TOO_MANY_PARTICIPANTS") List<@Positive(message = "MUST_BE_POSITIVE") Long> requiredParticipantIds,
-    @NotNull(message = "REQUIRED") @Size(max = 100, message = "TOO_MANY_PARTICIPANTS") List<@Positive(message = "MUST_BE_POSITIVE") Long> optionalParticipantIds,
-    @NotNull(message = "REQUIRED") Boolean createVideoConference) {}
+    @NotNull(message = "REQUIRED") @Size(max = 100, message = "TOO_MANY_PARTICIPANTS") List<@Positive(message = "MUST_BE_POSITIVE") Long> optionalParticipantIds) {}

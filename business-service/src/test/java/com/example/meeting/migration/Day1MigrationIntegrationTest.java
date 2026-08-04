@@ -40,7 +40,6 @@ class Day1MigrationIntegrationTest {
     assertThat(tableCount("notification")).isEqualTo(1);
     assertThat(tableCount("agent_tool_audit")).isEqualTo(1);
     assertThat(tableCount("agent_run")).isZero();
-    assertThat(tableCount("video_conference_link")).isZero();
   }
 
   @Test

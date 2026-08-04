@@ -58,8 +58,7 @@ class MeetingApiIntegrationTest {
             "2026-08-19T15:00:00+08:00",
             "2026-08-19T16:30:00+08:00",
             List.of(1002L, 1002L),
-            List.of(1001L),
-            false);
+            List.of(1001L));
 
     MvcResult first = create(token, "create-90-minutes", body, 200);
     MvcResult replay = create(token, "create-90-minutes", body, 200);
@@ -122,8 +121,7 @@ class MeetingApiIntegrationTest {
             "2026-08-20T09:00:00+08:00",
             "2026-08-20T10:00:00+08:00",
             List.of(),
-            List.of(),
-            false);
+            List.of());
     create(token, "reused-key", valid, 200);
 
     create(
@@ -135,8 +133,7 @@ class MeetingApiIntegrationTest {
                 "2026-08-20T09:00:00+08:00",
                 "2026-08-20T10:00:00+08:00",
                 List.of(),
-                List.of(),
-                false),
+                List.of()),
             409)
         .getResponse();
     mockMvc
@@ -151,18 +148,6 @@ class MeetingApiIntegrationTest {
 
     create(
         token,
-        "video-not-supported",
-        meetingBody(
-            "视频会议",
-            101,
-            "2026-08-20T10:00:00+08:00",
-            "2026-08-20T11:00:00+08:00",
-            List.of(),
-            List.of(),
-            true),
-        400);
-    create(
-        token,
         "participant-not-found",
         meetingBody(
             "非法参与者",
@@ -170,8 +155,7 @@ class MeetingApiIntegrationTest {
             "2026-08-20T11:00:00+08:00",
             "2026-08-20T12:00:00+08:00",
             List.of(999999L),
-            List.of(),
-            false),
+            List.of()),
         400);
     create(
         token,
@@ -182,8 +166,7 @@ class MeetingApiIntegrationTest {
             "2026-08-20T12:15:00+08:00",
             "2026-08-20T13:00:00+08:00",
             List.of(),
-            List.of(),
-            false),
+            List.of()),
         400);
   }
 
@@ -200,8 +183,7 @@ class MeetingApiIntegrationTest {
             "2026-08-21T09:00:00+08:00",
             "2026-08-21T10:00:00+08:00",
             List.of(),
-            List.of(),
-            false),
+            List.of()),
         200);
 
     MvcResult roomConflict =
@@ -214,8 +196,7 @@ class MeetingApiIntegrationTest {
                 "2026-08-21T09:30:00+08:00",
                 "2026-08-21T10:30:00+08:00",
                 List.of(),
-                List.of(),
-                false),
+                List.of()),
             409);
     assertThat(errorCode(roomConflict)).isEqualTo("BOOKING_CONFLICT");
 
@@ -228,8 +209,7 @@ class MeetingApiIntegrationTest {
             "2026-08-21T13:00:00+08:00",
             "2026-08-21T14:00:00+08:00",
             List.of(1001L),
-            List.of(),
-            false),
+            List.of()),
         200);
     MvcResult employeeConflict =
         create(
@@ -241,8 +221,7 @@ class MeetingApiIntegrationTest {
                 "2026-08-21T13:00:00+08:00",
                 "2026-08-21T14:00:00+08:00",
                 List.of(),
-                List.of(),
-                false),
+                List.of()),
             409);
     assertThat(errorCode(employeeConflict)).isEqualTo("BOOKING_CONFLICT");
     assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM meeting", Integer.class))
@@ -264,8 +243,7 @@ class MeetingApiIntegrationTest {
                         "2026-08-22T15:00:00+08:00",
                         "2026-08-22T16:00:00+08:00",
                         List.of(),
-                        List.of(),
-                        false),
+                        List.of()),
                     200))
             .get("id")
             .longValue();
@@ -278,8 +256,7 @@ class MeetingApiIntegrationTest {
             "2026-08-22T16:00:00+08:00",
             "2026-08-22T17:00:00+08:00",
             List.of(),
-            List.of(),
-            false),
+            List.of()),
         200);
 
     mockMvc
@@ -358,8 +335,7 @@ class MeetingApiIntegrationTest {
             "2026-08-23T10:00:00+08:00",
             "2026-08-23T11:00:00+08:00",
             List.of(),
-            List.of(),
-            false);
+            List.of());
     long meetingId = responseData(create(token, "cancel-first", body, 200)).get("id").longValue();
 
     mockMvc
@@ -415,8 +391,7 @@ class MeetingApiIntegrationTest {
                         "2026-08-24T09:00:00+08:00",
                         "2026-08-24T10:00:00+08:00",
                         List.of(),
-                        List.of(1001L),
-                        false),
+                        List.of(1001L)),
                     200))
             .get("id")
             .longValue();
@@ -551,8 +526,7 @@ class MeetingApiIntegrationTest {
       String startAt,
       String endAt,
       List<Long> required,
-      List<Long> optional,
-      boolean createVideoConference)
+      List<Long> optional)
       throws Exception {
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("title", title);
@@ -562,7 +536,6 @@ class MeetingApiIntegrationTest {
     body.put("endAt", endAt);
     body.put("requiredParticipantIds", required);
     body.put("optionalParticipantIds", optional);
-    body.put("createVideoConference", createVideoConference);
     return objectMapper.writeValueAsString(body);
   }
 
@@ -571,7 +544,7 @@ class MeetingApiIntegrationTest {
       throws Exception {
     Map<String, Object> body =
         objectMapper.readValue(
-            meetingBody(title, roomId, startAt, endAt, List.of(), List.of(), false),
+            meetingBody(title, roomId, startAt, endAt, List.of(), List.of()),
             new com.fasterxml.jackson.core.type.TypeReference<>() {});
     body.put("expectedVersion", expectedVersion);
     return objectMapper.writeValueAsString(body);

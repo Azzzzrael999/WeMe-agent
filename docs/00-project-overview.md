@@ -76,7 +76,6 @@ flowchart LR
 - OR-Tools 硬约束与软约束求解。
 - 会议制度简化 RAG。
 - 预约、改期和取消的 HITL。
-- Mock 视频会议链接创建。
 - 显式用户偏好。
 - Agent Run/Step/Tool Trace。
 - Agent 离线评测。
@@ -93,7 +92,7 @@ flowchart LR
 - 企业微信、钉钉、Outlook、Google Calendar 接入。
 - 多租户、SSO、多级审批和复杂访客管理。
 - 重复会议和会议系列异常实例。
-- 真实视频会议供应商。
+- 真实或 Mock 视频会议链接创建；`VIDEO_CONFERENCE` 仅表示会议室设备特征。
 - 自动移动其他用户已有会议。
 - OCR、Rerank、知识图谱和复杂 RAG ACL。
 - 完整 OpenTelemetry Collector、Grafana 和故障注入平台。

@@ -46,8 +46,7 @@ public class BookingCommandProcessor {
                   payload.startAt(),
                   payload.endAt(),
                   payload.requiredParticipantIds(),
-                  payload.optionalParticipantIds(),
-                  payload.createVideoConference()),
+                  payload.optionalParticipantIds()),
               payload.userId());
       finalizationService.finalizeSuccess(event, payload, command);
     } catch (BusinessException | DataIntegrityViolationException exception) {

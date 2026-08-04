@@ -39,7 +39,6 @@ deploy/
 | frontend | 80 | 80 | Nginx静态前端与反向代理 |
 | business-service | 8080 | 8080 | Spring Boot |
 | agent-service | 8000 | 8000 | FastAPI/LangGraph |
-| video-provider-mock | 8010 | 8010 | 视频会议外部服务Mock |
 | mysql | 3306 | 3306 | 两个逻辑数据库 |
 | redis | 6379 | 6379 | 预占、限流、checkpoint |
 | rocketmq-namesrv | 9876 | 9876 | RocketMQ NameServer |
@@ -60,7 +59,6 @@ backend_net (internal):
   frontend
   business-service
   agent-service
-  video-provider-mock
   mysql
   redis
   rocketmq-namesrv
@@ -157,7 +155,6 @@ QDRANT_COLLECTION=meeting_policies
 # Service URLs
 BUSINESS_SERVICE_URL=http://business-service:8080
 AGENT_SERVICE_URL=http://agent-service:8000
-VIDEO_PROVIDER_URL=http://video-provider-mock:8010
 
 # Application
 APP_TIMEZONE=Asia/Shanghai
@@ -296,16 +293,6 @@ services:
       timeout: 3s
       retries: 20
 
-  video-provider-mock:
-    build:
-      context: ./mock-services/video-provider
-    networks: [backend_net]
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/health')"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-
   business-service:
     build:
       context: ./business-service
@@ -391,8 +378,6 @@ services:
     ports: ["8080:8080"]
   agent-service:
     ports: ["8000:8000"]
-  video-provider-mock:
-    ports: ["8010:8010"]
   mysql:
     ports: ["3306:3306"]
   redis:
@@ -532,7 +517,7 @@ docker compose config --quiet
 - 10 GB可用内存；本地Embedding首次加载时建议更多。
 - 15 GB可用磁盘。
 
-当前 `compose.yaml` 还声明了可由 Docker Compose 在本地引擎执行的硬上限：常驻服务合计最多约 **4.2 GiB RAM / 5.75 CPU**；一次性 RocketMQ 初始化容器最多使用 **384 MiB / 0.75 CPU**，一次性 `rag-init` 最多使用 **384 MiB / 0.50 CPU**。关键单服务上限为 MySQL、RocketMQ Broker、Java 和 Python 各 768 MiB；Qdrant、NameServer 和 `rag-init` 各 384 MiB；Redis 192 MiB；前端和 Video Mock 各 128 MiB。实际性能报告必须同时记录宿主机/Docker Desktop 分配，而不能把这些上限当作已测得使用量。
+当前 `compose.yaml` 还声明了可由 Docker Compose 在本地引擎执行的硬上限：常驻服务合计最多约 **4.1 GiB RAM / 5.5 CPU**；一次性 RocketMQ 初始化容器最多使用 **384 MiB / 0.75 CPU**，一次性 `rag-init` 最多使用 **384 MiB / 0.50 CPU**。关键单服务上限为 MySQL、RocketMQ Broker、Java 和 Python 各 768 MiB；Qdrant、NameServer 和 `rag-init` 各 384 MiB；Redis 192 MiB；前端 128 MiB。实际性能报告必须同时记录宿主机/Docker Desktop 分配，而不能把这些上限当作已测得使用量。
 
 如果机器资源不足：
 
@@ -554,7 +539,7 @@ docker compose config --quiet
 ## 16. CI中的Docker任务
 
 1. 校验Compose语法。
-2. 构建四个应用镜像。
+2. 构建三个应用镜像。
 3. 启动MySQL、Redis、RocketMQ和Qdrant。
 4. 执行Java集成测试和Python测试。
 5. 启动完整Compose。

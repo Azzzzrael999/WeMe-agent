@@ -135,7 +135,6 @@ export interface MeetingMutation {
   endAt: string
   requiredParticipantIds: number[]
   optionalParticipantIds: number[]
-  createVideoConference: boolean
 }
 
 export interface MeetingUpdateMutation extends MeetingMutation {
@@ -187,7 +186,6 @@ export interface AgentDraft {
   endAt: string
   requiredParticipants: AgentDraftParticipant[]
   optionalParticipants: AgentDraftParticipant[]
-  createVideoConference: boolean
 }
 
 export interface AgentMeetingSnapshot {
@@ -202,7 +200,6 @@ export interface AgentMeetingSnapshot {
   version?: number
   requiredParticipants?: AgentDraftParticipant[]
   optionalParticipants?: AgentDraftParticipant[]
-  createVideoConference?: boolean
 }
 
 export interface AgentRescheduleDraft {

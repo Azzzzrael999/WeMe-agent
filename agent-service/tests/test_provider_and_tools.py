@@ -364,7 +364,6 @@ def test_requirement_evaluator_optimizer_repairs_semantics_once() -> None:
         "preferredBuildings": [],
         "hardConstraints": [],
         "softConstraints": [],
-        "createVideoConference": False,
         "targetMeetingId": None,
         "targetMeetingReference": None,
         "fieldEvidence": [],
@@ -779,7 +778,6 @@ def test_create_draft_uses_caller_supplied_stable_tool_identity() -> None:
                         "endAt": "2026-08-19T16:30:00+08:00",
                         "requiredParticipants": [],
                         "optionalParticipants": [],
-                        "createVideoConference": False,
                     },
                 }
             },
@@ -872,7 +870,6 @@ def test_fixture_requirement_extracts_video_feature_and_explicit_capacity() -> N
 
     assert meeting["minimumCapacity"] == 10
     assert meeting["requiredFeatures"] == ["VIDEO_CONFERENCE"]
-    assert meeting["createVideoConference"] is True
 
 
 def test_fixture_tool_loop_computes_unique_organizer_capacity_after_resolution() -> None:

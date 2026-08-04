@@ -10,7 +10,6 @@ flowchart TB
     N[Nginx / Frontend]
     J[Java Business Service]
     A[Python Agent Service]
-    V[Video Provider Mock]
     M[(MySQL)]
     R[(Redis)]
     Q[(Qdrant)]
@@ -22,7 +21,6 @@ flowchart TB
     J -->|SSE relay / internal call| A
     A -->|Internal Tool API| J
     A --> Q
-    J --> V
     J --> M
     J --> R
     A --> R
@@ -38,7 +36,6 @@ flowchart TB
 | frontend | 登录、聊天、会议管理、会议室管理、HITL 和 Trace 展示 |
 | business-service | 鉴权、业务数据、并发预约、草案确认、Tool Gateway、MQ 和 SSE 代理 |
 | agent-service | LangGraph Multi-Agent、DeepSeek、OR-Tools、RAG、checkpoint 和评测 |
-| video-provider-mock | 模拟外部视频会议供应商；由Java在已确认的Tool调用中访问，验证外部副作用与幂等 |
 
 ### 1.2 基础设施
 
@@ -56,8 +53,6 @@ flowchart TB
 ├─ frontend/                       # Vue + TypeScript
 ├─ business-service/               # Spring Boot
 ├─ agent-service/                  # FastAPI + LangGraph
-├─ mock-services/
-│  └─ video-provider/              # 外部视频会议 Mock
 ├─ docs/                            # 设计文档
 ├─ deploy/
 │  ├─ mysql/init/
@@ -276,7 +271,6 @@ Java调用 Python 内部流式接口并转发以下事件：
 - Qdrant不可用：Policy Agent返回无证据状态；Scheduling Agent可在无RAG时继续执行基础规则。
 - Redis不可用：普通预约允许降级到数据库唯一约束；关闭热门异步入口或限制流量。
 - RocketMQ不可用：普通同步预约仍可执行；Outbox保留待发布事件；热门预约暂时拒绝或保持PENDING。
-- 视频会议Mock不可用：会议预约可以成功，外部动作标记失败，不回滚会议。
 
 ## 11. 架构决策记录
 

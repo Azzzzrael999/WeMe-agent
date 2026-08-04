@@ -12,8 +12,7 @@ public record BookingCommandPayload(
     OffsetDateTime startAt,
     OffsetDateTime endAt,
     List<Long> requiredParticipantIds,
-    List<Long> optionalParticipantIds,
-    boolean createVideoConference) {
+    List<Long> optionalParticipantIds) {
 
   public BookingCommandPayload {
     requiredParticipantIds = List.copyOf(requiredParticipantIds);

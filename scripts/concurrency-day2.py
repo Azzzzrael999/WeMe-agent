@@ -92,7 +92,6 @@ def main() -> None:
         "endAt": end.isoformat(timespec="seconds"),
         "requiredParticipantIds": [],
         "optionalParticipantIds": [],
-        "createVideoConference": False,
     }
 
     shared_idempotency_key = str(uuid.uuid4())

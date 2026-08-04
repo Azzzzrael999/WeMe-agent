@@ -74,10 +74,6 @@ class CreateBookingDraftInput(ToolInput):
     optional_participant_ids: list[int] = Field(
         default_factory=list, max_length=100, serialization_alias="optionalParticipantIds"
     )
-    create_video_conference: bool = Field(
-        default=False, serialization_alias="createVideoConference"
-    )
-
     @model_validator(mode="after")
     def validate_draft_window(self) -> CreateBookingDraftInput:
         if self.end_at <= self.start_at:

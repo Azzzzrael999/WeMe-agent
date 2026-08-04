@@ -207,7 +207,6 @@ def main() -> int:
             "endAt": end_at,
             "requiredParticipantIds": [],
             "optionalParticipantIds": [],
-            "createVideoConference": False,
         }
         created, _ = request_json(
             "POST",

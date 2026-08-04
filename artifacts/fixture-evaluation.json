@@ -19,9 +19,9 @@
     "citationsChecked": 5,
     "citationsValid": 5,
     "componentTaskSuccess": 0.825,
-    "constraintF1": 0.9675925925925926,
-    "constraintPrecision": 0.9675925925925926,
-    "constraintRecall": 0.9675925925925926,
+    "constraintF1": 0.9613259668508287,
+    "constraintPrecision": 0.9613259668508287,
+    "constraintRecall": 0.9613259668508287,
     "hardConstraintCandidatesChecked": 60,
     "hardConstraintViolationRate": 0.0,
     "hardConstraintViolations": 0,
@@ -42,13 +42,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": false,
           "durationMinutes": 60,
           "minimumCapacity": 6,
           "missingFields": [],
@@ -82,13 +81,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": false,
           "durationMinutes": 30,
           "minimumCapacity": 4,
           "missingFields": [],
@@ -122,13 +120,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": true,
           "durationMinutes": 90,
           "minimumCapacity": 8,
           "missingFields": [],
@@ -163,13 +160,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": false,
           "durationMinutes": 60,
           "minimumCapacity": 5,
           "missingFields": [],
@@ -203,13 +199,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": true,
           "durationMinutes": 120,
           "minimumCapacity": 12,
           "missingFields": [],
@@ -244,13 +239,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": false,
           "durationMinutes": 30,
           "minimumCapacity": 3,
           "missingFields": [],
@@ -282,13 +276,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": false,
           "durationMinutes": 90,
           "minimumCapacity": 10,
           "missingFields": [],
@@ -323,13 +316,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": false,
           "durationMinutes": 60,
           "minimumCapacity": 7,
           "missingFields": [],
@@ -364,13 +356,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": false,
           "durationMinutes": 60,
           "minimumCapacity": 6,
           "missingFields": [],
@@ -406,13 +397,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": true,
           "durationMinutes": 90,
           "minimumCapacity": 12,
           "missingFields": [],
@@ -448,13 +438,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": false,
           "durationMinutes": 30,
           "minimumCapacity": 5,
           "missingFields": [],
@@ -487,13 +476,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": false,
           "durationMinutes": 120,
           "minimumCapacity": 15,
           "missingFields": [],
@@ -529,13 +517,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": true,
           "durationMinutes": 60,
           "minimumCapacity": 8,
           "missingFields": [],
@@ -571,13 +558,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": false,
           "durationMinutes": 90,
           "minimumCapacity": 9,
           "missingFields": [],
@@ -612,13 +598,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": true,
           "durationMinutes": 90,
           "minimumCapacity": 20,
           "missingFields": [],
@@ -654,13 +639,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": true,
           "durationMinutes": 120,
           "minimumCapacity": 18,
           "missingFields": [],
@@ -695,13 +679,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": false,
           "durationMinutes": 30,
           "minimumCapacity": 2,
           "missingFields": [],
@@ -735,13 +718,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": false,
           "durationMinutes": 120,
           "minimumCapacity": 16,
           "missingFields": [],
@@ -777,13 +759,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": true,
           "durationMinutes": 90,
           "minimumCapacity": 30,
           "missingFields": [],
@@ -819,13 +800,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": true,
           "durationMinutes": 60,
           "minimumCapacity": 11,
           "missingFields": [],
@@ -861,13 +841,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": false,
           "durationMinutes": 60,
           "minimumCapacity": 8,
           "missingFields": [],
@@ -898,13 +877,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": false,
           "durationMinutes": 90,
           "minimumCapacity": 8,
           "missingFields": [],
@@ -934,13 +912,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": false,
           "durationMinutes": 60,
           "minimumCapacity": 6,
           "missingFields": [],
@@ -971,13 +948,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": false,
           "durationMinutes": 60,
           "minimumCapacity": 5,
           "missingFields": [],
@@ -1007,13 +983,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": false,
           "durationMinutes": 60,
           "minimumCapacity": 6,
           "missingFields": [],
@@ -1060,7 +1035,6 @@
           }
         ],
         "constraints": {
-          "createVideoConference": null,
           "durationMinutes": null,
           "minimumCapacity": null,
           "missingFields": null,
@@ -1101,7 +1075,6 @@
           }
         ],
         "constraints": {
-          "createVideoConference": null,
           "durationMinutes": null,
           "minimumCapacity": null,
           "missingFields": null,
@@ -1142,7 +1115,6 @@
           }
         ],
         "constraints": {
-          "createVideoConference": null,
           "durationMinutes": null,
           "minimumCapacity": null,
           "missingFields": null,
@@ -1183,7 +1155,6 @@
           }
         ],
         "constraints": {
-          "createVideoConference": null,
           "durationMinutes": null,
           "minimumCapacity": null,
           "missingFields": null,
@@ -1224,7 +1195,6 @@
           }
         ],
         "constraints": {
-          "createVideoConference": null,
           "durationMinutes": null,
           "minimumCapacity": null,
           "missingFields": null,
@@ -1249,13 +1219,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 7,
+      "constraintTruePositive": 6,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": false,
           "durationMinutes": 60,
           "minimumCapacity": 4,
           "missingFields": [],
@@ -1286,13 +1255,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 7,
+      "constraintTruePositive": 6,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": true,
           "durationMinutes": 90,
           "minimumCapacity": 8,
           "missingFields": [],
@@ -1323,13 +1291,12 @@
       "componentSuccess": true,
       "constraintFalseNegative": 0,
       "constraintFalsePositive": 0,
-      "constraintTruePositive": 7,
+      "constraintTruePositive": 6,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": false,
           "durationMinutes": 60,
           "minimumCapacity": 6,
           "missingFields": [],
@@ -1360,13 +1327,12 @@
       "componentSuccess": false,
       "constraintFalseNegative": 1,
       "constraintFalsePositive": 1,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": false,
           "durationMinutes": 60,
           "minimumCapacity": 2,
           "missingFields": [],
@@ -1395,13 +1361,12 @@
       "componentSuccess": false,
       "constraintFalseNegative": 1,
       "constraintFalsePositive": 1,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": false,
           "durationMinutes": 60,
           "minimumCapacity": 2,
           "missingFields": [],
@@ -1430,13 +1395,12 @@
       "componentSuccess": false,
       "constraintFalseNegative": 1,
       "constraintFalsePositive": 1,
-      "constraintTruePositive": 6,
+      "constraintTruePositive": 5,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": false,
           "durationMinutes": 60,
           "minimumCapacity": 2,
           "missingFields": [],
@@ -1465,13 +1429,12 @@
       "componentSuccess": false,
       "constraintFalseNegative": 1,
       "constraintFalsePositive": 1,
-      "constraintTruePositive": 5,
+      "constraintTruePositive": 4,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": false,
           "durationMinutes": 60,
           "minimumCapacity": 2,
           "missingFields": [],
@@ -1500,13 +1463,12 @@
       "componentSuccess": false,
       "constraintFalseNegative": 1,
       "constraintFalsePositive": 1,
-      "constraintTruePositive": 5,
+      "constraintTruePositive": 4,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": false,
           "durationMinutes": 60,
           "minimumCapacity": 2,
           "missingFields": [],
@@ -1535,13 +1497,12 @@
       "componentSuccess": false,
       "constraintFalseNegative": 1,
       "constraintFalsePositive": 1,
-      "constraintTruePositive": 5,
+      "constraintTruePositive": 4,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": false,
           "durationMinutes": 60,
           "minimumCapacity": 1,
           "missingFields": [],
@@ -1571,13 +1532,12 @@
       "componentSuccess": false,
       "constraintFalseNegative": 1,
       "constraintFalsePositive": 1,
-      "constraintTruePositive": 5,
+      "constraintTruePositive": 4,
       "hardConstraintViolations": 0,
       "intentMatch": true,
       "prediction": {
         "citations": [],
         "constraints": {
-          "createVideoConference": false,
           "durationMinutes": 60,
           "minimumCapacity": 8,
           "missingFields": [],

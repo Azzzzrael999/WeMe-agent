@@ -20,8 +20,7 @@ public class MeetingRequestHasher {
             command.schedule().startAt().toString(),
             command.schedule().endAt().toString(),
             command.requiredParticipantIds().toString(),
-            command.optionalParticipantIds().toString(),
-            Boolean.toString(command.createVideoConference()));
+            command.optionalParticipantIds().toString());
     try {
       MessageDigest digest = MessageDigest.getInstance("SHA-256");
       return HexFormat.of().formatHex(digest.digest(canonical.getBytes(StandardCharsets.UTF_8)));

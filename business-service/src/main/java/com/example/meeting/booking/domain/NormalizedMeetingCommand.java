@@ -8,8 +8,7 @@ public record NormalizedMeetingCommand(
     long roomId,
     MeetingSchedule schedule,
     List<Long> requiredParticipantIds,
-    List<Long> optionalParticipantIds,
-    boolean createVideoConference) {
+    List<Long> optionalParticipantIds) {
 
   public NormalizedMeetingCommand {
     requiredParticipantIds = List.copyOf(requiredParticipantIds);

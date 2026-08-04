@@ -255,7 +255,6 @@ CANCELLED
   "softConstraints": [
     {"type": "START_AFTER", "value": "15:00", "weight": 20}
   ],
-  "createVideoConference": false,
   "targetMeetingId": null
 }
 ```
@@ -278,7 +277,6 @@ CANCELLED
 | confirm_booking | WRITE | 否 | 必须经过HITL |
 | confirm_reschedule | WRITE | 否 | 必须经过HITL |
 | confirm_cancellation | WRITE | 否 | 必须经过HITL |
-| create_video_conference_link | WRITE | 条件允许 | 用户已确认草案中包含该动作且会议已成功 |
 
 ### 6.2 Python内部工具
 

@@ -275,8 +275,7 @@ class MeetingConcurrencyIntegrationTest {
             OffsetDateTime.parse("2026-08-29T10:00:00+08:00"),
             OffsetDateTime.parse("2026-08-29T11:00:00+08:00"),
             List.of(),
-            List.of(),
-            false);
+            List.of());
     EventEnvelope event =
         new EventEnvelope(
             "event-ct05-" + index,
@@ -363,7 +362,6 @@ class MeetingConcurrencyIntegrationTest {
     body.put("endAt", endAt);
     body.put("requiredParticipantIds", requiredParticipantIds);
     body.put("optionalParticipantIds", List.of());
-    body.put("createVideoConference", false);
     return objectMapper.writeValueAsString(body);
   }
 

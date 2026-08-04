@@ -249,7 +249,6 @@ class RequirementNormalizer:
                 preferred_buildings=draft.preferred_buildings,
                 hard_constraints=draft.hard_constraints,
                 soft_constraints=draft.soft_constraints,
-                create_video_conference=draft.create_video_conference,
                 target_meeting_id=draft.target_meeting_id,
                 target_meeting_reference=draft.target_meeting_reference,
             ),

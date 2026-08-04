@@ -61,7 +61,6 @@ export function readCreateDraft(value: unknown): AgentDraft | null {
     endAt,
     requiredParticipants: readParticipants(item.requiredParticipants),
     optionalParticipants: readParticipants(item.optionalParticipants),
-    createVideoConference: item.createVideoConference === true,
   }
 }
 
@@ -91,7 +90,6 @@ function readMeetingSnapshot(value: unknown): AgentMeetingSnapshot | null {
     ...(numberValue(item, 'version') === undefined ? {} : { version: numberValue(item, 'version') }),
     requiredParticipants: readParticipants(item.requiredParticipants ?? item.participants),
     optionalParticipants: readParticipants(item.optionalParticipants),
-    createVideoConference: item.createVideoConference === true,
   }
 }
 

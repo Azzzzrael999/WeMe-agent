@@ -105,7 +105,7 @@ try {
     $containers = @($psJson | Where-Object { $_ } | ConvertFrom-Json)
     $requiredHealthy = @(
         'mysql', 'redis', 'rocketmq-namesrv', 'rocketmq-broker', 'qdrant',
-        'video-provider-mock', 'business-service', 'agent-service', 'frontend'
+        'business-service', 'agent-service', 'frontend'
     )
     foreach ($service in $requiredHealthy) {
         $container = $containers | Where-Object { $_.Service -eq $service } | Select-Object -First 1

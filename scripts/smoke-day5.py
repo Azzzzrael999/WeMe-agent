@@ -509,7 +509,6 @@ def main() -> int:
                 "endAt": hot_draft["endAt"],
                 "requiredParticipantIds": [],
                 "optionalParticipantIds": [],
-                "createVideoConference": False,
             },
         )
         blocker_value = blocker.get("data", {})

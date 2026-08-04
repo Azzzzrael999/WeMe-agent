@@ -26,10 +26,6 @@
         <dt>可选参会</dt>
         <dd>{{ participantNames(draft.optionalParticipants) }}</dd>
       </div>
-      <div>
-        <dt>视频会议</dt>
-        <dd>{{ draft.createVideoConference ? '需要创建' : '不创建' }}</dd>
-      </div>
       <div v-if="expiresAt">
         <dt>确认有效期至</dt>
         <dd>{{ formatDateTime(expiresAt) }}</dd>

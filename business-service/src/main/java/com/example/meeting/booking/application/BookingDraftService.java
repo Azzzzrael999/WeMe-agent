@@ -92,8 +92,7 @@ public class BookingDraftService {
         command.schedule().startAt(),
         command.schedule().endAt(),
         participants(command.requiredParticipantIds()),
-        participants(command.optionalParticipantIds()),
-        false);
+        participants(command.optionalParticipantIds()));
   }
 
   private List<DraftParticipantView> participants(List<Long> employeeIds) {

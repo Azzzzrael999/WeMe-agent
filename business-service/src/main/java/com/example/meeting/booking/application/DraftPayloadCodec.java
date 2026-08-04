@@ -27,8 +27,7 @@ public class DraftPayloadCodec {
         command.schedule().startAt(),
         command.schedule().endAt(),
         command.requiredParticipantIds(),
-        command.optionalParticipantIds(),
-        false);
+        command.optionalParticipantIds());
   }
 
   public String write(CreateMeetingRequest request) {
@@ -62,7 +61,6 @@ public class DraftPayloadCodec {
         request.startAt(),
         request.endAt(),
         request.requiredParticipantIds(),
-        request.optionalParticipantIds(),
-        request.createVideoConference());
+        request.optionalParticipantIds());
   }
 }

@@ -74,8 +74,7 @@ public final class AgentToolDtos {
       OffsetDateTime startAt,
       OffsetDateTime endAt,
       List<DraftParticipantView> requiredParticipants,
-      List<DraftParticipantView> optionalParticipants,
-      boolean createVideoConference) {}
+      List<DraftParticipantView> optionalParticipants) {}
 
   public record CreateDraftResponse(
       String confirmationToken, OffsetDateTime expiresAt, BookingDraftView draft) {}
@@ -93,7 +92,6 @@ public final class AgentToolDtos {
       @NotNull OffsetDateTime endAt,
       @NotNull @Size(max = 100) List<@Positive Long> requiredParticipantIds,
       @NotNull @Size(max = 100) List<@Positive Long> optionalParticipantIds,
-      @NotNull Boolean createVideoConference,
       @NotNull @Min(0) Integer expectedVersion) {
 
     public UpdateMeetingRequest toUpdateRequest() {
@@ -105,7 +103,6 @@ public final class AgentToolDtos {
           endAt,
           requiredParticipantIds,
           optionalParticipantIds,
-          createVideoConference,
           expectedVersion);
     }
   }

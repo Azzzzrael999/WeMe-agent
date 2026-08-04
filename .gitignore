@@ -34,11 +34,9 @@ frontend/.vite/
 npm-debug.log*
 
 # Mock service build output
-mock-services/**/__pycache__/
 
 # Local test and runtime artifacts
 .cache/
 coverage/
 reports/generated/
 *.pid
-

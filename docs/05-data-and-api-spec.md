@@ -253,20 +253,6 @@ created_at DATETIME(3)
 UNIQUE(run_id, tool_call_id, tool_name)
 ```
 
-### 2.16 video_conference_link
-
-```text
-id BIGINT PK
-meeting_id BIGINT UNIQUE
-provider VARCHAR(32)
-external_meeting_id VARCHAR(80)
-join_url VARCHAR(255)
-status VARCHAR(24)
-idempotency_key VARCHAR(80) UNIQUE
-created_at DATETIME(3)
-updated_at DATETIME(3)
-```
-
 ## 3. Python核心表
 
 ### 3.1 agent_thread
@@ -524,8 +510,7 @@ GET    /api/v1/booking-requests/{requestNo}
   "startAt": "2026-08-19T15:00:00+08:00",
   "endAt": "2026-08-19T16:30:00+08:00",
   "requiredParticipantIds": [1001, 1002],
-  "optionalParticipantIds": [1003],
-  "createVideoConference": false
+  "optionalParticipantIds": [1003]
 }
 ```
 
@@ -581,7 +566,6 @@ Day 2 手动会议接口使用以下冻结响应数据；所有数据仍包在 4
 - 只有发起人或 ADMIN 可以修改、取消会议。
 - 发起人无论是否出现在请求数组中，都由服务端加入 REQUIRED；同一员工不能同时作为 REQUIRED 和 OPTIONAL。
 - `requiredParticipantIds` 与 `optionalParticipantIds` 合计最多 100 人；房间容量按去重后并包含发起人的总人数校验。
-- `createVideoConference` 在 Day 2 只接受 `false`；视频会议外部副作用保留到后续 Mock 业务链路。
 - 手动创建成功状态固定为 `CONFIRMED`，来源固定为 `MANUAL`。
 - `POST /api/v1/meetings` 强制使用 `Idempotency-Key`；同一用户、同一键、同一请求返回同一 `meetingId`，同一键对应不同请求返回 `IDEMPOTENCY_KEY_REUSED`。
 
@@ -596,7 +580,6 @@ Day 2 手动会议接口使用以下冻结响应数据；所有数据仍包在 4
   "endAt": "2026-08-19T17:00:00+08:00",
   "requiredParticipantIds": [1001, 1002],
   "optionalParticipantIds": [1003],
-  "createVideoConference": false,
   "expectedVersion": 0
 }
 ```
@@ -681,7 +664,7 @@ event: plan.candidates
 data: {"runId":"run_uuid","candidates":[{"candidateId":"cand_uuid","roomId":101,"roomName":"研发楼301","building":"研发楼","startAt":"2026-08-19T15:00:00+08:00","endAt":"2026-08-19T16:30:00+08:00","totalCost":24,"costBreakdown":{"optionalParticipantConflict":0,"preferredTimeDeviation":0,"buildingDistance":0,"capacityWaste":24,"preferenceViolation":0,"roomChange":0}}]}
 
 event: hitl.required
-data: {"runId":"run_uuid","status":"WAITING_CONFIRMATION","actionType":"CREATE","confirmationToken":"cfm_uuid","expiresAt":"2026-08-12T10:10:00+08:00","draft":{"title":"架构评审","roomId":101,"roomName":"研发楼301","startAt":"2026-08-19T15:00:00+08:00","endAt":"2026-08-19T16:30:00+08:00","requiredParticipants":[],"optionalParticipants":[],"createVideoConference":false}}
+data: {"runId":"run_uuid","status":"WAITING_CONFIRMATION","actionType":"CREATE","confirmationToken":"cfm_uuid","expiresAt":"2026-08-12T10:10:00+08:00","draft":{"title":"架构评审","roomId":101,"roomName":"研发楼301","startAt":"2026-08-19T15:00:00+08:00","endAt":"2026-08-19T16:30:00+08:00","requiredParticipants":[],"optionalParticipants":[]}}
 
 event: booking.pending
 data: {"runId":"run_uuid","status":"WAITING_BUSINESS_RESULT","requestNo":"BR202608120001"}
@@ -876,8 +859,7 @@ POST /internal/v1/tools/cancellation-previews
     "startAt": "2026-08-19T15:00:00+08:00",
     "endAt": "2026-08-19T16:30:00+08:00",
     "requiredParticipants": [],
-    "optionalParticipants": [],
-    "createVideoConference": false
+    "optionalParticipants": []
   }
 }
 ```
@@ -894,7 +876,6 @@ POST /internal/v1/tools/cancellation-previews
 POST /internal/v1/tools/booking-drafts/{confirmationToken}/confirm
 POST /internal/v1/tools/reschedule-drafts/{confirmationToken}/confirm
 POST /internal/v1/tools/cancellation-previews/{confirmationToken}/confirm
-POST /internal/v1/tools/meetings/{meetingId}/video-conference
 ```
 
 确认响应可能为：
@@ -1030,19 +1011,7 @@ Day 5 的 `resume` 与 `business-result` 使用与 Stream 完全相同的 Java A
 }
 ```
 
-## 8. 视频会议Mock API
-
-```text
-POST   /mock/v1/video-meetings
-PUT    /mock/v1/video-meetings/{externalMeetingId}
-DELETE /mock/v1/video-meetings/{externalMeetingId}
-GET    /mock/v1/video-meetings/{externalMeetingId}
-GET    /health
-```
-
-创建请求必须包含 `Idempotency-Key`，重复请求返回相同链接。
-
-## 9. 分页与上限
+## 8. 分页与上限
 
 - 默认页大小20，最大100。
 - Agent忙闲查询最多50人。

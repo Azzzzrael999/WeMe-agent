@@ -119,7 +119,6 @@ class MeetingRequest(AgentSchema):
     preferred_buildings: list[str] = Field(default_factory=list, max_length=20)
     hard_constraints: list[Constraint] = Field(default_factory=list, max_length=20)
     soft_constraints: list[Constraint] = Field(default_factory=list, max_length=20)
-    create_video_conference: bool = False
     target_meeting_id: int | None = Field(default=None, ge=1)
     target_meeting_reference: str | None = Field(default=None, max_length=240)
 
@@ -176,7 +175,6 @@ class RequirementDraft(AgentSchema):
     preferred_buildings: list[str] = Field(default_factory=list, max_length=20)
     hard_constraints: list[Constraint] = Field(default_factory=list, max_length=20)
     soft_constraints: list[Constraint] = Field(default_factory=list, max_length=20)
-    create_video_conference: bool = False
     target_meeting_id: int | None = Field(default=None, ge=1)
     target_meeting_reference: str | None = Field(default=None, max_length=240)
     field_evidence: list[FieldEvidence] = Field(default_factory=list, max_length=40)
@@ -214,7 +212,6 @@ class RequirementExtraction(AgentSchema):
             preferred_buildings=draft.preferred_buildings,
             hard_constraints=draft.hard_constraints,
             soft_constraints=draft.soft_constraints,
-            create_video_conference=draft.create_video_conference,
             target_meeting_id=draft.target_meeting_id,
             target_meeting_reference=draft.target_meeting_reference,
         )
@@ -425,7 +422,6 @@ class BookingDraft(AgentSchema):
     end_at: datetime
     required_participants: list[DraftParticipant] = Field(default_factory=list, max_length=100)
     optional_participants: list[DraftParticipant] = Field(default_factory=list, max_length=100)
-    create_video_conference: bool = False
 
     @model_validator(mode="after")
     def validate_draft_window(self) -> BookingDraft:

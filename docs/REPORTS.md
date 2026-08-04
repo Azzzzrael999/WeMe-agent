@@ -63,8 +63,8 @@
 
 - 宿主：Windows 11（10.0.22621）、13th Gen Intel Core i9-13900HX、32 logical processors、15.70 GiB RAM。
 - Docker：Docker Desktop 4.83.0，Engine 29.6.2，Linux/amd64，WSL2 kernel 6.18.33.2。
-- Compose 声明的常驻服务上限约为 **4.2 GiB RAM / 5.75 CPU**；短暂 RocketMQ 初始化容器另有最多 **384 MiB / 0.75 CPU**。这只是部署护栏，不代表测得的实际资源使用。
-- 完整开发 Compose 最终状态：MySQL、Redis、RocketMQ NameServer/Broker、Qdrant、business-service、agent-service、frontend、video-provider-mock 均为 `healthy`；`rocketmq-store-init` 与 `rocketmq-topic-init` 是预期的 `Exited (0)` 初始化任务。
+- Compose 移除视频会议 Mock 后声明的常驻服务上限约为 **4.1 GiB RAM / 5.5 CPU**；短暂 RocketMQ 初始化容器另有最多 **384 MiB / 0.75 CPU**。这只是部署护栏，不代表测得的实际资源使用。
+- 已验收的历史 Compose 状态包含现已删除的视频会议 Mock；当前栈应以最新 `docker compose ps` 重新验证。
 
 完整的已解析镜像内容标识见 [image-manifest-day7.json](image-manifest-day7.json)。
 

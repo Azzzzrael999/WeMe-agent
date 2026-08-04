@@ -456,7 +456,6 @@ def _observed_constraints(state: AgentState) -> ConstraintExpectation:
         minimum_capacity=request.minimum_capacity,
         required_features=request.required_features,
         required_participant_names=[item.name for item in request.required_participants],
-        create_video_conference=request.create_video_conference,
         target_meeting_id=request.target_meeting_id,
         missing_fields=state.missing_fields,
     )
@@ -475,9 +474,6 @@ def _scored_expectation(case: EvaluationCase) -> ConstraintExpectation:
         minimum_capacity=expected.minimum_capacity,
         required_features=expected.required_features,
         required_participant_names=expected.required_participant_names,
-        create_video_conference=(
-            expected.create_video_conference if "视频" in case.input else None
-        ),
         target_meeting_id=expected.target_meeting_id,
     )
 

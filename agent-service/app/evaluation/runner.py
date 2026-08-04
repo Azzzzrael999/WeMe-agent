@@ -267,7 +267,6 @@ def _observed_constraints(extraction: RequirementExtraction) -> ConstraintExpect
         minimum_capacity=request.minimum_capacity,
         required_features=request.required_features,
         required_participant_names=[item.name for item in request.required_participants],
-        create_video_conference=request.create_video_conference,
         target_meeting_id=request.target_meeting_id,
         missing_fields=extraction.missing_fields,
     )

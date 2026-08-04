@@ -260,7 +260,6 @@ class FixtureModelProvider:
                 "preferredBuildings": [],
                 "hardConstraints": [],
                 "softConstraints": [],
-                "createVideoConference": "视频会议设备" in message or "视频会议" in message,
                 "targetMeetingId": target_meeting_id,
                 "targetMeetingReference": (
                     next((term for term in ("刚才", "最近", "那个会议") if term in message), None)

@@ -250,7 +250,6 @@ def main() -> int:
         "endAt": end_text,
         "requiredParticipantIds": [1002],
         "optionalParticipantIds": [],
-        "createVideoConference": False,
     }
     _, draft = request_json(
         "POST",
@@ -339,7 +338,6 @@ def main() -> int:
             "endAt": conflict_end_text,
             "requiredParticipantIds": [],
             "optionalParticipantIds": [],
-            "createVideoConference": False,
         },
     )
     blocker_id = int(blocker["data"]["id"])
@@ -357,7 +355,6 @@ def main() -> int:
                 "endAt": conflict_end_text,
                 "requiredParticipantIds": [],
                 "optionalParticipantIds": [],
-                "createVideoConference": False,
             },
         )
         conflict_token = conflict_draft["data"]["confirmationToken"]
@@ -409,7 +406,6 @@ def main() -> int:
             "endAt": start_at.replace(hour=19, minute=0).isoformat(timespec="seconds"),
             "requiredParticipantIds": [],
             "optionalParticipantIds": [],
-            "createVideoConference": False,
         },
     )
     require(draft_only["data"].get("status", "PENDING") == "PENDING", "draft-only status is not PENDING")
@@ -430,7 +426,6 @@ def main() -> int:
             "endAt": managed_end.isoformat(timespec="seconds"),
             "requiredParticipantIds": [],
             "optionalParticipantIds": [],
-            "createVideoConference": False,
         },
     )
     managed_id = int(managed["data"]["id"])
@@ -451,7 +446,6 @@ def main() -> int:
             "endAt": proposed_end.isoformat(timespec="seconds"),
             "requiredParticipantIds": [],
             "optionalParticipantIds": [],
-            "createVideoConference": False,
             "expectedVersion": managed_version,
         },
     )

@@ -256,7 +256,6 @@ function validateForm(form: MeetingForm): MeetingMutation | null {
     endAt: toShanghaiOffset(form.endAt),
     requiredParticipantIds,
     optionalParticipantIds,
-    createVideoConference: false,
   }
 }
 

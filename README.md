@@ -27,7 +27,6 @@ flowchart LR
     J --> O["Transactional Outbox"]
     O --> MQ["RocketMQ"]
     MQ --> J
-    J --> V["Idempotent video-provider mock"]
 ```
 
 ```mermaid
@@ -157,13 +156,12 @@ python .\scripts\live-model-trajectory.py --public-base http://localhost --outpu
 | `business-service/` | Spring Boot / Java 21：鉴权、会议、并发、Outbox、RocketMQ、Tool Gateway、SSE 代理 |
 | `agent-service/` | FastAPI / LangGraph：四 Agent、Provider、RAG、OR-Tools、HITL、checkpoint、Trace、评测 |
 | `frontend/` | Vue 3 + TypeScript：聊天、候选确认、Trace、会议与房间管理 |
-| `mock-services/` | 独立、幂等的视频会议 Provider Mock |
 | `deploy/` | MySQL 初始化、Nginx、RocketMQ 配置 |
 | `scripts/` | 可复现 Smoke、并发和空卷验收脚本 |
 
 ## 当前范围与限制
 
-- 无真实邮件、日历、视频会议或 IoT 供应商；视频会议只使用本地 Mock。
+- 无真实或 Mock 邮件、日历、视频会议链接或 IoT 供应商；`VIDEO_CONFERENCE` 只表示会议室设备特征。
 - Qdrant 使用确定性 hash embedding；4 条固定种子只保留为 fixture/兼容语料，生产会议制度由受控文件导入器索引。
 - `rag-init` 会把 `deploy/rag-documents/` 中的 UTF-8 Markdown 或文本型 PDF 幂等导入 Qdrant，并在 Python 自有 `rag_document` 表登记 checksum 与索引状态；不做 OCR、Rerank、目录镜像删除或公共上传 API。
 - 不包含 SSO、多租户、多级审批、复杂访客流程、自动移动他人会议、Kubernetes、服务网格、完整 OpenTelemetry/Grafana 或故障注入平台。

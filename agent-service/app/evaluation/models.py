@@ -32,7 +32,6 @@ class ConstraintExpectation(AgentSchema):
     minimum_capacity: int | None = Field(default=None, ge=1, le=10_000)
     required_features: list[str] | None = None
     required_participant_names: list[str] | None = None
-    create_video_conference: bool | None = None
     target_meeting_id: int | None = Field(default=None, ge=1)
     missing_fields: list[str] | None = None
 

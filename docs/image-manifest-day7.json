@@ -19,11 +19,6 @@
       "kind": "locally-built"
     },
     {
-      "name": "meeting-scheduler-video-provider-mock:day7",
-      "contentId": "sha256:5e08130a8ed703b0ac62c0387b5fbcdf003a75838399caf4de616903889834a1",
-      "kind": "locally-built"
-    },
-    {
       "name": "mysql:8.4",
       "contentId": "sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb",
       "kind": "upstream-pinned-tag"

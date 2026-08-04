@@ -186,7 +186,6 @@ class FakeJavaTools:
                     for value in payload.required_participant_ids
                 ],
                 optional_participants=[],
-                create_video_conference=payload.create_video_conference,
             ),
         )
         return (

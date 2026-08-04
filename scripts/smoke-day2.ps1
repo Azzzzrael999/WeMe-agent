@@ -121,7 +121,6 @@ $primaryBody = @{
     endAt                     = Format-Day2Time 10 30
     requiredParticipantIds    = @()
     optionalParticipantIds    = @()
-    createVideoConference     = $false
 }
 
 $blockerBody = @{
@@ -132,7 +131,6 @@ $blockerBody = @{
     endAt                     = Format-Day2Time 15 0
     requiredParticipantIds    = @()
     optionalParticipantIds    = @()
-    createVideoConference     = $false
 }
 
 try {

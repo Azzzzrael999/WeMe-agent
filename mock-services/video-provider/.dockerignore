@@ -1,6 +1,0 @@
-__pycache__
-*.pyc
-.pytest_cache
-.git
-.gitignore
-test_server.py

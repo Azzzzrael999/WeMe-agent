@@ -288,7 +288,6 @@ class RequirementAgent:
             "targetMeetingId" if request.target_meeting_id is not None else "",
             "hardConstraints",
             "softConstraints",
-            "createVideoConference",
             "needsPolicy",
         }
         extraction_missing = [
@@ -724,10 +723,6 @@ class SchedulingAgent:
                         end_at=selected.end_at,
                         required_participant_ids=original_required_ids,
                         optional_participant_ids=original_optional_ids,
-                        # The current MeetingView has no video-link flag.  Do
-                        # not let a fresh extraction turn “其他不变” into a new
-                        # external side effect.
-                        create_video_conference=False,
                         expected_version=meeting.version,
                     ),
                 )
@@ -750,7 +745,6 @@ class SchedulingAgent:
                     end_at=selected.end_at,
                     required_participant_ids=required_ids,
                     optional_participant_ids=[],
-                    create_video_conference=request.create_video_conference,
                 ),
                 )
                 draft_view = CreateDraftView(draft=draft_response.draft)

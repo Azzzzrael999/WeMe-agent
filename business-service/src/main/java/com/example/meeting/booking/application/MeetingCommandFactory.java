@@ -35,7 +35,6 @@ public class MeetingCommandFactory {
         request.endAt(),
         request.requiredParticipantIds(),
         request.optionalParticipantIds(),
-        request.createVideoConference(),
         organizerId);
   }
 
@@ -48,7 +47,6 @@ public class MeetingCommandFactory {
         request.endAt(),
         request.requiredParticipantIds(),
         request.optionalParticipantIds(),
-        request.createVideoConference(),
         organizerId);
   }
 
@@ -60,11 +58,7 @@ public class MeetingCommandFactory {
       java.time.OffsetDateTime endAt,
       List<Long> requiredIds,
       List<Long> optionalIds,
-      Boolean createVideoConference,
       long organizerId) {
-    if (Boolean.TRUE.equals(createVideoConference)) {
-      throw validation("createVideoConference", "VIDEO_CONFERENCE_NOT_SUPPORTED", "视频会议供应商当前未接入");
-    }
     if (roomId == null || roomId <= 0) {
       throw validation("roomId", "MUST_BE_POSITIVE", "roomId 必须为正数");
     }
@@ -90,8 +84,7 @@ public class MeetingCommandFactory {
         roomId,
         schedule,
         new ArrayList<>(required),
-        new ArrayList<>(optional),
-        false);
+        new ArrayList<>(optional));
   }
 
   private TreeSet<Long> positiveIds(Collection<Long> ids, String field) {

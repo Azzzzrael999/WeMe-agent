@@ -188,32 +188,6 @@ services:
       start_period: 10s
     logging: *default-logging
 
-  video-provider-mock:
-    image: meeting-scheduler-video-provider-mock:${APP_IMAGE_TAG:-day7}
-    build:
-      context: ./mock-services/video-provider
-      args:
-        PYTHON_RUNTIME_IMAGE: ${PYTHON_RUNTIME_IMAGE:-python:3.11-slim@sha256:db3ff2e1800a8581e2c48a27c3995339d47bdf046da21c7627accd3d51053a93}
-    restart: unless-stopped
-    mem_limit: 128m
-    cpus: "0.25"
-    environment:
-      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    expose:
-      - "8010"
-    networks:
-      - backend_net
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/health', timeout=2)"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-      start_period: 5s
-    security_opt:
-      - no-new-privileges:true
-    logging: *default-logging
-
   rag-init:
     image: meeting-scheduler-agent-service:${APP_IMAGE_TAG:-day7}
     build:
@@ -285,7 +259,6 @@ services:
       ROCKETMQ_RESULT_CONSUMER_GROUP: ${ROCKETMQ_RESULT_CONSUMER_GROUP:-meeting-agent-result-callback}
       AGENT_CALLBACK_ENABLED: ${AGENT_CALLBACK_ENABLED:-true}
       AGENT_SERVICE_URL: ${AGENT_SERVICE_URL:-http://agent-service:8000}
-      VIDEO_PROVIDER_URL: ${VIDEO_PROVIDER_URL:-http://video-provider-mock:8010}
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75.0 -Duser.timezone=${APP_TIMEZONE:-Asia/Shanghai}
     depends_on:
       mysql:

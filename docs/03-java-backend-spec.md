@@ -289,7 +289,6 @@ Agent回调不放在数据库事务内；由结果事件的独立消费者完成
 | confirm_booking | WRITE | 仅HITL恢复后允许调用 |
 | confirm_reschedule | WRITE | 仅HITL恢复后允许调用 |
 | confirm_cancellation | WRITE | 仅HITL恢复后允许调用 |
-| create_video_conference_link | WRITE | 仅用于用户已确认且预约成功的会议 |
 
 `search_meeting_policy` 和 `solve_schedule` 位于Python内部，不经过Java。
 
