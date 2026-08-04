@@ -11,7 +11,7 @@
       <span v-else class="selected-label">当前草案</span>
     </article>
   </div>
-  <EmptyState v-else title="还没有候选计划" description="Agent 完成资源查询和硬约束验证后，最多展示三个方案。" icon="◇" />
+  <EmptyState v-else title="还没有候选计划" description="Agent 完成资源查询和硬约束验证后，最多展示三个方案。" icon="calendar" />
 </template>
 <script setup lang="ts">
 import type { AgentCandidate, AgentDraft } from '@/api/types'

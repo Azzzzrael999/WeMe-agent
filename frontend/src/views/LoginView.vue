@@ -29,7 +29,6 @@
           />
         </label>
 
-        <p class="demo-hint">演示账号已预填，可直接进入工作台。</p>
         <p v-if="errorMessage" class="error-message" role="alert">{{ errorMessage }}</p>
 
         <button class="primary-button" type="submit" :disabled="submitting">

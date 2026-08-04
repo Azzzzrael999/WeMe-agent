@@ -1,7 +1,7 @@
 <template>
   <div class="hitl-review-bar" role="region" aria-labelledby="hitl-review-title">
     <div class="hitl-review-bar__summary">
-      <span class="hitl-icon" aria-hidden="true">!</span>
+      <span class="hitl-icon" aria-hidden="true"><ShieldAlert :size="18" /></span>
       <div>
         <p id="hitl-review-title">需要你的确认 · {{ operationLabel }}</p>
         <strong>{{ summaryTitle }}</strong>
@@ -9,20 +9,20 @@
       </div>
     </div>
     <div class="hitl-review-bar__actions">
-      <button class="ui-button ui-button--default" type="button" :disabled="busy" @click="$emit('accept')">
+      <button class="ui-button ui-button--default" type="button" :disabled="busy || expired" @click="$emit('accept')">
         {{ busy ? '处理中…' : acceptLabel }}
       </button>
-      <button v-if="actionType !== 'CANCEL'" class="ui-button ui-button--outline" type="button" :disabled="busy" @click="editing = true">
+      <button v-if="actionType !== 'CANCEL'" class="ui-button ui-button--outline" type="button" :disabled="busy || expired" @click="editing = true">
         编辑后重新规划
       </button>
-      <button class="ui-button ui-button--ghost hitl-reject" type="button" :disabled="busy" @click="confirmReject = true">拒绝</button>
+      <button class="ui-button ui-button--ghost hitl-reject" type="button" :disabled="busy || expired" @click="confirmReject = true">拒绝</button>
     </div>
   </div>
   <Teleport to="body">
     <div v-if="editing && editableDraft" class="dialog-layer">
       <button class="drawer-overlay" aria-label="关闭编辑" @click="editing=false" />
       <section class="ui-dialog" role="dialog" aria-modal="true" aria-labelledby="edit-title">
-        <header><div><p>HITL 编辑 · {{ operationLabel }}</p><h2 id="edit-title">修改草案并重新规划</h2></div><button class="icon-button" type="button" aria-label="关闭编辑" @click="editing=false">×</button></header>
+        <header><div><p>HITL 编辑 · {{ operationLabel }}</p><h2 id="edit-title">修改草案并重新规划</h2></div><button class="icon-button" type="button" aria-label="关闭编辑" @click="editing=false"><X :size="18" aria-hidden="true" /></button></header>
         <p>只允许调整会议室或开始时间；提交后会重新执行规则与可用性校验。</p>
         <label><span>会议室 ID</span><input v-model.trim="roomId" inputmode="numeric" /></label>
         <label><span>开始时间（Asia/Shanghai）</span><input v-model="startAt" type="datetime-local" step="1800" /></label>
@@ -43,6 +43,7 @@
 </template>
 
 <script setup lang="ts">
+import { ShieldAlert, X } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 
 import { isCancellationPreview, proposedDraft } from '@/api/agent-view'
@@ -54,6 +55,7 @@ const props = defineProps<{
   actionType: AgentOperationType
   draft: AgentHitlDraft
   expiresAt?: string
+  expired?: boolean
   busy: boolean
   feedback: string
 }>()

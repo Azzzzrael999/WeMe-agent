@@ -15,7 +15,7 @@
           <div><dt>时间</dt><dd>{{ formatDateTime(reschedule.originalMeeting.startAt) }} — {{ formatDateTime(reschedule.originalMeeting.endAt) }}</dd></div>
         </dl>
       </section>
-      <span class="hitl-diff__arrow" aria-hidden="true">→</span>
+      <span class="hitl-diff__arrow" aria-hidden="true"><ArrowRight :size="20" /></span>
       <section class="hitl-diff__after">
         <span>After · 改期方案</span>
         <h3>{{ reschedule.proposedMeeting.title }}</h3>
@@ -51,6 +51,7 @@
 </template>
 
 <script setup lang="ts">
+import { ArrowRight } from '@lucide/vue'
 import { computed } from 'vue'
 
 import { isCancellationPreview, isRescheduleDraft, proposedDraft } from '@/api/agent-view'

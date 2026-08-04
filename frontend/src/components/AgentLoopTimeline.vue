@@ -17,7 +17,7 @@
       <div><dt>耗时</dt><dd>{{ formatDuration(run?.durationMs ?? null) }}</dd></div>
     </dl>
 
-    <EmptyState v-if="events.length === 0" title="暂无 Loop 事件" description="PLAN、ACT、OBSERVE、VERIFY 或 REPLAN 发生后会显示在这里。" icon="↻" />
+    <EmptyState v-if="events.length === 0" title="暂无 Loop 事件" description="PLAN、ACT、OBSERVE、VERIFY 或 REPLAN 发生后会显示在这里。" icon="search" />
     <ol v-else class="loop-event-list">
       <li v-for="(event, index) in events" :key="eventKey(event, index)" class="loop-event">
         <span class="loop-phase" :class="`loop-phase--${event.phase.toLowerCase()}`">{{ event.phase }}</span>

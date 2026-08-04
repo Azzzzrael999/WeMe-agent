@@ -1,51 +1,27 @@
 <template>
-  <section class="content-panel timeline-panel" aria-labelledby="timeline-title">
+  <section class="user-progress" aria-labelledby="timeline-title">
     <div class="section-heading compact-heading">
       <div>
-        <h2 id="timeline-title">Agent 与工具步骤</h2>
-        <p class="muted">仅展示结构化摘要，不展示模型隐藏推理或内部凭据。</p>
+        <p class="eyebrow">业务进度</p>
+        <h2 id="timeline-title">本次任务进展</h2>
+        <p class="muted">普通视图按六个阶段归纳真实节点；技术细节在下方 Activity 中查看。</p>
       </div>
     </div>
 
-    <div v-if="steps.length === 0 && tools.length === 0" class="empty-state compact-empty">
-      提交需求后，这里会显示当前 Agent 和 Java Tool 的处理步骤。
-    </div>
-
-    <ol v-else class="timeline-list">
-      <li v-for="step in sortedSteps" :key="step.stepId" class="timeline-entry">
-        <span class="timeline-marker" aria-hidden="true"></span>
-        <div>
-          <div class="timeline-entry__title">
-            <strong>{{ displayAgent(step.agentName) }}</strong>
-            <span class="badge" :class="statusClass(step.status)">{{ step.status }}</span>
-            <span class="muted">{{ formatDuration(step.durationMs) }}</span>
-          </div>
-          <p>{{ step.summary }}</p>
-          <small>{{ step.nodeName }}</small>
-        </div>
+    <ol class="progress-stage-list">
+      <li v-for="stage in stages" :key="stage.label" :class="`progress-stage--${stage.state.toLowerCase()}`">
+        <span aria-hidden="true"><CircleCheck v-if="stage.state === 'DONE'" :size="18" /><CircleDot v-else-if="stage.state === 'ACTIVE'" :size="18" /><Circle v-else :size="18" /></span>
+        <div><strong>{{ stage.label }}</strong><small>{{ stage.summary }}</small></div>
       </li>
     </ol>
-
-    <div v-if="tools.length > 0" class="tool-summary-list">
-      <h3>Java 工具调用</h3>
-      <article v-for="tool in tools" :key="tool.toolCallId" class="tool-summary-card">
-        <div>
-          <strong>{{ tool.toolName }}</strong>
-          <span class="badge" :class="statusClass(tool.status)">{{ tool.status }}</span>
-          <span class="muted">{{ tool.riskLevel }} · {{ formatDuration(tool.durationMs) }}</span>
-        </div>
-        <p>{{ toolSummary(tool) }}</p>
-        <pre v-if="toolArgs(tool)" class="sanitized-args">{{ formatSanitizedArgs(toolArgs(tool)!) }}</pre>
-      </article>
-    </div>
   </section>
 </template>
 
 <script setup lang="ts">
+import { Circle, CircleCheck, CircleDot } from '@lucide/vue'
 import { computed } from 'vue'
 
 import type { AgentStepEvent, AgentToolEvent, AgentTraceStep, AgentTraceToolCall } from '../api/types'
-import { formatDuration, formatSanitizedArgs } from '../utils/format'
 
 type TimelineStep = AgentStepEvent | AgentTraceStep
 type TimelineTool = AgentToolEvent | AgentTraceToolCall
@@ -53,36 +29,26 @@ type TimelineTool = AgentToolEvent | AgentTraceToolCall
 const props = defineProps<{
   steps: readonly TimelineStep[]
   tools: readonly TimelineTool[]
+  runStatus?: string
 }>()
 
 const sortedSteps = computed(() => [...props.steps].sort((left, right) => left.sequenceNo - right.sequenceNo))
-
-function displayAgent(name: string): string {
-  const labels: Record<string, string> = {
-    supervisor: 'Supervisor',
-    requirement: 'Requirement Agent',
-    policy: 'Policy Agent',
-    scheduling: 'Scheduling Agent',
-    deterministic: '确定性处理器',
-  }
-  return labels[name] ?? name
-}
-
-function statusClass(status: string): string {
-  if (status === 'FAILED') {
-    return 'badge-danger'
-  }
-  if (status === 'WAITING_CONFIRMATION' || status === 'WAITING_BUSINESS_RESULT') {
-    return 'badge-warning'
-  }
-  return 'badge-success'
-}
-
-function toolArgs(tool: TimelineTool): Record<string, unknown> | null {
-  return 'sanitizedArgs' in tool ? tool.sanitizedArgs : null
-}
-
-function toolSummary(tool: TimelineTool): string {
-  return 'resultSummary' in tool ? tool.resultSummary : tool.summary
-}
+const stages = computed(() => {
+  const text = sortedSteps.value.map((step) => `${step.agentName} ${step.nodeName} ${step.summary}`.toLowerCase())
+  const tools = props.tools.map((tool) => tool.toolName.toLowerCase())
+  const definitions = [
+    { label: '理解会议需求', matched: text.some((value) => /supervisor|requirement/.test(value)) },
+    { label: '查询参会者时间', matched: tools.some((value) => /employee|free.busy/.test(value)) },
+    { label: '检索会议制度', matched: text.some((value) => /policy/.test(value)) },
+    { label: '求解候选方案', matched: text.some((value) => /schedul|solver|candidate/.test(value)) },
+    { label: '等待用户确认', matched: props.runStatus === 'WAITING_CONFIRMATION' || text.some((value) => /hitl|confirm/.test(value)) },
+    { label: '执行业务写入', matched: ['WAITING_BUSINESS_RESULT', 'SUCCEEDED', 'SUCCESS'].includes(props.runStatus ?? '') },
+  ]
+  const activeIndex = definitions.findIndex((definition) => !definition.matched)
+  return definitions.map((definition, index) => ({
+    label: definition.label,
+    state: definition.matched ? 'DONE' : index === activeIndex && props.runStatus !== 'FAILED' ? 'ACTIVE' : 'PENDING',
+    summary: definition.matched ? '已有真实运行活动' : index === activeIndex ? '当前或下一阶段' : '尚未到达',
+  }))
+})
 </script>

@@ -1,47 +1,108 @@
 <template>
-  <AppShell title="智能编排" description="用自然语言发起会议任务，在执行前审阅 Agent 的结构化计划。" eyebrow="工作台 / 智能编排">
-    <template #actions><button class="ui-button ui-button--outline" type="button" :disabled="streaming" @click="resetConversation">＋ 新建会话</button></template>
-    <div class="mobile-workspace-tabs" role="tablist" aria-label="智能编排区域"><button type="button" :class="{ active: mobilePane === 'conversation' }" @click="mobilePane='conversation'">对话</button><button type="button" :class="{ active: mobilePane === 'result' }" @click="mobilePane='result'">编排结果</button></div>
-    <div class="orchestration-grid" :class="`orchestration-grid--${mobilePane}`">
-      <section class="conversation-pane" aria-labelledby="conversation-title">
-        <header class="pane-header"><div><h2 id="conversation-title">协作会话</h2><p>Supervisor 协调三个专业 Agent 与确定性工具</p></div><span class="agent-online"><span />Agent 就绪</span></header>
-        <div class="conversation-scroll" aria-live="polite">
-          <template v-for="turn in conversationHistory" :key="turn.id">
-            <div class="message-row message-row--user"><div class="message-bubble"><span>你</span><p>{{ turn.question }}</p></div></div>
-            <div class="message-row message-row--agent"><div class="message-avatar">M</div><div class="message-bubble"><span>MeetOps Agent</span><p>{{ turn.answer }}</p><div v-if="turn.runId" class="message-meta"><StatusBadge :status="turn.status || 'SUCCEEDED'" /><RouterLink class="text-button" :to="{ name: 'agent-run', params: { runId: turn.runId } }">查看这次运行</RouterLink></div></div></div>
-          </template>
-          <div v-if="submittedMessage" class="message-row message-row--user"><div class="message-bubble"><span>你</span><p>{{ submittedMessage }}</p></div></div>
-          <div v-if="runId || answerSummary || streaming" class="message-row message-row--agent"><div class="message-avatar">M</div><div class="message-bubble"><span>MeetOps Agent</span><p v-if="answerSummary">{{ answerSummary }}</p><p v-else-if="streaming">正在解析需求、检查政策并查询资源…</p><p v-else>已保存当前 Run，可继续查看结构化编排结果。</p><div v-if="bookingRequest" class="message-meta"><StatusBadge :status="bookingRequest.status" /><span>请求号 {{ bookingRequest.requestNo }}</span></div></div></div>
-          <div v-if="!submittedMessage && !runId" class="welcome-message"><div class="message-avatar">M</div><div><h3>你好，我是 MeetOps</h3><p>告诉我参会人、时间和资源要求。我会给出经过硬约束验证的候选，并在执行前请你确认。</p><div class="prompt-chips"><button v-for="example in examples" :key="example" type="button" @click="message=example">{{ example }}</button></div></div></div>
-          <LoadingState v-if="streaming" title="正在协同处理" description="Agent 步骤会实时写入安全运行轨迹。" />
-          <ErrorState v-if="errorMessage" :message="errorMessage" />
+  <WorkspaceShell>
+    <div class="chat-workspace">
+      <header class="chat-workspace__header">
+        <div>
+          <span class="chat-workspace__eyebrow">工作台 / 智能编排</span>
+          <div class="chat-workspace__title-row">
+            <h1>智能编排</h1>
+            <StatusBadge v-if="runId" :status="runStatus || 'RUNNING'" />
+          </div>
+          <p>从一句话需求到可验证候选，所有写操作都会等待你的明确确认。</p>
         </div>
-        <div class="composer-area"><RunStatusBar :run-id="runId" :status="runStatus" :loading="recoveryLoading" @refresh="runId && loadRecovery(runId)" @trace="traceOpen=true" /><AgentComposer v-model="message" :disabled="streaming || decisionBusy" :streaming="streaming" @submit="startRun" /></div>
-      </section>
-      <section class="result-pane" aria-labelledby="result-title">
-        <header class="pane-header"><div><h2 id="result-title">编排结果</h2><p>业务结果优先，运行细节可按需查看</p></div><button v-if="runId" class="text-button" type="button" @click="traceOpen=true">查看运行过程</button></header>
-        <div class="result-tabs" role="tablist"><button v-for="tab in resultTabs" :key="tab.id" type="button" role="tab" :aria-selected="resultTab===tab.id" :class="{ active: resultTab===tab.id }" @click="resultTab=tab.id">{{ tab.label }}<span v-if="tab.id==='candidates' && candidates.length">{{ candidates.length }}</span></button></div>
-        <div class="result-scroll">
-          <RequirementSummary v-if="resultTab==='requirements'" :action-type="actionType" :draft="hitlDraft" />
-          <CandidateComparison v-else-if="resultTab==='candidates'" :candidates="candidates" :draft="editableDraft" @select="selectCandidate" />
-          <ResourceTimeline v-else-if="resultTab==='resources'" :slots="[]" />
-          <div v-else class="citations-panel"><article v-for="citation in citations" :key="citation.chunkId"><span>政策依据</span><h3>{{ citation.title }}</h3><p>{{ citation.headingPath.join(' / ') }}<template v-if="citation.page"> · 第 {{ citation.page }} 页</template></p><code>{{ citation.chunkId }}</code></article><EmptyState v-if="citations.length===0" title="暂无政策依据" description="仅当 Agent 返回可验证引用时展示，不会根据请求文本推测政策。" icon="§" /></div>
-          <div v-if="runStatus==='WAITING_BUSINESS_RESULT'" class="pending-callout"><StatusBadge status="WAITING_BUSINESS_RESULT" /><div><strong>热门预约正在异步裁决</strong><p>业务服务将通过 RocketMQ 返回最终结果；冲突后 Agent 会恢复并重新规划。</p></div></div>
-          <AgentLoopTimeline :events="loopEvents" :run="runMetrics" />
+        <div class="chat-workspace__actions">
+          <button
+            v-if="runId"
+            class="ui-button ui-button--outline"
+            type="button"
+            @click="openOrchestration('execution')"
+          >
+            <PanelRightOpen :size="17" aria-hidden="true" />编排详情
+          </button>
+          <button class="ui-button ui-button--default" type="button" :disabled="streaming" @click="resetConversation">
+            <Plus :size="17" aria-hidden="true" />新建编排
+          </button>
         </div>
-      </section>
+      </header>
+
+      <ConversationCanvas
+        :history="conversationHistory"
+        :submitted-message="submittedMessage"
+        :answer-summary="answerSummary"
+        :run-id="runId"
+        :run-status="runStatus"
+        :booking-request="bookingRequest"
+        :streaming="streaming"
+        :recovery-loading="recoveryLoading"
+        :error-message="errorMessage"
+        @select-example="selectExample"
+      />
+
+      <div v-if="!recoveryLoading || runId" class="composer-dock">
+        <button
+          v-if="hitlDraft && actionType && confirmationToken"
+          class="composer-hitl-notice"
+          type="button"
+          @click="openOrchestration('requirements')"
+        >
+          <ShieldCheck :size="18" aria-hidden="true" />
+          <span><strong>方案正在等待确认</strong><small>在执行任何业务写入前查看并确认完整草案</small></span>
+          <ChevronRight :size="17" aria-hidden="true" />
+        </button>
+        <RunStatusBar
+          :run-id="runId"
+          :status="runStatus"
+          :loading="recoveryLoading"
+          @refresh="runId && loadRecovery(runId)"
+          @trace="traceOpen = true"
+        />
+        <AgentComposer
+          v-model="message"
+          :disabled="streaming || decisionBusy"
+          :streaming="streaming"
+          @submit="startRun"
+        />
+        <p class="composer-disclaimer">MeetOps 只基于已验证的业务事实生成建议；关键安排请在确认前复核。</p>
+      </div>
     </div>
-    <HitlReviewBar v-if="hitlDraft && actionType && confirmationToken" :action-type="actionType" :draft="hitlDraft" :expires-at="expiresAt" :busy="decisionBusy || streaming" :feedback="hitlFeedback" @update:feedback="hitlFeedback=$event" @accept="resumeRun('ACCEPT')" @reject="resumeRun('REJECT')" @edit="(changes) => resumeRun('EDIT', changes)" />
+
+    <OrchestrationSheet
+      :open="orchestrationOpen"
+      :initial-tab="orchestrationTab"
+      :run-id="runId"
+      :run-status="runStatus"
+      :candidates="candidates"
+      :citations="citations"
+      :action-type="actionType"
+      :draft="hitlDraft"
+      :confirmation-token="confirmationToken"
+      :expires-at="expiresAt"
+      :feedback="hitlFeedback"
+      :busy="decisionBusy || streaming"
+      :steps="steps"
+      :tools="tools"
+      :loops="loopEvents"
+      :run="runMetrics"
+      @update:open="setOrchestrationOpen"
+      @update:feedback="hitlFeedback = $event"
+      @accept="resumeRun('ACCEPT')"
+      @reject="resumeRun('REJECT')"
+      @edit="resumeRun('EDIT', $event)"
+      @select-candidate="selectCandidate"
+      @trace="traceOpen = true"
+      @refresh="runId && loadRecovery(runId)"
+    />
     <TraceDrawer v-model:open="traceOpen" :run-id="runId" :steps="steps" :tools="tools" :loops="loopEvents" :run="runMetrics" />
-  </AppShell>
+  </WorkspaceShell>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { ChevronRight, PanelRightOpen, Plus, ShieldCheck } from '@lucide/vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { ApiError, apiRequest, apiSseRequest, type SseMessage } from '../api/client'
-import { proposedDraft, readHitlDraft, readLoopEvent } from '../api/agent-view'
+import { readHitlDraft, readLoopEvent } from '../api/agent-view'
 import type {
   AgentCandidate,
   AgentCitation,
@@ -58,24 +119,18 @@ import type {
   BookingRequest,
 } from '../api/types'
 import AgentComposer from '../components/AgentComposer.vue'
-import AgentLoopTimeline from '../components/AgentLoopTimeline.vue'
-import AppShell from '../components/AppShell.vue'
-import CandidateComparison from '../components/CandidateComparison.vue'
-import EmptyState from '../components/EmptyState.vue'
-import ErrorState from '../components/ErrorState.vue'
-import HitlReviewBar from '../components/HitlReviewBar.vue'
-import LoadingState from '../components/LoadingState.vue'
-import RequirementSummary from '../components/RequirementSummary.vue'
-import ResourceTimeline from '../components/ResourceTimeline.vue'
+import ConversationCanvas from '../components/ConversationCanvas.vue'
+import OrchestrationSheet from '../components/OrchestrationSheet.vue'
 import RunStatusBar from '../components/RunStatusBar.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import TraceDrawer from '../components/TraceDrawer.vue'
+import WorkspaceShell from '../components/WorkspaceShell.vue'
 import { createClientRequestId } from '../utils/format'
 
 const route = useRoute()
 const router = useRouter()
 
-const message = ref('下周三下午帮张三安排一个 90 分钟架构评审，要大屏')
+const message = ref('')
 const threadId = ref<string | null>(null)
 const runId = ref<string | null>(null)
 const runStatus = ref('')
@@ -96,16 +151,10 @@ const streaming = ref(false)
 const decisionBusy = ref(false)
 const recoveryLoading = ref(false)
 const traceOpen = ref(false)
-const mobilePane = ref<'conversation' | 'result'>('conversation')
-const resultTab = ref<'requirements' | 'candidates' | 'resources' | 'citations'>('requirements')
+const orchestrationOpen = ref(false)
+const orchestrationTab = ref<'requirements' | 'candidates' | 'policy' | 'execution'>('requirements')
 const submittedMessage = ref('')
 const runMetrics = ref<Partial<AgentRunSummary> | null>(null)
-const editableDraft = computed(() => proposedDraft(hitlDraft.value))
-const examples = ['下周三下午安排 90 分钟架构评审，要大屏', '找一个 10 人、有视频设备的会议室', '客户会议能不能使用 VIP 会议室？']
-const resultTabs = [
-  { id: 'requirements' as const, label: '需求解析' }, { id: 'candidates' as const, label: '候选计划' },
-  { id: 'resources' as const, label: '资源日历' }, { id: 'citations' as const, label: '政策依据' },
-]
 
 interface ConversationTurn {
   id: string
@@ -123,14 +172,23 @@ interface StoredConversation {
 interface StoredRunContext {
   threadId: string
   question: string
+  status?: string
+  updatedAt?: number
 }
 
 const CHAT_HISTORY_STORAGE_KEY = 'meetops.chat-history.v1'
 const CHAT_ACTIVE_RUN_STORAGE_KEY = 'meetops.chat-active-run.v1'
 const CHAT_ACTIVE_THREAD_STORAGE_KEY = 'meetops.chat-active-thread.v1'
+const CHAT_SUPPRESS_RESTORE_STORAGE_KEY = 'meetops.chat-suppress-restore.v1'
 const CHAT_RUN_CONTEXT_STORAGE_KEY = 'meetops.chat-run-context.v1'
+const CHAT_SHEET_OPENED_STORAGE_KEY = 'meetops.chat-sheet-opened.v1'
+const CHAT_SHEET_DISMISSED_STORAGE_KEY = 'meetops.chat-sheet-dismissed.v1'
+const CHAT_CONTEXT_EVENT = 'meetops:chat-context-updated'
+const NEW_CONVERSATION_EVENT = 'meetops:new-conversation'
 const SAFE_RUN_ID = /^[A-Za-z0-9_-]{1,64}$/
 const conversationHistory = ref<ConversationTurn[]>([])
+const sheetAutoOpenedRuns = readStoredRunSet(CHAT_SHEET_OPENED_STORAGE_KEY)
+const sheetDismissedRuns = readStoredRunSet(CHAT_SHEET_DISMISSED_STORAGE_KEY)
 
 let activeAbort: AbortController | null = null
 let pollTimer: ReturnType<typeof setTimeout> | null = null
@@ -149,6 +207,20 @@ function stringValue(value: Record<string, unknown>, key: string): string | unde
 
 function numberValue(value: Record<string, unknown>, key: string): number | undefined {
   return typeof value[key] === 'number' && Number.isFinite(value[key]) ? value[key] : undefined
+}
+
+function readStoredRunSet(key: string): Set<string> {
+  try {
+    const raw = window.sessionStorage.getItem(key)
+    const parsed: unknown = raw === null ? [] : JSON.parse(raw)
+    return new Set(Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string' && SAFE_RUN_ID.test(id)) : [])
+  } catch {
+    return new Set()
+  }
+}
+
+function persistStoredRunSet(key: string, values: Set<string>): void {
+  window.sessionStorage.setItem(key, JSON.stringify([...values].slice(-50)))
 }
 
 function readCandidates(value: unknown): AgentCandidate[] {
@@ -315,6 +387,7 @@ function handleSseMessage(messageEvent: SseMessage): void {
     }
     case 'plan.candidates':
       candidates.value = readCandidates(payload.candidates)
+      autoOpenOrchestration('candidates')
       return
     case 'hitl.required': {
       const token = stringValue(payload, 'confirmationToken')
@@ -326,6 +399,7 @@ function handleSseMessage(messageEvent: SseMessage): void {
         expiresAt.value = stringValue(payload, 'expiresAt')
         hitlFeedback.value = ''
         runStatus.value = stringValue(payload, 'status') ?? 'WAITING_CONFIRMATION'
+        autoOpenOrchestration('requirements')
       }
       return
     }
@@ -391,12 +465,18 @@ async function consumeStream(path: `/${string}`, body: unknown): Promise<void> {
   activeAbort = controller
   streaming.value = true
   errorMessage.value = ''
+  let reachedExpectedBoundary = false
 
   try {
     await apiSseRequest(
       path,
       body,
-      handleSseMessage,
+      (messageEvent) => {
+        if (['run.completed', 'run.failed', 'booking.completed'].includes(messageEvent.event)) {
+          reachedExpectedBoundary = true
+        }
+        handleSseMessage(messageEvent)
+      },
       controller.signal,
       ({ runId: openedRunId }) => {
         if (openedRunId !== null && SAFE_RUN_ID.test(openedRunId)) {
@@ -411,28 +491,61 @@ async function consumeStream(path: `/${string}`, body: unknown): Promise<void> {
       return
     }
     errorMessage.value = error instanceof ApiError ? error.message : '调度服务暂时不可用。'
+    archiveCurrentTurn()
   } finally {
     if (activeAbort === controller) {
       activeAbort = null
       streaming.value = false
     }
+    if (reachedExpectedBoundary) {
+      archiveCurrentTurn()
+      submittedMessage.value = ''
+    }
   }
 }
 
 async function startRun(): Promise<void> {
-  if (message.value.length === 0 || streaming.value || decisionBusy.value) {
+  const submitted = message.value.trim()
+  if (submitted.length === 0 || streaming.value || decisionBusy.value) {
     return
   }
   archiveCurrentTurn()
   clearRunState()
   threadId.value ??= `thread_${crypto.randomUUID().replaceAll('-', '')}`
-  submittedMessage.value = message.value
-  mobilePane.value = 'result'
+  submittedMessage.value = submitted
+  message.value = ''
   await consumeStream('/agent/runs/stream', {
     threadId: threadId.value,
-    message: message.value,
+    message: submitted,
     clientRequestId: createClientRequestId(),
   })
+}
+
+function selectExample(prompt: string): void {
+  message.value = prompt
+}
+
+function openOrchestration(tab: 'requirements' | 'candidates' | 'policy' | 'execution'): void {
+  orchestrationTab.value = tab
+  orchestrationOpen.value = true
+}
+
+function setOrchestrationOpen(value: boolean): void {
+  orchestrationOpen.value = value
+  if (!value && runId.value !== null) {
+    sheetDismissedRuns.add(runId.value)
+    persistStoredRunSet(CHAT_SHEET_DISMISSED_STORAGE_KEY, sheetDismissedRuns)
+  }
+}
+
+function autoOpenOrchestration(tab: 'requirements' | 'candidates'): void {
+  const id = runId.value
+  if (id === null || sheetAutoOpenedRuns.has(id) || sheetDismissedRuns.has(id)) {
+    return
+  }
+  sheetAutoOpenedRuns.add(id)
+  persistStoredRunSet(CHAT_SHEET_OPENED_STORAGE_KEY, sheetAutoOpenedRuns)
+  openOrchestration(tab)
 }
 
 function currentConversationTurn(): ConversationTurn | null {
@@ -519,8 +632,14 @@ function persistRunContext(id: string): void {
     return
   }
   const contexts = readStoredRunContexts()
-  contexts[id] = { threadId: threadId.value, question: submittedMessage.value }
+  contexts[id] = {
+    threadId: threadId.value,
+    question: submittedMessage.value,
+    status: runStatus.value,
+    updatedAt: Date.now(),
+  }
   window.sessionStorage.setItem(CHAT_RUN_CONTEXT_STORAGE_KEY, JSON.stringify(contexts))
+  window.dispatchEvent(new CustomEvent(CHAT_CONTEXT_EVENT))
 }
 
 function restoreRunContext(id: string): void {
@@ -535,6 +654,9 @@ function restoreRunContext(id: string): void {
   }
   threadId.value = context.threadId
   submittedMessage.value = context.question
+  if (typeof context.status === 'string' && context.status.length > 0) {
+    runStatus.value = context.status
+  }
   restoreConversation(context.threadId, id)
 }
 
@@ -591,16 +713,12 @@ function clearRunState(): void {
   hitlFeedback.value = ''
   bookingRequest.value = null
   runMetrics.value = null
+  orchestrationOpen.value = false
+  orchestrationTab.value = 'requirements'
 }
 
 function resetConversation(): void {
   activeAbort?.abort()
-  const activeRunId = runId.value
-  if (activeRunId !== null) {
-    const contexts = readStoredRunContexts()
-    delete contexts[activeRunId]
-    window.sessionStorage.setItem(CHAT_RUN_CONTEXT_STORAGE_KEY, JSON.stringify(contexts))
-  }
   threadId.value = null
   conversationHistory.value = []
   errorMessage.value = ''
@@ -611,6 +729,7 @@ function resetConversation(): void {
   const query = { ...route.query }
   delete query.runId
   void router.replace({ query })
+  window.dispatchEvent(new CustomEvent(CHAT_CONTEXT_EVENT))
 }
 
 function applyRecovery(recovery: AgentRunRecovery): void {
@@ -631,6 +750,9 @@ function applyRecovery(recovery: AgentRunRecovery): void {
   confirmationToken.value = isResumable ? nextToken : null
   expiresAt.value = isResumable ? recovery.expiresAt : undefined
   hitlFeedback.value = ''
+  if (isResumable) {
+    autoOpenOrchestration('requirements')
+  }
 }
 
 async function loadRecovery(id: string): Promise<void> {
@@ -726,6 +848,8 @@ async function pollBookingRequest(requestNo: string): Promise<void> {
     if (latest.status === 'SUCCESS') {
       runStatus.value = 'SUCCESS'
       answerSummary.value = '热门预约已确认并写入会议列表。'
+      archiveCurrentTurn()
+      submittedMessage.value = ''
       return
     }
     if (latest.status === 'CONFLICT' && runId.value !== null) {
@@ -756,6 +880,9 @@ watch(runId, (nextRunId) => {
     delete query.runId
     void router.replace({ query })
   }
+  if (nextRunId !== null) {
+    persistRunContext(nextRunId)
+  }
 })
 
 watch(threadId, (nextThreadId) => {
@@ -766,11 +893,26 @@ watch(threadId, (nextThreadId) => {
 
 watch(
   [threadId, runId, submittedMessage, answerSummary, runStatus, errorMessage, conversationHistory],
-  () => persistConversation(),
+  () => {
+    persistConversation()
+    if (runId.value !== null) {
+      persistRunContext(runId.value)
+    }
+  },
   { deep: true },
 )
 
+function handleNewConversation(): void {
+  resetConversation()
+}
+
 onMounted(() => {
+  window.addEventListener(NEW_CONVERSATION_EVENT, handleNewConversation)
+  const suppressRestore = window.sessionStorage.getItem(CHAT_SUPPRESS_RESTORE_STORAGE_KEY) === 'true'
+  if (suppressRestore) {
+    window.sessionStorage.removeItem(CHAT_SUPPRESS_RESTORE_STORAGE_KEY)
+    return
+  }
   const requestedRunId = route.query.runId
   if (typeof requestedRunId === 'string' && SAFE_RUN_ID.test(requestedRunId)) {
     runId.value = requestedRunId
@@ -792,6 +934,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  window.removeEventListener(NEW_CONVERSATION_EVENT, handleNewConversation)
   activeAbort?.abort()
   clearBookingPoll()
   clearRecoveryTimer()
