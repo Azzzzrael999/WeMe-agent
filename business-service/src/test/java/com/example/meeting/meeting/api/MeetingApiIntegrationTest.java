@@ -45,7 +45,7 @@ class MeetingApiIntegrationTest {
     jdbcTemplate.update("DELETE FROM meeting_room_slot");
     jdbcTemplate.update("DELETE FROM meeting_participant");
     jdbcTemplate.update("DELETE FROM meeting");
-    jdbcTemplate.update("UPDATE meeting_room SET status = 'ACTIVE'");
+    jdbcTemplate.update("UPDATE meeting_room SET status = 'ACTIVE' WHERE code <> 'HQ-MAINT-702'");
   }
 
   @Test

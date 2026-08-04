@@ -1,5 +1,14 @@
 # 05. 数据模型与 API 契约
 
+## 0. Spec 1.1 Agent Loop 兼容契约
+
+- Java 公共 API、内部 Tool 路径和 `BOOKING_RESULT` MQ 信封保持向后兼容；本次 Loop 升级不允许模型直连新的写入口。
+- Python 可新增内部状态 `loopIteration/modelCallCount/toolCallCount/replanCount/executedToolFingerprints/excludedCandidateIds/requirementFeedback/conflictRepairFeedback/stopReason`，这些字段属于 Agent checkpoint，不进入 Java 业务事实表；全 Run 上限为12次模型调用、16次 Tool 调用和2次冲突重规划。
+- SSE 可新增 `agent.loop` 事件，`data` 仅包含：`runId`、`phase`、`iteration`、`decision`、`replanCount`、`feedbackCodes`、`stopReason`、剩余预算摘要、模型/Prompt/Schema 版本和累计 Token 使用。Java SSE 代理必须透明转发，前端未知事件必须安全忽略。
+- DeepSeek 原生 Tool Call ID 只用于模型消息关联；跨服务 `toolCallId` 由 Python 生成稳定业务 ID，二者不得混用。每次执行前以 canonical Tool 参数生成指纹并去重。
+- `BOOKING_RESULT.CONFLICT` 继续使用既有 `conflict.type/roomId/slots`。Python 必须结合 checkpoint 中的 selectedCandidate 和原始 MeetingRequest 派生修复反馈，不能要求 Java 接受模型产生的冲突原因。
+- 非 HOT 草案同步确认发生最终并发冲突时继续返回 HTTP 409 和通用 `ApiError`，并在既有 `details[{field,reason}]` 中提供 `conflict.type`、`conflict.roomId`、`conflict.slots`；不新增顶层字段。Python 对这三个 detail 做白名单解析，缺失时仍以 checkpoint 中的失败候选生成保守反馈。
+
 ## 1. 数据库规划
 
 同一个MySQL实例建立两个逻辑库：
@@ -357,6 +366,35 @@ created_at DATETIME(3)
 indexed_at DATETIME(3) NULL
 ```
 
+RAG 文件导入契约：
+
+- `document_id` 来自受控 Front Matter，格式为 `doc_[a-z0-9_]+`，在 64 字符内保持稳定；`checksum` 为 64 位小写 SHA-256，并具有唯一约束，同一规范化内容不得重复登记。
+- Markdown checksum 对去除 UTF-8 BOM、统一为 LF 的完整文件计算；文本型 PDF checksum 对 PDF 原始字节与规范化元数据共同计算。PDF 不做 OCR，任一页面无法提取有效文本且全文为空时导入失败。
+- `status` 只使用 `INDEXING|INDEXED|FAILED`。导入开始先登记 `INDEXING`；Qdrant upsert 全部成功后更新 `INDEXED + chunk_count + indexed_at`；失败时更新 `FAILED` 且 `indexed_at=NULL`。
+- 相同 `document_id + checksum` 且状态为 `INDEXED` 时必须幂等跳过。相同 checksum 对应不同 documentId 时按重复内容跳过，不再创建第二条记录。相同 documentId 内容变化时，先进入 `INDEXING`，删除该 documentId 的旧向量，再写入完整新 chunk 集合。
+- 删除源文件不自动删除已索引文档；P0 不实现目录镜像式删除。停用或删除必须由后续受控管理任务显式执行，防止一次挂载异常清空知识库。
+
+每个 Qdrant point payload 固定包含：
+
+```json
+{
+  "chunkId": "chunk_doc_vip_executive_room_policy_0001",
+  "documentId": "doc_vip_executive_room_policy",
+  "documentType": "ROOM_POLICY",
+  "title": "VIP 与高管会议室使用规则",
+  "headingPath": ["VIP 与高管会议室使用规则", "规则正文", "适用场景和判定"],
+  "page": 1,
+  "content": "...",
+  "version": "1.0",
+  "priority": 200,
+  "checksum": "sha256..."
+}
+```
+
+- Markdown 按 ATX 标题层级切片，超长章节再按段落拆分；PDF 按页提取文本，再识别文本中的 Markdown 标题，无法识别标题时按页和段落切片。chunk 正文目标上限 1200 字符，不截断单个不可分割段落。
+- `chunkId` 由 documentId 和文档内稳定顺序生成，格式 `chunk_{documentId}_{sequence:04d}`；引用的 `chunkId/title/headingPath/page` 必须与 Qdrant payload 一致。
+- 导入器只接受允许的 `documentType` 枚举、`status=ACTIVE`、`timezone=Asia/Shanghai`、有效 ISO 日期和完整 Front Matter。Markdown 元数据位于文首；PDF 元数据来自同名 `.yaml` sidecar 或可提取文本开头的 Front Matter。
+
 ## 4. API通用规范
 
 ### 4.1 前缀
@@ -643,7 +681,7 @@ event: plan.candidates
 data: {"runId":"run_uuid","candidates":[{"candidateId":"cand_uuid","roomId":101,"roomName":"研发楼301","building":"研发楼","startAt":"2026-08-19T15:00:00+08:00","endAt":"2026-08-19T16:30:00+08:00","totalCost":24,"costBreakdown":{"optionalParticipantConflict":0,"preferredTimeDeviation":0,"buildingDistance":0,"capacityWaste":24,"preferenceViolation":0,"roomChange":0}}]}
 
 event: hitl.required
-data: {"runId":"run_uuid","status":"WAITING_CONFIRMATION","confirmationToken":"cfm_uuid","expiresAt":"2026-08-12T10:10:00+08:00","draft":{"title":"架构评审","roomId":101,"roomName":"研发楼301","startAt":"2026-08-19T15:00:00+08:00","endAt":"2026-08-19T16:30:00+08:00","requiredParticipants":[],"optionalParticipants":[],"createVideoConference":false}}
+data: {"runId":"run_uuid","status":"WAITING_CONFIRMATION","actionType":"CREATE","confirmationToken":"cfm_uuid","expiresAt":"2026-08-12T10:10:00+08:00","draft":{"title":"架构评审","roomId":101,"roomName":"研发楼301","startAt":"2026-08-19T15:00:00+08:00","endAt":"2026-08-19T16:30:00+08:00","requiredParticipants":[],"optionalParticipants":[],"createVideoConference":false}}
 
 event: booking.pending
 data: {"runId":"run_uuid","status":"WAITING_BUSINESS_RESULT","requestNo":"BR202608120001"}
@@ -653,6 +691,7 @@ data: {"runId":"run_uuid","status":"SUCCESS","meetingId":9001}
 ```
 
 - `plan.candidates` 最多包含 3 个成本升序且候选 ID 不重复的方案；每个候选都必须先通过 Python 独立硬约束验证器。无解不发送空候选事件，而应以 `run.completed` 返回可解释的无解摘要。
+- `hitl.required.actionType` 固定为 `CREATE|RESCHEDULE|CANCEL`。CREATE 的 `draft` 保持上述扁平业务字段；RESCHEDULE 的 `draft` 为 `{"originalMeeting":MeetingView,"proposedMeeting":BookingDraftView}`；CANCEL 的 `draft` 为 `{"meeting":MeetingView}`。`GET /api/v1/agent/runs/{runId}` 的可恢复视图使用同一可辨别结构。
 - Scheduling 为成本最低候选调用一次 `create_booking_draft`，再发送 `hitl.required`；Java 创建草案不占用正式会议或槽位。`confirmationToken` 仅可在当前已鉴权用户的 HTTPS/SSE 会话中短暂传递，绝不写入 Trace、日志或持久化摘要。
 - `POST /api/v1/agent/runs/{runId}/resume` 的成功响应也是 `text/event-stream`。它只接受 `WAITING_CONFIRMATION` 状态和归属用户（或 ADMIN）；`ACCEPT` 才可调用 `confirm_booking`，`REJECT` 结束且不得调用 WRITE Tool，`EDIT` 仅接受 `roomId` 和/或 `startAt` 后重新进入 Requirement/Scheduling，不得直接确认编辑参数。
 - 恢复是一次新的用户 HTTP 动作：Java 为它签发新的请求 `traceId` 与 AgentContext，但 `runId` 必须保持不变，持久化 Run 的初始 `traceId` 不得被覆盖。Python 只校验恢复请求的 Token 与上下文头彼此一致及其用户归属，不能要求该新 `traceId` 等于 Run 的初始 `traceId`；恢复后产生的 Tool 和 HOT `booking_request` 使用当前恢复动作的 `traceId`。
@@ -672,6 +711,8 @@ data: {"runId":"run_uuid","status":"SUCCESS","meetingId":9001}
   "feedback": null
 }
 ```
+
+`editedDraft` 是按当前 `actionType` 校验的受限白名单：CREATE/RESCHEDULE 仅允许 `roomId` 和/或 `startAt`；CANCEL 仅允许 `meetingId`，用于多匹配澄清后重新生成取消预览。EDIT 必须使旧确认令牌失效并产生新令牌，任何编辑参数都不得直接进入 WRITE。
 
 为完成 HOT `CONFLICT -> DRAFT` 的可恢复闭环，`GET /api/v1/agent/runs/{runId}` 由 Java 以当前请求的 AgentContext 代理同名 Python 内部接口，并使用统一成功信封返回当前用户可见的 Run 恢复视图。响应始终包含脱敏的 Run 元数据；只有该 Run 处于 `WAITING_CONFIRMATION` 且调用者为所属用户或 ADMIN 时，才额外包含 `candidates`、`draft`、`confirmationToken` 和 `expiresAt`。该响应必须设置 `Cache-Control: no-store`，确认令牌不得出现在 `/trace`、日志或持久化摘要中。`GET /api/v1/agent/runs/{runId}/trace` 只代理脱敏 Trace，不包含恢复令牌。
 
@@ -878,6 +919,22 @@ POST /internal/v1/tools/meetings/{meetingId}/video-conference
 
 - 确认请求必须携带 `Idempotency-Key`；令牌仅允许所属用户使用一次。
 - 非 HOT 草案复用 Day 2 同一最终校验/事务服务，返回 HTTP 200 `SUCCESS + meetingId`。
+- 非 HOT 确认若被 MySQL 最终裁决为并发冲突，返回 HTTP 409：
+
+```json
+{
+  "code": "BOOKING_CONFLICT",
+  "message": "会议室或必须参加者在该时段已被占用",
+  "details": [
+    {"field": "conflict.type", "reason": "BOOKING_CONFLICT"},
+    {"field": "conflict.roomId", "reason": "101"},
+    {"field": "conflict.slots", "reason": "30,31,32"}
+  ],
+  "traceId": "trc_uuid"
+}
+```
+
+  `roomId` 和当日 30 分钟 `slotIndex` 列表只能来自服务端锁定的草案；它们是冲突修复提示，不取代数据库最终裁决，也不暴露参会者身份。
 - 改期和取消草案确认在 Day 3 复用 Day 2 update/cancel 事务并同步返回 `SUCCESS + meetingId`；重复 Tool 调用返回首次结果。
 - HOT 草案在一个事务中写入 `booking_request(PENDING)`、`message_outbox(BOOKING_COMMAND)`、幂等记录并将草案标记 `USED`，返回 HTTP 202 `PENDING + requestNo`；受理事务不创建 meeting/slot。
 - `BOOKING_COMMAND` 消费者以 `eventId` 和 booking request 业务终态幂等；SUCCESS/CONFLICT 都必须写 `BOOKING_RESULT` Outbox。

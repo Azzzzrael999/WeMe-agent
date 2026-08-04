@@ -118,11 +118,11 @@ class RoomManagementIntegrationTest {
     mockMvc
         .perform(get("/api/v1/rooms").header("Authorization", bearer(employeeToken)))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.data.total").value(3));
+        .andExpect(jsonPath("$.data.total").value(12));
     mockMvc
         .perform(get("/api/v1/rooms").header("Authorization", bearer(adminToken)))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.data.total").value(4));
+        .andExpect(jsonPath("$.data.total").value(14));
     mockMvc
         .perform(get("/api/v1/rooms/{roomId}", roomId).header("Authorization", bearer(adminToken)))
         .andExpect(status().isOk())

@@ -65,6 +65,7 @@ public class BookingDraftService {
     CreateMeetingRequest payload = payloadCodec.fromCommand(command);
     LocalDateTime now = LocalDateTime.now(clock);
     LocalDateTime expiresAt = now.plusMinutes(properties.draftTtlMinutes());
+    draftMapper.invalidatePendingForRun(context.userId(), context.runId(), "CREATE", now);
     BookingDraftRecord draft = new BookingDraftRecord();
     draft.setConfirmationToken("cfm_" + UUID.randomUUID().toString().replace("-", ""));
     draft.setUserId(context.userId());

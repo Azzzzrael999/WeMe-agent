@@ -39,4 +39,19 @@ public interface BookingDraftMapper extends BaseMapper<BookingDraftRecord> {
       """)
   int markUsed(
       @Param("id") long id, @Param("version") int version, @Param("usedAt") LocalDateTime usedAt);
+
+  @Update(
+      """
+      UPDATE booking_draft
+      SET status = 'REJECTED', version = version + 1, used_at = #{invalidatedAt}
+      WHERE user_id = #{userId}
+        AND run_id = #{runId}
+        AND operation = #{operation}
+        AND status = 'PENDING'
+      """)
+  int invalidatePendingForRun(
+      @Param("userId") long userId,
+      @Param("runId") String runId,
+      @Param("operation") String operation,
+      @Param("invalidatedAt") LocalDateTime invalidatedAt);
 }

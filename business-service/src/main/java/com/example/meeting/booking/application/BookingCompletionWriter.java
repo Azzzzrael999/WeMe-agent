@@ -90,7 +90,8 @@ public class BookingCompletionWriter {
                 requestNo,
                 "CONFLICT",
                 null,
-                new BookingResultPayload.ConflictView("BOOKING_CONFLICT", roomId, slots))));
+                new BookingResultPayload.ConflictView(
+                    BookingConflictEvidence.TYPE, roomId, slots))));
   }
 
   private void writeMeetingEvent(

@@ -1,5 +1,6 @@
 from app.models.metadata import (
     AgentBusinessEvent,
+    AgentLoopEvent,
     AgentRun,
     AgentStep,
     AgentThread,
@@ -10,6 +11,7 @@ from app.models.metadata import (
 
 __all__ = [
     "AgentBusinessEvent",
+    "AgentLoopEvent",
     "AgentRun",
     "AgentStep",
     "AgentThread",

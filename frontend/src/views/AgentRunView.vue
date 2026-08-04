@@ -39,6 +39,14 @@
           <dt>工具调用</dt>
           <dd>{{ run.toolCallCount }}</dd>
         </div>
+        <div>
+          <dt>模型</dt>
+          <dd>{{ run.model ?? run.configuredModel ?? '—' }}</dd>
+        </div>
+        <div>
+          <dt>Token（输入 / 输出）</dt>
+          <dd>{{ run.inputTokens ?? 0 }} / {{ run.outputTokens ?? 0 }}</dd>
+        </div>
       </dl>
 
       <div v-if="run" class="trace-summaries">
@@ -53,7 +61,7 @@
       </div>
     </section>
 
-    <section v-if="run?.status === 'WAITING_CONFIRMATION' && run.draft" class="content-panel recovery-panel">
+    <section v-if="run?.status === 'WAITING_CONFIRMATION' && run.draft && recoveryActionType" class="content-panel recovery-panel">
       <div class="section-heading compact-heading">
         <div>
           <h2>存在待确认草案</h2>
@@ -61,30 +69,27 @@
         </div>
         <RouterLink class="primary-link" :to="{ name: 'chat', query: { runId } }">继续确认</RouterLink>
       </div>
-      <dl class="draft-facts">
-        <div><dt>会议</dt><dd>{{ run.draft.title }}</dd></div>
-        <div><dt>会议室</dt><dd>{{ run.draft.roomName }}</dd></div>
-        <div><dt>开始</dt><dd>{{ formatDateTime(run.draft.startAt) }}</dd></div>
-        <div><dt>结束</dt><dd>{{ formatDateTime(run.draft.endAt) }}</dd></div>
-      </dl>
+      <HitlDraftSummary :action-type="recoveryActionType" :draft="run.draft" />
       <p v-if="run.candidates?.length" class="muted">当前恢复视图包含 {{ run.candidates.length }} 个已验证候选；请在聊天页选择或编辑后重新校验。</p>
     </section>
 
-    <section class="content-panel run-timeline-panel"><div class="section-heading"><div><h2>运行时间线</h2><p>Agent 节点与确定性 Tool Call 按序展示。</p></div></div><TraceTimeline :steps="trace?.steps ?? []" :tools="trace?.toolCalls ?? []" /></section>
+    <section class="content-panel run-timeline-panel"><div class="section-heading"><div><h2>运行时间线</h2><p>受控 Loop、Agent 节点与确定性 Tool Call 按序展示。</p></div></div><TraceTimeline :steps="trace?.steps ?? []" :tools="trace?.toolCalls ?? []" :loops="trace?.loopEvents ?? []" :run="trace?.run ?? run" /></section>
   </AppShell>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 
 import { ApiError, apiRequest } from '../api/client'
+import { readHitlDraft } from '../api/agent-view'
 import type { AgentRunRecovery, AgentTrace } from '../api/types'
 import AppShell from '../components/AppShell.vue'
 import ErrorState from '../components/ErrorState.vue'
 import LoadingState from '../components/LoadingState.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import TraceTimeline from '../components/TraceTimeline.vue'
+import HitlDraftSummary from '../components/HitlDraftSummary.vue'
 import { formatDateTime, formatDuration } from '../utils/format'
 
 const route = useRoute()
@@ -94,6 +99,13 @@ const run = ref<AgentRunRecovery | null>(null)
 const trace = ref<AgentTrace | null>(null)
 const loading = ref(false)
 const errorMessage = ref('')
+const recoveryActionType = computed(() => {
+  const current = run.value
+  if (current?.draft === undefined) {
+    return null
+  }
+  return readHitlDraft(current.draft, current.actionType ?? current.operationType)?.actionType ?? null
+})
 
 async function loadData(): Promise<void> {
   if (runId.length === 0 || loading.value) {
@@ -106,7 +118,13 @@ async function loadData(): Promise<void> {
       apiRequest<AgentRunRecovery>(`/agent/runs/${runId}`),
       apiRequest<AgentTrace>(`/agent/runs/${runId}/trace`),
     ])
-    run.value = nextRun
+    const parsedDraft = nextRun.draft === undefined
+      ? null
+      : readHitlDraft(nextRun.draft, nextRun.actionType ?? nextRun.operationType)
+    run.value = {
+      ...nextRun,
+      ...(parsedDraft === null ? {} : { actionType: parsedDraft.actionType, draft: parsedDraft.draft }),
+    }
     trace.value = nextTrace
   } catch (error) {
     errorMessage.value = error instanceof ApiError ? error.message : '无法加载 Agent Trace。'

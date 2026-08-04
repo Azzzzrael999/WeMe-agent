@@ -7,29 +7,145 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from app.providers.base import ModelRequest
+from app.providers.base import (
+    ModelCompletion,
+    ModelRequest,
+    ModelToolCall,
+    ToolModelRequest,
+    ToolModelResponse,
+)
 
 
 @dataclass(frozen=True)
 class FixtureModelProvider:
     now: datetime
 
-    def complete(self, request: ModelRequest) -> str:
+    def complete(self, request: ModelRequest) -> ModelCompletion:
         message = request.user_prompt
         if request.agent_name == "supervisor":
-            return self._json(self._supervisor(message))
+            return ModelCompletion(content=self._json(self._supervisor(message)), model="fixture")
         if request.agent_name == "requirement":
-            return self._json(self._requirement(message))
+            return ModelCompletion(content=self._json(self._requirement(message)), model="fixture")
         if request.agent_name == "policy":
-            return self._json(self._policy(message))
+            return ModelCompletion(content=self._json(self._policy(message)), model="fixture")
         if request.agent_name == "scheduling":
-            return self._json(
+            return ModelCompletion(content=self._json(
                 {
                     "toolNames": ["resolve_employees"],
                     "summary": "先解析必需参会者，再交由后续确定性调度处理。",
                 }
-            )
+            ), model="fixture")
         raise ValueError(f"unsupported fixture agent: {request.agent_name}")
+
+    def complete_tools(self, request: ToolModelRequest) -> ToolModelResponse:
+        """Reproduce a native two-turn READ trajectory without network calls."""
+
+        tool_names = {
+            call.name
+            for message in request.messages
+            for call in message.tool_calls
+            if message.role == "assistant"
+        }
+        observations = [message for message in request.messages if message.role == "tool"]
+        canonical = _fixture_canonical_context(request)
+        intent = canonical.get("intent")
+        target_meeting_id = canonical.get("targetMeetingId")
+        participant_names = canonical.get("participantNames")
+        if not isinstance(participant_names, list):
+            raise ValueError("fixture participantNames is invalid")
+        if participant_names and "resolve_employees" not in tool_names:
+            return ToolModelResponse(
+                content=None,
+                tool_calls=(
+                    ModelToolCall(
+                        id=f"call_fixture_resolve_{request.iteration}",
+                        name="resolve_employees",
+                        arguments=self._json({"names": participant_names, "departmentNames": []}),
+                    ),
+                ),
+            )
+        if (
+            intent in {"MODIFY_MEETING", "CANCEL_MEETING"}
+            and (intent == "MODIFY_MEETING" or target_meeting_id is None)
+            and "get_recent_meeting" not in tool_names
+        ):
+            return ToolModelResponse(
+                content=None,
+                tool_calls=(
+                    ModelToolCall(
+                        id=f"call_fixture_recent_{request.iteration}",
+                        name="get_recent_meeting",
+                        arguments=self._json({"limit": 5}),
+                    ),
+                ),
+            )
+        if intent == "CANCEL_MEETING":
+            return ToolModelResponse(content="取消目标已核验。", tool_calls=())
+        if not {"get_employee_free_busy", "search_available_rooms"}.intersection(tool_names):
+            resolved_ids: list[int] = []
+            for observation in observations:
+                try:
+                    value = json.loads(observation.content or "{}")
+                except json.JSONDecodeError:
+                    continue
+                if value.get("toolName") == "resolve_employees":
+                    resolved_ids = [
+                        item["employeeId"]
+                        for item in value.get("data", {}).get("employees", [])
+                        if isinstance(item, dict) and isinstance(item.get("employeeId"), int)
+                    ]
+                elif value.get("toolName") == "get_recent_meeting":
+                    meetings = value.get("data", {}).get("meetings", [])
+                    first = meetings[0] if isinstance(meetings, list) and meetings else {}
+                    if isinstance(first, dict):
+                        resolved_ids = [
+                            item["employeeId"]
+                            for item in first.get("participants", [])
+                            if isinstance(item, dict)
+                            and item.get("participantType") == "REQUIRED"
+                            and isinstance(item.get("employeeId"), int)
+                        ]
+            organizer_id = canonical.get("organizerId")
+            if not isinstance(organizer_id, int):
+                raise ValueError("fixture canonical organizerId is invalid")
+            employee_ids = sorted({organizer_id, *resolved_ids})
+            requested_capacity = canonical.get("requestedMinimumCapacity")
+            if not isinstance(requested_capacity, int):
+                raise ValueError("fixture requestedMinimumCapacity is invalid")
+            return ToolModelResponse(
+                content=None,
+                tool_calls=(
+                    ModelToolCall(
+                        id=f"call_fixture_busy_{request.iteration}",
+                        name="get_employee_free_busy",
+                        arguments=self._json(
+                            {
+                                "employeeIds": employee_ids,
+                                "from": canonical["from"],
+                                "to": canonical["to"],
+                            }
+                        ),
+                    ),
+                    ModelToolCall(
+                        id=f"call_fixture_rooms_{request.iteration}",
+                        name="search_available_rooms",
+                        arguments=self._json(
+                            {
+                                "from": canonical["from"],
+                                "to": canonical["to"],
+                                "minimumCapacity": max(
+                                    requested_capacity, len(employee_ids)
+                                ),
+                                "requiredFeatures": canonical["requiredFeatures"],
+                                "limit": 50,
+                            }
+                        ),
+                    ),
+                ),
+            )
+        return ToolModelResponse(
+            content="只读事实已经齐备，请执行确定性验证与求解。", tool_calls=()
+        )
 
     @staticmethod
     def _json(value: dict[str, object]) -> str:
@@ -38,8 +154,34 @@ class FixtureModelProvider:
     @staticmethod
     def _supervisor(message: str) -> dict[str, object]:
         if any(term in message for term in ("规则", "制度", "VIP", "政策")):
-            return {"route": "POLICY", "summary": "识别为会议规则查询。"}
-        return {"route": "REQUIREMENT", "summary": "已路由到需求解析。"}
+            return {
+                "route": "POLICY",
+                "intentHint": "QUERY_POLICY",
+                "confidence": 0.99,
+                "evidence": next(
+                    term for term in ("规则", "制度", "VIP", "政策") if term in message
+                ),
+                "summary": "识别为会议规则查询。",
+            }
+        intent = "CANCEL_MEETING" if "取消" in message else (
+            "MODIFY_MEETING" if any(term in message for term in ("改期", "调整", "修改", "改到"))
+            else "CREATE_MEETING"
+        )
+        evidence = next(
+            (
+                term
+                for term in ("取消", "改期", "调整", "修改", "改到", "安排", "预约", "帮")
+                if term in message
+            ),
+            message[:1],
+        )
+        return {
+            "route": "REQUIREMENT",
+            "intentHint": intent,
+            "confidence": 0.99,
+            "evidence": evidence,
+            "summary": "已路由到需求解析。",
+        }
 
     def _requirement(self, message: str) -> dict[str, object]:
         intent = "CREATE_MEETING"
@@ -73,17 +215,45 @@ class FixtureModelProvider:
             features.append("VIDEO_CONFERENCE")
         window_start, window_end = self._time_window(message)
         title = "架构评审" if "架构评审" in message else "会议安排"
+        evidence: list[dict[str, str]] = []
+        for name in ("张三", "李四", "王经理"):
+            if name in message:
+                evidence.append(
+                    {
+                        "field": "requiredParticipantNames",
+                        "source": name,
+                        "provenance": "USER_EXPLICIT",
+                    }
+                )
+        headcount = re.search(r"\d{1,4}\s*人", message)
+        if headcount:
+            evidence.append(
+                {
+                    "field": "minimumCapacity",
+                    "source": headcount.group(0),
+                    "provenance": "USER_EXPLICIT",
+                }
+            )
+        for alias in ("大屏", "白板", "视频会议设备", "视频会议"):
+            if alias in message:
+                evidence.append(
+                    {
+                        "field": "requiredFeatures",
+                        "source": alias,
+                        "provenance": "USER_EXPLICIT",
+                    }
+                )
         return {
-            "meetingRequest": {
+            "requirementDraft": {
                 "intent": intent,
-                "title": title,
-                "meetingType": "ARCHITECTURE_REVIEW" if title == "架构评审" else "GENERAL",
+                "title": title if "架构评审" in message else None,
+                "meetingType": "ARCHITECTURE_REVIEW" if title == "架构评审" else None,
                 "durationMinutes": duration,
                 "timeWindow": {
                     "start": window_start.isoformat(),
                     "end": window_end.isoformat(),
                 },
-                "requiredParticipants": participants,
+                "requiredParticipantNames": [item["name"] for item in participants],
                 "optionalGroups": [],
                 "requiredFeatures": features,
                 "minimumCapacity": self._minimum_capacity(message, len(participants)),
@@ -92,10 +262,16 @@ class FixtureModelProvider:
                 "softConstraints": [],
                 "createVideoConference": "视频会议设备" in message or "视频会议" in message,
                 "targetMeetingId": target_meeting_id,
+                "targetMeetingReference": (
+                    next((term for term in ("刚才", "最近", "那个会议") if term in message), None)
+                    if intent in {"MODIFY_MEETING", "CANCEL_MEETING"}
+                    else None
+                ),
+                "fieldEvidence": evidence,
+                "needsPolicy": False,
+                "summary": "已提取用户明确表达的会议事实。",
             },
-            "missingFields": [] if participants else ["requiredParticipants"],
-            "needsPolicy": False,
-            "summary": "已提取时长、必需参会者和会议室设备约束。",
+            "missingFields": [],
         }
 
     @staticmethod
@@ -148,6 +324,9 @@ class FixtureModelProvider:
         if "VIP" in message:
             chunk_id = "chunk_vip_room_v1"
             summary = "VIP会议室仅用于重要客户或公司级会议，并应遵循审批要求。"
+        elif "取消" in message or "改期" in message:
+            chunk_id = "chunk_meeting_mutation_v1"
+            summary = "会议改期或取消必须先展示草案并经过用户确认。"
         else:
             chunk_id = "chunk_architecture_review_v1"
             summary = "架构评审展示材料时应选择配备大屏的会议室。"
@@ -157,3 +336,17 @@ class FixtureModelProvider:
             "confidence": 0.95,
             "constraints": [],
         }
+
+
+def _fixture_canonical_context(request: ToolModelRequest) -> dict[str, object]:
+    system = next(
+        (message.content or "" for message in request.messages if message.role == "system"), ""
+    )
+    marker = "CANONICAL_CONTEXT="
+    if marker not in system:
+        raise ValueError("fixture scheduling prompt is missing canonical context")
+    raw = system.split(marker, maxsplit=1)[1].split("\n", maxsplit=1)[0]
+    value = json.loads(raw)
+    if not isinstance(value, dict):
+        raise ValueError("fixture canonical context is invalid")
+    return value

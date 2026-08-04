@@ -25,7 +25,7 @@ def test_day7_offline_evaluation_validates_fixture_safety_invariants() -> None:
     report = run_day7_evaluation()
     metrics = report.metrics
 
-    assert report.mode == "offline-deterministic-fixture"
+    assert report.mode == "component-fixture"
     assert report.network_calls == 0
     assert metrics.total_cases == 40
     assert metrics.category_counts == EXPECTED_CATEGORY_COUNTS
@@ -38,7 +38,7 @@ def test_day7_offline_evaluation_validates_fixture_safety_invariants() -> None:
     assert metrics.citations_checked == 5
     assert metrics.citations_valid == 5
     assert metrics.citation_validity == 1.0
-    assert metrics.end_to_end_task_success >= 0.80
+    assert metrics.component_task_success >= 0.80
     assert {result.prediction.intent for result in report.results} == set(Intent)
 
 
@@ -48,7 +48,7 @@ def test_day7_report_is_deterministic_machine_readable_json() -> None:
 
     assert first == second
     payload = json.loads(first)
-    assert payload["schemaVersion"] == "day7-agent-evaluation-v1"
+    assert payload["schemaVersion"] == "component-fixture-evaluation-v2"
     assert payload["metrics"]["totalCases"] == 40
 
 

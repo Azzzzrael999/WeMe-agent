@@ -1,5 +1,6 @@
 package com.example.meeting.meeting.application;
 
+import com.example.meeting.booking.application.BookingConflictEvidence;
 import com.example.meeting.booking.application.BookingTransactionService;
 import com.example.meeting.booking.application.BookingValidator;
 import com.example.meeting.booking.application.IdempotencyKeyCoordinator;
@@ -104,12 +105,27 @@ public class MeetingApplicationService {
     }
     NormalizedMeetingCommand command = commandFactory.update(request, snapshot.getOrganizerId());
     bookingValidator.validate(command);
-    SlotHoldReservation hold =
-        slotHoldService.acquire(
-            command, actor.userId(), "update:" + meetingId + ":" + request.expectedVersion());
+    SlotHoldReservation hold;
     try {
-      runWrite(
-          () -> transactionService.update(meetingId, command, request.expectedVersion(), actor));
+      hold =
+          slotHoldService.acquire(
+              command, actor.userId(), "update:" + meetingId + ":" + request.expectedVersion());
+    } catch (BusinessException exception) {
+      if (exception.errorCode() == ErrorCode.BOOKING_CONFLICT) {
+        throw BookingConflictEvidence.exception(command);
+      }
+      throw exception;
+    }
+    try {
+      try {
+        runWrite(
+            () -> transactionService.update(meetingId, command, request.expectedVersion(), actor));
+      } catch (BusinessException exception) {
+        if (exception.errorCode() == ErrorCode.BOOKING_CONFLICT) {
+          throw BookingConflictEvidence.exception(command);
+        }
+        throw exception;
+      }
       return queryService.getVisible(meetingId, actor);
     } finally {
       slotHoldService.release(hold);
@@ -117,7 +133,12 @@ public class MeetingApplicationService {
   }
 
   public MeetingView cancel(long meetingId, AuthenticatedUser actor) {
-    runWrite(() -> transactionService.cancel(meetingId, actor));
+    runWrite(() -> transactionService.cancel(meetingId, null, actor));
+    return queryService.getVisible(meetingId, actor);
+  }
+
+  public MeetingView cancel(long meetingId, int expectedVersion, AuthenticatedUser actor) {
+    runWrite(() -> transactionService.cancel(meetingId, expectedVersion, actor));
     return queryService.getVisible(meetingId, actor);
   }
 

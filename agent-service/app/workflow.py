@@ -8,12 +8,13 @@ general write Tool surface.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 import uuid
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -23,16 +24,29 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, interrupt
 
+from app.agent_loop import (
+    READ_TOOL_DEFINITIONS,
+    LoopStopReason,
+    ReadToolGate,
+    RequirementEvaluator,
+    RequirementNormalizer,
+    RouteEvaluator,
+    SourceFidelityEvaluator,
+    ToolGateError,
+)
 from app.checkpoints import checkpoint_thread_id
 from app.checkpoints.redis import RedisCheckpointError
 from app.config import Settings
 from app.persistence import MetadataRepository
 from app.providers.base import (
+    ModelCompletion,
     ModelOutputError,
     ModelProvider,
     ModelProviderError,
     ModelRequest,
     StructuredModelRunner,
+    ToolLoopMessage,
+    ToolModelRequest,
 )
 from app.rag.policies import PolicyRetrievalError, PolicyRetriever
 from app.scheduling import ScheduleSolver, ScheduleSolverError
@@ -41,18 +55,26 @@ from app.schemas.agent import (
     AgentState,
     AvailabilitySnapshot,
     BusyInterval,
+    CancellationDraftView,
+    ConflictRepairFeedbackState,
+    CreateDraftView,
     EmployeeBusySlots,
     HitlResumeCommand,
     Intent,
+    MeetingRequest,
+    MeetingView,
+    OperationType,
     Participant,
     PolicyResult,
     PolicySelection,
+    RequirementDraft,
     RequirementExtraction,
+    RequirementFeedbackState,
+    RescheduleDraftView,
     ResumeAction,
     RoomAvailability,
     Route,
     RunStatus,
-    SchedulingPlan,
     SchedulingPreferences,
     SchedulingProblem,
     SupervisorDecision,
@@ -63,12 +85,35 @@ from app.tools.java import (
     CreateBookingDraftInput,
     JavaReadToolClient,
     JavaToolError,
+    RescheduleDraftInput,
     ToolOutcome,
     stable_idempotency_identity,
     stable_tool_identity,
 )
 
 logger = logging.getLogger(__name__)
+
+PROMPT_VERSION = "meeting-agent-prompts-v3"
+SCHEMA_VERSION = "meeting-agent-state-v3"
+
+SUPERVISOR_PROMPT = """You are the Supervisor Agent for an enterprise meeting scheduler.
+Only classify the current objective. Initial routes are POLICY, REQUIREMENT, or CLARIFICATION.
+Never route directly to SCHEDULING, HITL, WAIT_BUSINESS_RESULT, FINAL, or FAIL. POLICY is only a
+pure rule/restriction/permission question without a mutation request. REQUIREMENT covers create,
+find time, room recommendation, modify, cancel, and explicit preference updates. evidence must be
+one continuous verbatim substring of USER_MESSAGE. Return only the schema JSON; no reasoning."""
+
+REQUIREMENT_PROMPT = """You are the Requirement Agent. Extract only source-supported facts into
+RequirementDraft. Missing facts remain null/empty. Never invent names from a headcount. Copy named
+participants exactly. Preserve explicit start/end timestamps and derive duration from that interval.
+Supported features: 白板=WHITEBOARD, 大屏=LARGE_SCREEN, 视频会议=VIDEO_CONFERENCE,
+投影=PROJECTOR. title and meetingType may be null because deterministic code owns safe defaults.
+Every populated user-derived field needs fieldEvidence whose source is a continuous verbatim
+substring of USER_MESSAGE. Do not call tools, create drafts, confirm, or expose reasoning."""
+
+REQUIREMENT_REPAIR_PROMPT = """Repair RequirementDraft using only USER_MESSAGE,
+SERVER_REQUEST_TIME, and EVALUATOR_FEEDBACK. Correct only rejected fields. Unsupported facts must
+be null/empty. Return only the corrected schema JSON; no reasoning."""
 
 
 class WorkflowError(RuntimeError):
@@ -95,24 +140,48 @@ class EventSink:
 class SupervisorAgent:
     provider: ModelProvider
     runner: StructuredModelRunner
+    evaluator: RouteEvaluator = field(default_factory=RouteEvaluator)
 
-    def execute(self, state: AgentState) -> tuple[AgentState, str]:
-        decision = _model_output(
+    def execute(self, state: AgentState) -> tuple[AgentState, str, int]:
+        decision, completions = _model_output_with_count(
             provider=self.provider,
             runner=self.runner,
             agent_name="supervisor",
-            system_prompt=(
-                "You are the Supervisor Agent for an enterprise meeting scheduler. "
-                "Route only with the supplied JSON schema. Never call business tools and never "
-                "expose reasoning."
-            ),
+            system_prompt=SUPERVISOR_PROMPT,
             user_prompt=state.message,
             output_type=SupervisorDecision,
         )
-        intent = Intent.QUERY_POLICY if decision.route is Route.POLICY else state.intent
+        feedback = self.evaluator.evaluate(decision, state.message)
+        if feedback is not None:
+            try:
+                repaired, repair_completions = _model_output_with_count(
+                    provider=self.provider,
+                    runner=self.runner,
+                    agent_name="supervisor",
+                    system_prompt=SUPERVISOR_PROMPT,
+                    user_prompt=(
+                        f"USER_MESSAGE={state.message}\nROUTE_FEEDBACK="
+                        f"{feedback.model_dump_json(by_alias=True)}"
+                    ),
+                    output_type=SupervisorDecision,
+                )
+                completions.extend(repair_completions)
+                decision = repaired
+                feedback = self.evaluator.evaluate(decision, state.message)
+            except WorkflowError:
+                feedback = feedback
+        if feedback is None:
+            route = decision.route
+            intent = decision.intent_hint
+        else:
+            route, intent = self.evaluator.fallback(state.message)
+        if route is Route.POLICY:
+            intent = Intent.QUERY_POLICY
+        updated = _apply_completions(state, completions)
         return (
-            state.model_copy(update={"next_route": decision.route, "intent": intent}),
+            updated.model_copy(update={"next_route": route, "intent": intent}),
             decision.summary,
+            len(completions),
         )
 
 
@@ -121,20 +190,66 @@ class RequirementAgent:
     provider: ModelProvider
     runner: StructuredModelRunner
 
-    def execute(self, state: AgentState) -> tuple[AgentState, str]:
-        extraction = _model_output(
+    evaluator: RequirementEvaluator = field(default_factory=RequirementEvaluator)
+    fidelity: SourceFidelityEvaluator = field(default_factory=SourceFidelityEvaluator)
+    normalizer: RequirementNormalizer = field(default_factory=RequirementNormalizer)
+
+    def execute(self, state: AgentState) -> tuple[AgentState, str, int]:
+        prompt = _requirement_prompt(state)
+        extraction, completions = _model_output_with_count(
             provider=self.provider,
             runner=self.runner,
             agent_name="requirement",
-            system_prompt=(
-                "You are the Requirement Agent. Extract a meeting request into the exact schema. "
-                "Normalize relative dates to Asia/Shanghai absolute ISO timestamps. "
-                "Do not schedule, draft, confirm, or expose reasoning."
-            ),
-            user_prompt=state.message,
+            system_prompt=REQUIREMENT_PROMPT,
+            user_prompt=prompt,
             output_type=RequirementExtraction,
         )
-        request = extraction.meeting_request
+        draft = extraction.requirement_draft
+        draft = _apply_explicit_meeting_defaults(
+            draft, state.message, request_time=state.request_time
+        )
+        feedback = self.fidelity.evaluate(draft, state.message)
+        request = None
+        report = None
+        if feedback is None:
+            request, report = self.normalizer.normalize(draft)
+            semantic = self.evaluator.evaluate(request, request_time=state.request_time)
+            feedback = semantic
+        if feedback is not None and feedback.repairable:
+            extraction, repair_completions = _model_output_with_count(
+                provider=self.provider,
+                runner=self.runner,
+                agent_name="requirement",
+                system_prompt=REQUIREMENT_REPAIR_PROMPT,
+                user_prompt=(
+                    f"{prompt}\nEVALUATOR_FEEDBACK="
+                    f"{feedback.model_dump_json(by_alias=True)}"
+                ),
+                output_type=RequirementExtraction,
+            )
+            completions.extend(repair_completions)
+            draft = extraction.requirement_draft
+            draft = _apply_explicit_meeting_defaults(
+                draft, state.message, request_time=state.request_time
+            )
+            feedback = self.fidelity.evaluate(draft, state.message)
+            if (
+                feedback is not None
+                and "INTENT_SOURCE_MISMATCH" in feedback.codes
+                and state.intent is not None
+            ):
+                # The Supervisor route boundary has already applied the same
+                # high-confidence anchors.  After one failed model repair,
+                # reuse that safe intent instead of asking the user to restate
+                # an unambiguous “预约/改到/取消” verb.
+                draft = draft.model_copy(update={"intent": state.intent})
+                feedback = self.fidelity.evaluate(draft, state.message)
+            if feedback is None:
+                request, report = self.normalizer.normalize(draft)
+                feedback = self.evaluator.evaluate(request, request_time=state.request_time)
+        if request is None:
+            request, report = self.normalizer.normalize(draft)
+        assert report is not None
         # EDIT is intentionally revalidated by Requirement before it reaches
         # Scheduling.  Only the documented bounded fields may override it.
         if state.edited_draft is not None and state.edited_draft.start_at is not None:
@@ -143,27 +258,73 @@ class RequirementAgent:
                 update={
                     "time_window": TimeWindow(
                         start=start_at,
-                        end=start_at + timedelta(minutes=request.duration_minutes),
+                        end=start_at + timedelta(minutes=request.duration_minutes or 0),
                     )
                 }
             )
+        if state.edited_draft is not None and state.edited_draft.meeting_id is not None:
+            request = request.model_copy(
+                update={"target_meeting_id": state.edited_draft.meeting_id}
+            )
+        feedback_state = (
+            RequirementFeedbackState.model_validate(feedback.model_dump())
+            if feedback is not None
+            else None
+        )
+        semantic_missing = [] if feedback is None else feedback.codes
+        # Safe defaults and derived values are owned by the normalizer.  A
+        # stale model missingFields entry must not undo that deterministic
+        # contract or force the user to supply an internal enum.
+        normalizer_owned = {
+            *report.defaults_applied,
+            *report.derived_fields,
+            "title",
+            "meetingType",
+            "preferredBuildings",
+            "optionalGroups",
+            "durationMinutes" if request.duration_minutes else "",
+            "timeWindow" if request.time_window is not None else "",
+            "targetMeetingReference" if request.target_meeting_reference else "",
+            "targetMeetingId" if request.target_meeting_id is not None else "",
+            "hardConstraints",
+            "softConstraints",
+            "createVideoConference",
+            "needsPolicy",
+        }
+        extraction_missing = [
+            item
+            for item in extraction.missing_fields
+            if item not in normalizer_owned
+            and not (item == "targetMeetingId" and request.target_meeting_reference)
+            and not (
+                item == "targetMeetingReference" and request.target_meeting_id is not None
+            )
+            and not (
+                item in {"requiredParticipants", "requiredParticipantNames"}
+                and request.intent is Intent.CREATE_MEETING
+            )
+        ]
+        missing_fields = list(dict.fromkeys([*extraction_missing, *semantic_missing]))
         next_route = (
             Route.CLARIFICATION
-            if extraction.missing_fields
+            if missing_fields
             else Route.POLICY
-            if extraction.needs_policy
+            if draft.needs_policy
             else Route.SCHEDULING
         )
         return (
-            state.model_copy(
+            _apply_completions(state, completions).model_copy(
                 update={
                     "intent": request.intent,
                     "meeting_request": request,
-                    "missing_fields": extraction.missing_fields,
+                    "missing_fields": missing_fields,
+                    "requirement_feedback": feedback_state,
+                    "normalization_report": report,
                     "next_route": next_route,
                 }
             ),
-            extraction.summary,
+            draft.summary if feedback is None else feedback.summary,
+            len(completions),
         )
 
 
@@ -173,7 +334,7 @@ class PolicyAgent:
     runner: StructuredModelRunner
     retriever: PolicyRetriever
 
-    def execute(self, state: AgentState) -> tuple[AgentState, str]:
+    def execute(self, state: AgentState) -> tuple[AgentState, str, int]:
         try:
             candidates = self.retriever.search(state.message)
         except PolicyRetrievalError as exc:
@@ -188,12 +349,12 @@ class PolicyAgent:
             )
             return state.model_copy(
                 update={"policy_result": result, "citations": []}
-            ), result.summary
+            ), result.summary, 0
 
         candidate_summary = "; ".join(
             f"{chunk.chunk_id}: {chunk.title}" for chunk in candidates[:5]
         )
-        selection = _model_output(
+        selection, completions = _model_output_with_count(
             provider=self.provider,
             runner=self.runner,
             agent_name="policy",
@@ -222,10 +383,11 @@ class PolicyAgent:
         )
         next_route = Route.FINAL if state.intent is Intent.QUERY_POLICY else Route.SCHEDULING
         return (
-            state.model_copy(
+            _apply_completions(state, completions).model_copy(
                 update={"policy_result": result, "citations": citations, "next_route": next_route}
             ),
             result.summary,
+            len(completions),
         )
 
 
@@ -242,75 +404,219 @@ class SchedulingAgent:
     runner: StructuredModelRunner
     tools: JavaReadToolClient
     solver: ScheduleSolver = field(default_factory=ScheduleSolver)
+    max_model_calls: int = 12
+    max_tool_calls: int = 16
 
     def execute(
         self, state: AgentState, context: AgentContext
-    ) -> tuple[AgentState, str, list[ToolOutcome]]:
+    ) -> tuple[AgentState, str, list[ToolOutcome], int]:
         request = state.meeting_request
         if request is None:
             raise WorkflowError("REQUIREMENT_MISSING", "缺少结构化会议需求")
-        plan = _model_output(
-            provider=self.provider,
-            runner=self.runner,
-            agent_name="scheduling",
-            system_prompt=(
-                "You are the Scheduling Agent. Choose only Java READ tools. "
-                "Do not invoke a solver, create a draft, confirm a booking, or expose reasoning."
+        names = list(dict.fromkeys(item.name for item in request.required_participants))
+        messages = [
+            ToolLoopMessage(
+                role="system",
+                content=_scheduling_system_prompt(state=state, context=context),
             ),
-            user_prompt=_scheduling_model_prompt(request),
-            output_type=SchedulingPlan,
-        )
-        if "resolve_employees" not in plan.tool_names:
-            raise WorkflowError("TOOL_PLAN_INVALID", "调度计划必须先解析必需参会者")
-        names = list(
-            dict.fromkeys(participant.name for participant in request.required_participants)
-        )
-        if not names:
-            raise WorkflowError("REQUIREMENT_MISSING", "缺少必需参会者")
-        try:
-            resolved_outcome = self.tools.resolve_employees(context=context, names=names)
-        except JavaToolError as exc:
-            raise WorkflowError(exc.code, "Java 只读查询暂不可用") from exc
-        resolved = _participants_from_java(resolved_outcome.data)
-        unresolved = resolved_outcome.data.get("unresolvedNames", [])
-        if not isinstance(unresolved, list) or unresolved or len(resolved) < len(names):
-            raise WorkflowError("EMPLOYEE_UNRESOLVED", "存在无法解析的必需参会者")
-        if request.intent is not Intent.CREATE_MEETING:
-            return (
-                state.model_copy(
-                    update={"resolved_employees": resolved, "next_route": Route.FINAL}
-                ),
-                plan.summary,
-                [resolved_outcome],
+            ToolLoopMessage(role="user", content=state.message),
+        ]
+        outcomes: list[ToolOutcome] = []
+        resolved = list(state.resolved_employees)
+        free_busy_data: dict[str, Any] | None = None
+        rooms_data: dict[str, Any] | None = None
+        recent_data: dict[str, Any] | None = None
+        fingerprints = set(state.executed_tool_fingerprints)
+        gate = ReadToolGate(self.tools)
+        model_calls = 0
+        tool_usage: list[ModelCompletion] = []
+        loop_iteration = state.loop_iteration
+        max_iterations = 4
+        for _ in range(max_iterations):
+            if state.model_call_count + model_calls + 1 > self.max_model_calls:
+                raise WorkflowError("AGENT_STEP_LIMIT_EXCEEDED", "调度模型调用预算已耗尽")
+            if state.tool_call_count + len(outcomes) >= self.max_tool_calls:
+                raise WorkflowError("AGENT_STEP_LIMIT_EXCEEDED", "调度工具调用预算已耗尽")
+            loop_iteration += 1
+            model_calls += 1
+            try:
+                tool_response = self.provider.complete_tools(
+                    ToolModelRequest(
+                        agent_name="scheduling",
+                        messages=tuple(messages),
+                        tools=READ_TOOL_DEFINITIONS,
+                        iteration=loop_iteration,
+                    )
+                )
+            except ModelProviderError as exc:
+                raise WorkflowError("MODEL_UNAVAILABLE", "模型服务暂不可用") from exc
+            messages.append(
+                ToolLoopMessage(
+                    role="assistant",
+                    content=tool_response.content,
+                    tool_calls=tool_response.tool_calls,
+                )
             )
+            tool_usage.append(
+                ModelCompletion(
+                    content=tool_response.content,
+                    tool_calls=tool_response.tool_calls,
+                    usage=tool_response.usage,
+                    model=tool_response.model,
+                )
+            )
+            if not tool_response.tool_calls:
+                if _read_facts_ready(request, free_busy_data, rooms_data, recent_data):
+                    break
+                messages.append(
+                    ToolLoopMessage(
+                        role="user",
+                        content=(
+                            "VERIFY_FEEDBACK={\"codes\":[\"REQUIRED_FACTS_MISSING\"],"
+                            "\"instruction\":\"Call the missing READ tools only.\"}"
+                        ),
+                    )
+                )
+                continue
+            for call in tool_response.tool_calls:
+                if state.tool_call_count + len(outcomes) + 1 > self.max_tool_calls:
+                    raise WorkflowError("AGENT_STEP_LIMIT_EXCEEDED", "调度工具调用预算已耗尽")
+                try:
+                    gated_result = gate.execute(
+                        call=call,
+                        state=state,
+                        context=context,
+                        resolved_employees=resolved,
+                        fingerprints=fingerprints,
+                    )
+                except ToolGateError as exc:
+                    messages.append(
+                        ToolLoopMessage(
+                            role="tool",
+                            tool_call_id=call.id,
+                            content=json.dumps(
+                                {"ok": False, "errorCode": exc.code},
+                                ensure_ascii=False,
+                                separators=(",", ":"),
+                            ),
+                        )
+                    )
+                    if not exc.recoverable:
+                        raise WorkflowError(exc.code, "只读工具调用未通过安全校验") from exc
+                    continue
+                outcomes.append(gated_result.outcome)
+                fingerprints.add(gated_result.fingerprint)
+                messages.append(
+                    ToolLoopMessage(
+                        role="tool", tool_call_id=call.id, content=gated_result.observation
+                    )
+                )
+                if call.name == "resolve_employees":
+                    resolved = _participants_from_java(gated_result.outcome.data)
+                    unresolved = gated_result.outcome.data.get("unresolvedNames", [])
+                    if not isinstance(unresolved, list) or unresolved or len(resolved) < len(names):
+                        raise WorkflowError("EMPLOYEE_UNRESOLVED", "存在无法解析的必需参会者")
+                elif call.name == "get_employee_free_busy":
+                    free_busy_data = gated_result.outcome.data
+                elif call.name == "search_available_rooms":
+                    rooms_data = gated_result.outcome.data
+                elif call.name == "get_recent_meeting":
+                    recent_data = gated_result.outcome.data
+                    recent = _recent_meeting(recent_data, request.target_meeting_id)
+                    if request.intent is Intent.MODIFY_MEETING and recent is not None:
+                        if request.time_window is None:
+                            start_at = recent.start_at
+                            request = request.model_copy(
+                                update={
+                                    "time_window": TimeWindow(
+                                        start=start_at,
+                                        end=start_at
+                                        + timedelta(minutes=request.duration_minutes),
+                                    )
+                                }
+                            )
+                            state = state.model_copy(update={"meeting_request": request})
+                            messages[0] = ToolLoopMessage(
+                                role="system",
+                                content=_scheduling_system_prompt(
+                                    state=state, context=context
+                                ),
+                            )
+                        resolved = [
+                            Participant(name=item.display_name, employee_id=item.employee_id)
+                            for item in recent.participants
+                            if item.participant_type == "REQUIRED"
+                        ]
+            # Even when deterministic facts are now complete, send the
+            # resulting role=tool observations back through one assistant
+            # turn. A tool-free response is the explicit protocol boundary
+            # that lets the verifier advance to deterministic solving.
+        if not _read_facts_ready(request, free_busy_data, rooms_data, recent_data):
+            raise WorkflowError("AGENT_STEP_LIMIT_EXCEEDED", "调度循环在预算内未取得完整事实")
 
-        window = request.time_window
-        if window is None:
-            raise WorkflowError("REQUIREMENT_MISSING", "缺少可调度的时间窗口")
+        usage_state = _apply_completions(state, tool_usage)
+        common_update: dict[str, object] = {
+            "resolved_employees": resolved,
+            "executed_tool_fingerprints": sorted(fingerprints),
+            "loop_iteration": loop_iteration,
+        }
+        if request.intent is Intent.CANCEL_MEETING:
+            target = request.target_meeting_id or _recent_meeting_id(recent_data)
+            if target is None:
+                return (
+                    usage_state.model_copy(
+                        update={
+                            **common_update,
+                            "status": RunStatus.WAITING_USER_INPUT,
+                            "missing_fields": ["uniqueTargetMeeting"],
+                            "next_route": Route.FINAL,
+                        }
+                    ),
+                    "请明确唯一要取消的会议。",
+                    outcomes,
+                    model_calls,
+                )
+            generation = state.draft_generation + 1
+            call_id = stable_tool_identity(
+                state.run_id, "create_cancellation_preview", f"{target}:{generation}"
+            )
+            try:
+                outcome, cancellation = self.tools.create_cancellation_preview(
+                    context=context, meeting_id=target, tool_call_id=call_id
+                )
+            except JavaToolError as exc:
+                raise WorkflowError(exc.code, "取消预览创建暂不可用") from exc
+            outcomes.append(outcome)
+            return (
+                usage_state.model_copy(
+                    update={
+                        **common_update,
+                        "operation_type": OperationType.CANCEL,
+                            "draft": CancellationDraftView(meeting=cancellation.meeting),
+                            "confirmation_token": cancellation.confirmation_token,
+                            "draft_expires_at": cancellation.expires_at,
+                        "draft_generation": generation,
+                        "status": RunStatus.WAITING_CONFIRMATION,
+                        "next_route": Route.HITL,
+                        "stop_reason": LoopStopReason.READY_FOR_CONFIRMATION.value,
+                    }
+                ),
+                "已生成取消预览，等待用户确认",
+                outcomes,
+                model_calls,
+            )
+        if request.intent not in {Intent.CREATE_MEETING, Intent.MODIFY_MEETING}:
+            return (
+                usage_state.model_copy(update={**common_update, "next_route": Route.FINAL}),
+                "已通过受控工具循环完成只读事实查询",
+                outcomes,
+                model_calls,
+            )
+        assert free_busy_data is not None and rooms_data is not None
+        snapshot = _snapshot_from_java(free_busy_data, rooms_data)
         required_ids = sorted(
-            {
-                context.user_id,
-                *(participant.employee_id for participant in resolved if participant.employee_id),
-            }
+            {context.user_id, *(item.employee_id for item in resolved if item.employee_id)}
         )
-        minimum_capacity = max(request.minimum_capacity or 1, len(required_ids))
-        try:
-            free_busy_outcome = self.tools.get_employee_free_busy(
-                context=context,
-                employee_ids=required_ids,
-                from_=window.start,
-                to=window.end,
-            )
-            rooms_outcome = self.tools.search_available_rooms(
-                context=context,
-                from_=window.start,
-                to=window.end,
-                minimum_capacity=minimum_capacity,
-                required_features=request.required_features,
-            )
-        except JavaToolError as exc:
-            raise WorkflowError(exc.code, "Java 可用性查询暂不可用") from exc
-        snapshot = _snapshot_from_java(free_busy_outcome.data, rooms_outcome.data)
         problem = _scheduling_problem(
             state=state,
             request_required_ids=required_ids,
@@ -323,11 +629,10 @@ class SchedulingAgent:
                 "SCHEDULE_VALIDATION_FAILED", "候选方案未通过独立硬约束校验"
             ) from exc
 
-        outcomes = [resolved_outcome, free_busy_outcome, rooms_outcome]
         if not result.has_solution:
             assert result.unsat is not None
             return (
-                state.model_copy(
+                usage_state.model_copy(
                     update={
                         "resolved_employees": resolved,
                         "availability_snapshot": snapshot,
@@ -336,13 +641,40 @@ class SchedulingAgent:
                         "unsat_analysis": result.unsat,
                         "answer_summary": result.unsat.summary,
                         "next_route": Route.FINAL,
+                        "stop_reason": LoopStopReason.NO_SOLUTION.value,
+                        **common_update,
                     }
                 ),
                 result.unsat.summary,
                 outcomes,
+                model_calls,
             )
 
-        candidates = list(result.candidates)
+        candidates = [
+            candidate
+            for candidate in result.candidates
+            if candidate.candidate_id not in state.excluded_candidate_ids
+        ]
+        if not candidates:
+            answer = "冲突后没有产生满足原硬约束的新候选，请调整时间或会议室。"
+            return (
+                usage_state.model_copy(
+                    update={
+                        "resolved_employees": resolved,
+                        "availability_snapshot": snapshot,
+                        "schedule_candidates": [],
+                        "selected_candidate_id": None,
+                        "answer_summary": answer,
+                        "status": RunStatus.WAITING_USER_INPUT,
+                        "next_route": Route.FINAL,
+                        "stop_reason": LoopStopReason.NEED_CLARIFICATION.value,
+                        **common_update,
+                    }
+                ),
+                answer,
+                outcomes,
+                model_calls,
+            )
         # The solver already invokes this validator.  Keeping this explicit
         # boundary makes the public event invariant obvious to future changes.
         if any(
@@ -352,11 +684,62 @@ class SchedulingAgent:
             raise WorkflowError("SCHEDULE_VALIDATION_FAILED", "候选方案未通过独立硬约束校验")
         selected = candidates[0]
         generation = state.draft_generation + 1
+        draft_operation = (
+            "create_reschedule_draft"
+            if request.intent is Intent.MODIFY_MEETING
+            else "create_booking_draft"
+        )
         draft_call_id = stable_tool_identity(
-            state.run_id, "create_booking_draft", f"{selected.candidate_id}:{generation}"
+            state.run_id, draft_operation, f"{selected.candidate_id}:{generation}"
         )
         try:
-            draft_outcome, draft_response = self.tools.create_booking_draft(
+            if request.intent is Intent.MODIFY_MEETING:
+                target = request.target_meeting_id or _recent_meeting_id(recent_data)
+                meeting = _recent_meeting(recent_data, target)
+                if target is None or meeting is None:
+                    raise WorkflowError("TARGET_MEETING_NOT_FOUND", "待改期会议不存在或不可见")
+                original_required_ids = sorted(
+                    {
+                        item.employee_id
+                        for item in meeting.participants
+                        if item.participant_type == "REQUIRED"
+                    }
+                )
+                original_optional_ids = sorted(
+                    {
+                        item.employee_id
+                        for item in meeting.participants
+                        if item.participant_type == "OPTIONAL"
+                    }
+                )
+                draft_outcome, mutation_response = self.tools.create_reschedule_draft(
+                    context=context,
+                    tool_call_id=draft_call_id,
+                    payload=RescheduleDraftInput(
+                        meeting_id=target,
+                        title=meeting.title,
+                        meeting_type=meeting.meeting_type,
+                        room_id=selected.room_id,
+                        start_at=selected.start_at,
+                        end_at=selected.end_at,
+                        required_participant_ids=original_required_ids,
+                        optional_participant_ids=original_optional_ids,
+                        # The current MeetingView has no video-link flag.  Do
+                        # not let a fresh extraction turn “其他不变” into a new
+                        # external side effect.
+                        create_video_conference=False,
+                        expected_version=meeting.version,
+                    ),
+                )
+                draft_view: CreateDraftView | RescheduleDraftView = RescheduleDraftView(
+                    original_meeting=mutation_response.before,
+                    proposed_meeting=mutation_response.after,
+                )
+                token = mutation_response.confirmation_token
+                expires = mutation_response.expires_at
+                operation = OperationType.RESCHEDULE
+            else:
+                draft_outcome, draft_response = self.tools.create_booking_draft(
                 context=context,
                 tool_call_id=draft_call_id,
                 payload=CreateBookingDraftInput(
@@ -369,21 +752,26 @@ class SchedulingAgent:
                     optional_participant_ids=[],
                     create_video_conference=request.create_video_conference,
                 ),
-            )
+                )
+                draft_view = CreateDraftView(draft=draft_response.draft)
+                token = draft_response.confirmation_token
+                expires = draft_response.expires_at
+                operation = OperationType.CREATE
         except JavaToolError as exc:
             raise WorkflowError(exc.code, "预约草案创建暂不可用") from exc
         outcomes.append(draft_outcome)
         return (
-            state.model_copy(
+            usage_state.model_copy(
                 update={
                     "resolved_employees": resolved,
                     "availability_snapshot": snapshot,
                     "schedule_candidates": candidates,
                     "selected_candidate_id": selected.candidate_id,
                     "unsat_analysis": None,
-                    "draft": draft_response.draft,
-                    "confirmation_token": draft_response.confirmation_token,
-                    "draft_expires_at": draft_response.expires_at,
+                    "operation_type": operation,
+                    "draft": draft_view,
+                    "confirmation_token": token,
+                    "draft_expires_at": expires,
                     "draft_tool_call_id": draft_call_id,
                     "draft_generation": generation,
                     "confirm_tool_call_id": None,
@@ -392,10 +780,13 @@ class SchedulingAgent:
                     "business_result": None,
                     "status": RunStatus.WAITING_CONFIRMATION,
                     "next_route": Route.HITL,
+                    "stop_reason": LoopStopReason.READY_FOR_CONFIRMATION.value,
+                    **common_update,
                 }
             ),
             "已生成并校验候选方案，等待用户确认草案",
             outcomes,
+            model_calls,
         )
 
 
@@ -419,12 +810,123 @@ def _participants_from_java(data: dict[str, Any]) -> list[Participant]:
     return participants
 
 
-def _scheduling_model_prompt(request: Any) -> str:
-    participant_names = [participant.name for participant in request.required_participants]
+def _requirement_prompt(state: AgentState) -> str:
     return (
-        f"Intent: {request.intent.value}; title: {request.title}; "
-        f"required participants: {participant_names}"
+        f"REQUEST_TIME={state.request_time.isoformat()}\n"
+        "TIMEZONE=Asia/Shanghai\n"
+        f"USER_MESSAGE={state.message}"
     )
+
+
+def _apply_explicit_meeting_defaults(
+    draft: RequirementDraft, source: str, *, request_time: datetime
+) -> RequirementDraft:
+    updates: dict[str, object] = {}
+    if "架构评审" in source:
+        if not draft.title:
+            updates["title"] = "架构评审"
+        if not draft.meeting_type:
+            updates["meeting_type"] = "ARCHITECTURE_REVIEW"
+    if (
+        draft.intent in {Intent.MODIFY_MEETING, Intent.CANCEL_MEETING}
+        and draft.target_meeting_id is None
+        and not draft.target_meeting_reference
+    ):
+        for reference in ("刚才那个架构评审", "刚才那个会议", "刚才那个", "最近的会议"):
+            if reference in source:
+                updates["target_meeting_reference"] = reference
+                break
+    if draft.time_window is None:
+        target_date = None
+        if "明天" in source:
+            target_date = (request_time + timedelta(days=1)).date()
+        elif "下周三" in source:
+            days_until = ((2 - request_time.weekday()) % 7) + 7
+            target_date = (request_time + timedelta(days=days_until)).date()
+        if target_date is not None:
+            start_hour, end_hour = (13, 18) if "下午" in source else (9, 12)
+            start = request_time.replace(
+                year=target_date.year,
+                month=target_date.month,
+                day=target_date.day,
+                hour=start_hour,
+                minute=0,
+                second=0,
+                microsecond=0,
+            )
+            updates["time_window"] = TimeWindow(
+                start=start,
+                end=start.replace(hour=end_hour),
+            )
+    return draft.model_copy(update=updates) if updates else draft
+
+
+def _scheduling_system_prompt(*, state: AgentState, context: AgentContext) -> str:
+    request = state.meeting_request
+    if request is None:
+        raise WorkflowError("REQUIREMENT_MISSING", "缺少结构化会议需求")
+    window = request.time_window
+    canonical: dict[str, object] = {
+        "organizerId": context.user_id,
+        "intent": request.intent.value,
+        "targetMeetingId": request.target_meeting_id,
+        "targetMeetingReference": request.target_meeting_reference,
+        "participantNames": [item.name for item in request.required_participants],
+        "from": window.start.isoformat() if window is not None else None,
+        "to": window.end.isoformat() if window is not None else None,
+        "requestedMinimumCapacity": request.minimum_capacity or 1,
+        "requiredFeatures": request.required_features,
+        "excludedCandidateIds": state.excluded_candidate_ids,
+    }
+    return (
+        "You are the Scheduling Agent. Use only the supplied READ functions. Never call DRAFT "
+        "or WRITE operations, never provide userId/runId/roles, and never expose reasoning. "
+        "After employee resolution, room minimumCapacity must be the maximum of "
+        "requestedMinimumCapacity and the unique organizer plus resolved employee IDs.\n"
+        "CANONICAL_CONTEXT="
+        + json.dumps(canonical, ensure_ascii=False, separators=(",", ":"))
+    )
+
+
+def _read_facts_ready(
+    request: MeetingRequest,
+    free_busy_data: dict[str, Any] | None,
+    rooms_data: dict[str, Any] | None,
+    recent_data: dict[str, Any] | None,
+) -> bool:
+    if request.intent is Intent.CREATE_MEETING:
+        return free_busy_data is not None and rooms_data is not None
+    if request.intent is Intent.MODIFY_MEETING:
+        return recent_data is not None and free_busy_data is not None and rooms_data is not None
+    if request.intent is Intent.CANCEL_MEETING:
+        return request.target_meeting_id is not None or recent_data is not None
+    return True
+
+
+def _recent_meeting_id(data: dict[str, Any] | None) -> int | None:
+    meeting = _recent_meeting(data, None)
+    return meeting.id if meeting is not None else None
+
+
+def _recent_meeting(
+    data: dict[str, Any] | None, target_meeting_id: int | None
+) -> MeetingView | None:
+    if data is None:
+        return None
+    raw = data.get("meetings", [])
+    if not isinstance(raw, list):
+        raise WorkflowError("TOOL_RESPONSE_INVALID", "最近会议响应格式无效")
+    try:
+        meetings = [
+            meeting
+            for item in raw
+            if (meeting := MeetingView.model_validate(item)).status == "CONFIRMED"
+        ]
+    except ValueError as exc:
+        raise WorkflowError("TOOL_RESPONSE_INVALID", "最近会议响应格式无效") from exc
+    if target_meeting_id is not None:
+        return next((item for item in meetings if item.id == target_meeting_id), None)
+    return meetings[0] if meetings else None
 
 
 def _snapshot_from_java(
@@ -495,7 +997,7 @@ def _scheduling_problem(
         raise WorkflowError("SCHEDULE_INPUT_INVALID", "调度输入不满足结构化约束") from exc
 
 
-def _model_output(
+def _model_output_with_count(
     *,
     provider: ModelProvider,
     runner: StructuredModelRunner,
@@ -503,9 +1005,9 @@ def _model_output(
     system_prompt: str,
     user_prompt: str,
     output_type: type[Any],
-) -> Any:
+) -> tuple[Any, list[ModelCompletion]]:
     try:
-        return runner.invoke(
+        return runner.invoke_with_count(
             provider=provider,
             request=ModelRequest(
                 agent_name=agent_name,
@@ -520,6 +1022,26 @@ def _model_output(
         raise WorkflowError("MODEL_OUTPUT_INVALID", "模型结构化输出校验失败") from exc
     except ModelProviderError as exc:
         raise WorkflowError("MODEL_UNAVAILABLE", "模型服务暂不可用") from exc
+
+
+def _apply_completions(state: AgentState, completions: list[ModelCompletion]) -> AgentState:
+    response_models = list(state.response_models)
+    for completion in completions:
+        if completion.model and completion.model not in response_models:
+            response_models.append(completion.model)
+    return state.model_copy(
+        update={
+            "response_models": response_models[:12],
+            "input_tokens": state.input_tokens
+            + sum(item.usage.input_tokens for item in completions),
+            "output_tokens": state.output_tokens
+            + sum(item.usage.output_tokens for item in completions),
+            "cache_hit_tokens": state.cache_hit_tokens
+            + sum(item.usage.cache_hit_tokens for item in completions),
+            "cache_miss_tokens": state.cache_miss_tokens
+            + sum(item.usage.cache_miss_tokens for item in completions),
+        }
+    )
 
 
 @dataclass
@@ -638,7 +1160,14 @@ class WorkflowRun:
         graph.add_node("resume_dispatch", self._resume_dispatch_node)
         graph.add_node("confirm_booking", self._confirm_booking_node)
         graph.add_node("compose_final", self._final_node)
-        graph.add_edge(START, "supervisor_route")
+        graph.add_conditional_edges(
+            START,
+            self._route_from_start,
+            {
+                "supervisor_route": "supervisor_route",
+                "scheduling_agent": "scheduling_agent",
+            },
+        )
         graph.add_conditional_edges(
             "supervisor_route",
             self._route_after_supervisor,
@@ -683,7 +1212,11 @@ class WorkflowRun:
         graph.add_conditional_edges(
             "confirm_booking",
             self._route_after_confirmation,
-            {"compose_final": "compose_final", "end": END},
+            {
+                "scheduling_agent": "scheduling_agent",
+                "compose_final": "compose_final",
+                "end": END,
+            },
         )
         graph.add_edge("compose_final", END)
         return graph.compile(checkpointer=self.checkpoint_saver)
@@ -713,13 +1246,33 @@ class WorkflowRun:
         )
 
     def _requirement_node(self, state: AgentState) -> dict[str, Any]:
-        return self._record_agent_step(
-            state=state,
-            agent_name="requirement",
-            node_name="requirement_agent",
-            input_summary="Extract a validated meeting request.",
-            execute=self.requirement.execute,
-        )
+        self._ensure_limits(state, model_increment=1, tool_increment=0)
+        sequence_no = state.step_count + 1
+        started = time.perf_counter()
+        try:
+            updated, summary, model_calls = self.requirement.execute(state)
+            if state.model_call_count + model_calls > self.settings.agent_max_model_calls:
+                raise WorkflowError("AGENT_STEP_LIMIT_EXCEEDED", "已达到模型调用上限")
+            updated = updated.model_copy(
+                update={
+                    "step_count": sequence_no,
+                    "model_call_count": state.model_call_count + model_calls,
+                }
+            )
+            self._record_step(
+                state=updated,
+                sequence_no=sequence_no,
+                agent_name="requirement",
+                node_name="requirement_agent",
+                summary=summary,
+                duration_ms=int((time.perf_counter() - started) * 1000),
+                input_summary="Extract, evaluate, and at most once repair a meeting request.",
+            )
+            self.latest_state = updated
+            return self._dump(updated)
+        except WorkflowError as exc:
+            self._record_failed_step(state, "requirement", "requirement_agent", sequence_no, exc)
+            raise
 
     def _policy_node(self, state: AgentState) -> dict[str, Any]:
         return self._record_agent_step(
@@ -737,20 +1290,47 @@ class WorkflowRun:
         self._ensure_limits(state, model_increment=1, tool_increment=tool_increment)
         started = time.perf_counter()
         sequence_no = state.step_count + 1
+        initial_loop = _loop_event(
+                state=state,
+                phase="REPLAN" if state.replan_count else "PLAN",
+                iteration=state.loop_iteration + 1,
+                decision="读取受信任业务事实",
+                model_budget=self.settings.agent_max_model_calls,
+                tool_budget=self.settings.agent_max_tool_calls,
+            )
+        self._record_loop_event(state, initial_loop)
         try:
-            updated, summary, outcomes = self.scheduling.execute(state, self.context)
+            updated, summary, outcomes, model_calls = self.scheduling.execute(
+                state, self.context
+            )
             actual_tool_count = len(outcomes)
-            if state.tool_call_count + actual_tool_count > self.settings.agent_max_tool_calls:
+            if (
+                state.tool_call_count + actual_tool_count > self.settings.agent_max_tool_calls
+                or state.model_call_count + model_calls > self.settings.agent_max_model_calls
+            ):
                 raise WorkflowError("AGENT_STEP_LIMIT_EXCEEDED", "已达到工具调用上限")
             updated = updated.model_copy(
                 update={
                     "step_count": sequence_no,
-                    "model_call_count": state.model_call_count + 1,
+                    "model_call_count": state.model_call_count + model_calls,
                     "tool_call_count": state.tool_call_count + actual_tool_count,
                 }
             )
             for outcome in outcomes:
                 self._record_tool(state=updated, outcome=outcome)
+            verified_loop = _loop_event(
+                    state=updated,
+                    phase="VERIFY",
+                    iteration=updated.loop_iteration,
+                    decision=(
+                        "候选与草案已通过验证"
+                        if updated.status is RunStatus.WAITING_CONFIRMATION
+                        else "事实验证完成"
+                    ),
+                    model_budget=self.settings.agent_max_model_calls,
+                    tool_budget=self.settings.agent_max_tool_calls,
+                )
+            self._record_loop_event(updated, verified_loop)
             duration_ms = int((time.perf_counter() - started) * 1000)
             self._record_step(
                 state=updated,
@@ -790,7 +1370,12 @@ class WorkflowRun:
                         "status": RunStatus.WAITING_CONFIRMATION.value,
                         "confirmationToken": updated.confirmation_token,
                         "expiresAt": updated.draft_expires_at.isoformat(),
-                        "draft": updated.draft.model_dump(by_alias=True, mode="json"),
+                        "actionType": (
+                            updated.operation_type.value
+                            if updated.operation_type is not None
+                            else OperationType.CREATE.value
+                        ),
+                        "draft": _visible_draft(updated),
                     },
                 )
             self.latest_state = updated
@@ -812,13 +1397,14 @@ class WorkflowRun:
             "edited_draft": request.edited_draft,
         }
         if request.action is ResumeAction.ACCEPT and state.confirmation_token is not None:
+            operation = _confirm_operation(state.operation_type)
             update["confirm_tool_call_id"] = state.confirm_tool_call_id or stable_tool_identity(
-                state.run_id, "confirm_booking", state.confirmation_token
+                state.run_id, operation, state.confirmation_token
             )
             update["confirm_idempotency_key"] = (
                 state.confirm_idempotency_key
                 or stable_idempotency_identity(
-                    state.run_id, "confirm_booking", state.confirmation_token
+                    state.run_id, operation, state.confirmation_token
                 )
             )
         updated = state.model_copy(update=update)
@@ -844,6 +1430,8 @@ class WorkflowRun:
                     "confirm_idempotency_key": None,
                     "pending_request_no": None,
                     "business_result": None,
+                    "loop_iteration": 0,
+                    "executed_tool_fingerprints": [],
                     "status": RunStatus.RUNNING,
                     "next_route": Route.REQUIREMENT,
                 }
@@ -889,16 +1477,45 @@ class WorkflowRun:
         ):
             raise WorkflowError("CONFIRMATION_GUARD_FAILED", "确认操作未通过 HITL 校验")
         started = time.perf_counter()
+        operation = _confirm_operation(state.operation_type)
         try:
-            outcome, confirmation = self.scheduling.tools.confirm_booking(
+            if operation == "confirm_reschedule":
+                confirm = self.scheduling.tools.confirm_reschedule
+            elif operation == "confirm_cancellation":
+                confirm = self.scheduling.tools.confirm_cancellation
+            else:
+                confirm = self.scheduling.tools.confirm_booking
+            outcome, confirmation = confirm(
                 context=self.context,
                 confirmation_token=state.confirmation_token,
                 tool_call_id=state.confirm_tool_call_id,
                 idempotency_key=state.confirm_idempotency_key,
             )
         except JavaToolError as exc:
+            if exc.code == "TOOL_CONFLICT":
+                self._record_failed_tool(
+                    state=state,
+                    tool_name=operation,
+                    risk_level="WRITE",
+                    tool_call_id=state.confirm_tool_call_id or "tool_unknown",
+                    summary="预约确认被 Java 最终并发裁决拒绝",
+                    duration_ms=int((time.perf_counter() - started) * 1000),
+                )
+                updated = _synchronous_conflict_replan_state(state=state, error=exc)
+                updated = updated.model_copy(update={"step_count": sequence_no})
+                self._record_step(
+                    state=updated,
+                    sequence_no=sequence_no,
+                    agent_name="deterministic",
+                    node_name="conflict_repair",
+                    summary="同步确认冲突，保留硬约束并排除失败候选后重新规划",
+                    duration_ms=int((time.perf_counter() - started) * 1000),
+                    input_summary="Process server-derived synchronous conflict evidence.",
+                )
+                self.latest_state = updated
+                return self._dump(updated)
             error = WorkflowError(exc.code, "预约确认暂不可用")
-            self._record_failed_step(state, "deterministic", "confirm_booking", sequence_no, error)
+            self._record_failed_step(state, "deterministic", operation, sequence_no, error)
             raise error from exc
         if confirmation.status == "SUCCESS":
             assert confirmation.meeting_id is not None
@@ -941,6 +1558,7 @@ class WorkflowRun:
                     "runId": updated.run_id,
                     "status": "SUCCESS",
                     "meetingId": confirmation.meeting_id,
+                    "actionType": (state.operation_type or OperationType.CREATE).value,
                 },
             )
         else:
@@ -968,6 +1586,9 @@ class WorkflowRun:
         elif state.status is RunStatus.CANCELLED:
             answer = state.answer_summary or "用户已拒绝预约草案。"
             run_status = RunStatus.CANCELLED
+        elif state.status is RunStatus.WAITING_USER_INPUT:
+            answer = state.answer_summary or "请调整约束后重试。"
+            run_status = RunStatus.WAITING_USER_INPUT
         elif state.unsat_analysis is not None:
             answer = state.unsat_analysis.summary
             run_status = RunStatus.SUCCEEDED
@@ -1001,17 +1622,19 @@ class WorkflowRun:
         agent_name: str,
         node_name: str,
         input_summary: str,
-        execute: Callable[[AgentState], tuple[AgentState, str]],
+        execute: Callable[[AgentState], tuple[AgentState, str, int]],
     ) -> dict[str, Any]:
         self._ensure_limits(state, model_increment=1, tool_increment=0)
         sequence_no = state.step_count + 1
         started = time.perf_counter()
         try:
-            updated, summary = execute(state)
+            updated, summary, model_calls = execute(state)
+            if state.model_call_count + model_calls > self.settings.agent_max_model_calls:
+                raise WorkflowError("AGENT_STEP_LIMIT_EXCEEDED", "已达到模型调用上限")
             updated = updated.model_copy(
                 update={
                     "step_count": sequence_no,
-                    "model_call_count": state.model_call_count + 1,
+                    "model_call_count": state.model_call_count + model_calls,
                 }
             )
             self._record_step(
@@ -1090,6 +1713,64 @@ class WorkflowRun:
             },
         )
 
+    def _record_loop_event(self, state: AgentState, event: dict[str, object]) -> None:
+        remaining = event["remainingBudget"]
+        assert isinstance(remaining, dict)
+        feedback = event["feedbackCodes"]
+        assert isinstance(feedback, list)
+        iteration = event["iteration"]
+        replan_count = event["replanCount"]
+        assert isinstance(iteration, int) and isinstance(replan_count, int)
+        sequence = state.step_count * 10 + iteration + (
+            5 if event["phase"] == "VERIFY" else 0
+        )
+        self.repository.record_loop_event(
+            run_id=state.run_id,
+            sequence_no=sequence,
+            phase=str(event["phase"]),
+            iteration=iteration,
+            decision=str(event["decision"]),
+            feedback_codes=[str(item) for item in feedback],
+            replan_count=replan_count,
+            remaining_model_calls=int(remaining["modelCalls"]),
+            remaining_tool_calls=int(remaining["toolCalls"]),
+            stop_reason=str(event["stopReason"]) if event["stopReason"] else None,
+        )
+        self.sink.emit("agent.loop", event)
+
+    def _record_failed_tool(
+        self,
+        *,
+        state: AgentState,
+        tool_name: str,
+        risk_level: str,
+        tool_call_id: str,
+        summary: str,
+        duration_ms: int,
+    ) -> None:
+        self.repository.record_tool_call(
+            tool_call_id=tool_call_id,
+            run_id=state.run_id,
+            tool_name=tool_name,
+            risk_level=risk_level,
+            sanitized_args={"riskGuard": "HITL_ACCEPTED"},
+            result_summary=summary,
+            status="FAILED",
+            duration_ms=duration_ms,
+        )
+        self.sink.emit(
+            "tool.call",
+            {
+                "runId": state.run_id,
+                "toolCallId": tool_call_id,
+                "toolName": tool_name,
+                "riskLevel": risk_level,
+                "status": "FAILED",
+                "summary": summary,
+                "durationMs": duration_ms,
+            },
+        )
+
     def _record_failed_step(
         self,
         state: AgentState,
@@ -1133,7 +1814,17 @@ class WorkflowRun:
             or state.model_call_count + model_increment > self.settings.agent_max_model_calls
             or state.tool_call_count + tool_increment > self.settings.agent_max_tool_calls
         ):
-            raise WorkflowError("AGENT_STEP_LIMIT_EXCEEDED", "已达到图步骤或调用上限")
+            raise WorkflowError("BUDGET_EXHAUSTED", "已达到图步骤或模型/工具调用预算")
+
+    @staticmethod
+    def _route_from_start(state: AgentState) -> str:
+        if (
+            state.business_result is not None
+            and state.business_result.status.value == "CONFLICT"
+            and state.conflict_repair_feedback is not None
+        ):
+            return "scheduling_agent"
+        return "supervisor_route"
 
     @staticmethod
     def _route_after_supervisor(state: AgentState) -> str:
@@ -1173,9 +1864,147 @@ class WorkflowRun:
 
     @staticmethod
     def _route_after_confirmation(state: AgentState) -> str:
+        if state.next_route is Route.SCHEDULING:
+            return "scheduling_agent"
         return "end" if state.status is RunStatus.WAITING_BUSINESS_RESULT else "compose_final"
 
 
+def _synchronous_conflict_replan_state(
+    *, state: AgentState, error: JavaToolError
+) -> AgentState:
+    if state.replan_count >= 2:
+        return state.model_copy(
+            update={
+                "status": RunStatus.WAITING_USER_INPUT,
+                "answer_summary": "连续并发冲突已达到重规划上限，请调整时间或会议室。",
+                "next_route": Route.FINAL,
+                "stop_reason": LoopStopReason.NEED_CLARIFICATION.value,
+                "confirmation_token": None,
+                "draft": None,
+                "tool_call_count": state.tool_call_count + 1,
+            }
+        )
+    failed_candidate = state.selected_candidate_id
+    if failed_candidate is None:
+        raise WorkflowError("CONFLICT_REPLAN_INVALID", "同步冲突缺少失败候选")
+    request = state.meeting_request
+    if request is None:
+        raise WorkflowError("REQUIREMENT_MISSING", "缺少结构化会议需求")
+    excluded = list(dict.fromkeys([*state.excluded_candidate_ids, failed_candidate]))
+    preserved = [
+        f"durationMinutes={request.duration_minutes}",
+        f"requiredParticipantCount={len(request.required_participants)}",
+        f"minimumCapacity={request.minimum_capacity or 1}",
+    ]
+    if request.time_window is not None:
+        preserved.append(
+            "timeWindow="
+            f"{request.time_window.start.isoformat()}/{request.time_window.end.isoformat()}"
+        )
+    preserved.extend(
+        f"hard:{constraint.type}={constraint.value}"
+        for constraint in request.hard_constraints
+    )
+    feedback = ConflictRepairFeedbackState(
+        conflict_type=error.details.get("conflict.type", "BOOKING_CONFLICT"),
+        failed_candidate_id=failed_candidate,
+        preserved_constraints=preserved[:20],
+        excluded_candidate_ids=excluded,
+        replan_count=state.replan_count + 1,
+        room_id=_positive_int(error.details.get("conflict.roomId")),
+        slots=_slot_indexes(error.details.get("conflict.slots")),
+        reason="Java 最终并发裁决冲突，刷新事实并生成不同候选。",
+    )
+    return state.model_copy(
+        update={
+            "availability_snapshot": None,
+            "schedule_candidates": [],
+            "selected_candidate_id": None,
+            "unsat_analysis": None,
+            "draft": None,
+            "confirmation_token": None,
+            "draft_expires_at": None,
+            "draft_tool_call_id": None,
+            "confirm_tool_call_id": None,
+            "confirm_idempotency_key": None,
+            "pending_request_no": None,
+            "business_result": None,
+            "resume_action": None,
+            "answer_summary": None,
+            "status": RunStatus.RUNNING,
+            "next_route": Route.SCHEDULING,
+            "replan_count": state.replan_count + 1,
+            "excluded_candidate_ids": excluded,
+            "conflict_repair_feedback": feedback,
+            "loop_iteration": 0,
+            "executed_tool_fingerprints": [],
+            "tool_call_count": state.tool_call_count + 1,
+        }
+    )
+
+
+def _positive_int(value: str | None) -> int | None:
+    if value is None or not value.isdigit():
+        return None
+    parsed = int(value)
+    return parsed if parsed > 0 else None
+
+
+def _confirm_operation(operation_type: OperationType | None) -> str:
+    return {
+        OperationType.CREATE: "confirm_booking",
+        OperationType.RESCHEDULE: "confirm_reschedule",
+        OperationType.CANCEL: "confirm_cancellation",
+        None: "confirm_booking",
+    }[operation_type]
+
+
+def _slot_indexes(value: str | None) -> list[int]:
+    if value is None:
+        return []
+    slots = [int(item) for item in value.split(",") if item.isdigit()]
+    return [slot for slot in slots if 0 <= slot <= 47][:48]
+
+
+def _loop_event(
+    *,
+    state: AgentState,
+    phase: str,
+    iteration: int,
+    decision: str,
+    model_budget: int,
+    tool_budget: int,
+) -> dict[str, object]:
+    feedback_codes = (
+        state.requirement_feedback.codes if state.requirement_feedback is not None else []
+    )
+    if state.conflict_repair_feedback is not None:
+        feedback_codes = [
+            *feedback_codes,
+            state.conflict_repair_feedback.conflict_type,
+        ]
+    return {
+        "runId": state.run_id,
+        "phase": phase,
+        "iteration": iteration,
+        "decision": decision,
+        "replanCount": state.replan_count,
+        "feedbackCodes": feedback_codes,
+        "stopReason": state.stop_reason,
+        "remainingBudget": {
+            "modelCalls": max(0, model_budget - state.model_call_count),
+            "toolCalls": max(0, tool_budget - state.tool_call_count),
+        },
+        "model": state.configured_model,
+        "promptVersion": state.prompt_version,
+        "schemaVersion": state.schema_version,
+        "tokenUsage": {
+            "inputTokens": state.input_tokens,
+            "outputTokens": state.output_tokens,
+            "cacheHitTokens": state.cache_hit_tokens,
+            "cacheMissTokens": state.cache_miss_tokens,
+        },
+    }
 def _sanitized_tool_args(outcome: ToolOutcome, state: AgentState) -> dict[str, object]:
     request = state.meeting_request
     if outcome.tool_name == "resolve_employees":
@@ -1187,12 +2016,31 @@ def _sanitized_tool_args(outcome: ToolOutcome, state: AgentState) -> dict[str, o
             "minimumCapacity": request.minimum_capacity if request is not None else None,
             "featureCount": len(request.required_features) if request is not None else 0,
         }
-    if outcome.tool_name == "create_booking_draft":
+    if outcome.tool_name in {
+        "create_booking_draft",
+        "create_reschedule_draft",
+        "create_cancellation_preview",
+    }:
         return {"candidateId": state.selected_candidate_id, "riskGuard": "SOLVER_VALIDATED"}
-    if outcome.tool_name == "confirm_booking":
+    if outcome.tool_name in {"confirm_booking", "confirm_reschedule", "confirm_cancellation"}:
         # Never place confirmation token or idempotency key into Trace.
         return {"riskGuard": "HITL_ACCEPTED"}
     return {}
+
+
+def _visible_draft(state: AgentState) -> dict[str, object]:
+    draft = state.draft
+    if draft is None:
+        return {}
+    if isinstance(draft, CreateDraftView):
+        return draft.draft.model_dump(by_alias=True, mode="json")
+    if isinstance(draft, RescheduleDraftView):
+        return {
+            "originalMeeting": draft.original_meeting.model_dump(by_alias=True, mode="json"),
+            "proposedMeeting": draft.proposed_meeting.model_dump(by_alias=True, mode="json"),
+        }
+    assert isinstance(draft, CancellationDraftView)
+    return {"meeting": draft.meeting.model_dump(by_alias=True, mode="json")}
 
 
 def _new_id(prefix: str) -> str:
@@ -1216,7 +2064,13 @@ def build_workflow_run(
         supervisor=SupervisorAgent(provider=provider, runner=runner),
         requirement=RequirementAgent(provider=provider, runner=runner),
         policy=PolicyAgent(provider=provider, runner=runner, retriever=retriever),
-        scheduling=SchedulingAgent(provider=provider, runner=runner, tools=tools),
+        scheduling=SchedulingAgent(
+            provider=provider,
+            runner=runner,
+            tools=tools,
+            max_model_calls=settings.agent_max_model_calls,
+            max_tool_calls=settings.agent_max_tool_calls,
+        ),
         context=context,
         checkpoint_saver=checkpoint_saver,
     )

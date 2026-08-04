@@ -1,0 +1,265 @@
+{
+  "schemaVersion": "live-model-trajectory-v1",
+  "mode": "live-model-trajectory",
+  "provider": "deepseek",
+  "suite": "required-natural-language",
+  "status": "PASS",
+  "metrics": {
+    "total": 8,
+    "passed": 7,
+    "trajectorySuccess": 0.875,
+    "p50LatencyMs": 9164.86,
+    "p95LatencyMs": 11602.02
+  },
+  "results": [
+    {
+      "caseId": "required-create-capacity-reject",
+      "status": "PASS",
+      "terminal": "CANCELLED",
+      "latencyMs": 29528.489999999998,
+      "details": {
+        "status": "CANCELLED",
+        "intent": "CREATE_MEETING",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v3",
+        "schemaVersion": "meeting-agent-state-v3",
+        "modelCallCount": 8,
+        "toolCallCount": 3,
+        "tokenUsage": {
+          "inputTokens": 9274,
+          "outputTokens": 1617,
+          "cacheHitTokens": 8192,
+          "cacheMissTokens": 1082
+        },
+        "durationMs": 72,
+        "tools": [
+          "search_available_rooms",
+          "get_employee_free_busy",
+          "create_booking_draft"
+        ]
+      }
+    },
+    {
+      "caseId": "required-create-named-accept",
+      "status": "PASS",
+      "terminal": "CONFIRMED",
+      "latencyMs": 10206.970000000001,
+      "details": {
+        "status": "SUCCEEDED",
+        "intent": "CREATE_MEETING",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v3",
+        "schemaVersion": "meeting-agent-state-v3",
+        "modelCallCount": 5,
+        "toolCallCount": 5,
+        "tokenUsage": {
+          "inputTokens": 5919,
+          "outputTokens": 1177,
+          "cacheHitTokens": 5504,
+          "cacheMissTokens": 415
+        },
+        "durationMs": 228,
+        "tools": [
+          "resolve_employees",
+          "search_available_rooms",
+          "get_employee_free_busy",
+          "create_booking_draft",
+          "confirm_booking"
+        ]
+      }
+    },
+    {
+      "caseId": "required-policy-citations",
+      "status": "PASS",
+      "terminal": "SUCCEEDED",
+      "latencyMs": 2643.8,
+      "details": {
+        "status": "SUCCEEDED",
+        "intent": "QUERY_POLICY",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v3",
+        "schemaVersion": "meeting-agent-state-v3",
+        "modelCallCount": 2,
+        "toolCallCount": 0,
+        "tokenUsage": {
+          "inputTokens": 813,
+          "outputTokens": 165,
+          "cacheHitTokens": 640,
+          "cacheMissTokens": 173
+        },
+        "durationMs": 2552,
+        "tools": []
+      }
+    },
+    {
+      "caseId": "required-modify-recent-reject",
+      "status": "PASS",
+      "terminal": "CANCELLED",
+      "latencyMs": 11497.25,
+      "details": {
+        "status": "CANCELLED",
+        "intent": "MODIFY_MEETING",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v3",
+        "schemaVersion": "meeting-agent-state-v3",
+        "modelCallCount": 6,
+        "toolCallCount": 4,
+        "tokenUsage": {
+          "inputTokens": 7058,
+          "outputTokens": 1263,
+          "cacheHitTokens": 6144,
+          "cacheMissTokens": 914
+        },
+        "durationMs": 91,
+        "tools": [
+          "get_recent_meeting",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_reschedule_draft"
+        ]
+      }
+    },
+    {
+      "caseId": "required-modify-recent-accept",
+      "status": "PASS",
+      "terminal": "CONFIRMED",
+      "latencyMs": 11602.019999999999,
+      "details": {
+        "status": "SUCCEEDED",
+        "intent": "MODIFY_MEETING",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v3",
+        "schemaVersion": "meeting-agent-state-v3",
+        "modelCallCount": 6,
+        "toolCallCount": 5,
+        "tokenUsage": {
+          "inputTokens": 7073,
+          "outputTokens": 1229,
+          "cacheHitTokens": 6144,
+          "cacheMissTokens": 929
+        },
+        "durationMs": 204,
+        "tools": [
+          "get_recent_meeting",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_reschedule_draft",
+          "confirm_reschedule"
+        ]
+      }
+    },
+    {
+      "caseId": "required-cancel-9001",
+      "status": "FAIL",
+      "terminal": "MEETING_NOT_FOUND",
+      "latencyMs": 7861.83,
+      "details": {
+        "status": "FAILED",
+        "intent": "CANCEL_MEETING",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v3",
+        "schemaVersion": "meeting-agent-state-v3",
+        "modelCallCount": 2,
+        "toolCallCount": 0,
+        "tokenUsage": {
+          "inputTokens": 1625,
+          "outputTokens": 134,
+          "cacheHitTokens": 1536,
+          "cacheMissTokens": 89
+        },
+        "durationMs": 7787,
+        "tools": []
+      },
+      "failure": "fixed meeting ID is not an accessible confirmed meeting in retained data"
+    },
+    {
+      "caseId": "isolated-cancel-reject",
+      "status": "PASS",
+      "terminal": "CANCELLED_RUN",
+      "latencyMs": 6426.360000000001,
+      "details": {
+        "status": "CANCELLED",
+        "intent": "CANCEL_MEETING",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v3",
+        "schemaVersion": "meeting-agent-state-v3",
+        "modelCallCount": 4,
+        "toolCallCount": 2,
+        "tokenUsage": {
+          "inputTokens": 3812,
+          "outputTokens": 537,
+          "cacheHitTokens": 2432,
+          "cacheMissTokens": 1380
+        },
+        "durationMs": 93,
+        "tools": [
+          "get_recent_meeting",
+          "create_cancellation_preview"
+        ]
+      }
+    },
+    {
+      "caseId": "isolated-cancel-accept",
+      "status": "PASS",
+      "terminal": "CANCELLED_MEETING",
+      "latencyMs": 8122.75,
+      "details": {
+        "status": "SUCCEEDED",
+        "intent": "CANCEL_MEETING",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v3",
+        "schemaVersion": "meeting-agent-state-v3",
+        "modelCallCount": 5,
+        "toolCallCount": 3,
+        "tokenUsage": {
+          "inputTokens": 4207,
+          "outputTokens": 593,
+          "cacheHitTokens": 3840,
+          "cacheMissTokens": 367
+        },
+        "durationMs": 213,
+        "tools": [
+          "get_recent_meeting",
+          "create_cancellation_preview",
+          "confirm_cancellation"
+        ]
+      }
+    }
+  ],
+  "limitations": [
+    "This report covers the five required public-API inputs plus isolated mutation continuations; it is not the core-12 component corpus.",
+    "The fixed ID 9001 case is an accurate negative result when that meeting is absent from retained data."
+  ]
+}

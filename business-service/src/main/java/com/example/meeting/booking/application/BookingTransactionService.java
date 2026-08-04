@@ -156,10 +156,11 @@ public class BookingTransactionService {
   }
 
   @Transactional
-  public long cancel(long meetingId, AuthenticatedUser actor) {
+  public long cancel(long meetingId, Integer expectedVersion, AuthenticatedUser actor) {
     MeetingRecord meeting = findLocked(meetingId);
     assertManagePermission(meeting, actor);
-    if (!"CONFIRMED".equals(meeting.getStatus())) {
+    if (!"CONFIRMED".equals(meeting.getStatus())
+        || (expectedVersion != null && meeting.getVersion() != expectedVersion)) {
       throw new BusinessException(ErrorCode.MEETING_STATE_CONFLICT);
     }
     LocalDateTime now = LocalDateTime.now(clock);

@@ -73,7 +73,7 @@ class EvaluationCaseResult(AgentSchema):
     hard_constraint_violations: int = Field(ge=0)
     citations_checked: int = Field(ge=0)
     citations_valid: int = Field(ge=0)
-    end_to_end_success: bool
+    component_success: bool
     prediction: EvaluationPrediction
 
 
@@ -91,7 +91,7 @@ class EvaluationMetrics(AgentSchema):
     citations_checked: int = Field(ge=0)
     citations_valid: int = Field(ge=0)
     citation_validity: float = Field(ge=0, le=1)
-    end_to_end_task_success: float = Field(ge=0, le=1)
+    component_task_success: float = Field(ge=0, le=1)
 
 
 class EvaluationReport(AgentSchema):

@@ -26,6 +26,19 @@ Required runtime environment variables:
 - `BUSINESS_SERVICE_BASE_URL`
 - `QDRANT_URL`
 - `QDRANT_COLLECTION`
+- `RAG_SOURCE_DIR` (Compose defaults to `/app/rag-documents`; Markdown and text PDF only)
+
+## RAG document ingestion
+
+The Compose `rag-init` one-shot service validates metadata, chunks Markdown/text PDFs,
+deduplicates normalized content by SHA-256, registers `rag_document`, and replaces each
+document's Qdrant points idempotently. It does not perform OCR or directory-mirror deletion.
+
+Run the importer directly after applying Alembic migrations:
+
+```powershell
+uv run python -m app.rag.ingest --source-dir ..\deploy\rag-documents
+```
 - `LOG_LEVEL`
 
 Quality gates:

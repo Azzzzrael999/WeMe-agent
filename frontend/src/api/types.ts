@@ -177,6 +177,8 @@ export interface AgentDraftParticipant {
   displayName: string
 }
 
+export type AgentOperationType = 'CREATE' | 'RESCHEDULE' | 'CANCEL'
+
 export interface AgentDraft {
   title: string
   roomId: number
@@ -187,6 +189,32 @@ export interface AgentDraft {
   optionalParticipants: AgentDraftParticipant[]
   createVideoConference: boolean
 }
+
+export interface AgentMeetingSnapshot {
+  meetingId: number
+  meetingNo?: string
+  title: string
+  roomId: number
+  roomName: string
+  startAt: string
+  endAt: string
+  status?: string
+  version?: number
+  requiredParticipants?: AgentDraftParticipant[]
+  optionalParticipants?: AgentDraftParticipant[]
+  createVideoConference?: boolean
+}
+
+export interface AgentRescheduleDraft {
+  originalMeeting: AgentMeetingSnapshot
+  proposedMeeting: AgentDraft
+}
+
+export interface AgentCancellationPreview {
+  meeting: AgentMeetingSnapshot
+}
+
+export type AgentHitlDraft = AgentDraft | AgentRescheduleDraft | AgentCancellationPreview
 
 export interface AgentCitation {
   chunkId: string
@@ -206,6 +234,16 @@ export interface AgentRunSummary {
   answerSummary: string | null
   modelCallCount: number
   toolCallCount: number
+  modelProvider?: string | null
+  configuredModel?: string | null
+  model?: string | null
+  promptVersion?: string | null
+  schemaVersion?: string | null
+  inputTokens?: number
+  outputTokens?: number
+  cachedInputTokens?: number
+  cacheMissInputTokens?: number
+  totalTokens?: number
   durationMs: number | null
   errorCode: string | null
   createdAt: string
@@ -215,9 +253,46 @@ export interface AgentRunSummary {
 /** A no-store recovery view returned only for the owner or an ADMIN. */
 export interface AgentRunRecovery extends AgentRunSummary {
   candidates?: AgentCandidate[]
-  draft?: AgentDraft
+  actionType?: AgentOperationType
+  operationType?: AgentOperationType
+  draft?: AgentHitlDraft
   confirmationToken?: string
   expiresAt?: string
+}
+
+export type AgentLoopPhase = 'PLAN' | 'ACT' | 'OBSERVE' | 'VERIFY' | 'REPLAN' | string
+
+export interface AgentRemainingBudget {
+  modelCalls?: number
+  toolCalls?: number
+  graphNodes?: number
+  replans?: number
+}
+
+export interface AgentTokenUsage {
+  inputTokens?: number
+  outputTokens?: number
+  cachedInputTokens?: number
+  cacheMissInputTokens?: number
+  totalTokens?: number
+}
+
+export interface AgentLoopEvent {
+  runId: string
+  phase: AgentLoopPhase
+  iteration: number
+  decision?: string | null
+  replanCount: number
+  feedbackCodes: string[]
+  stopReason?: string | null
+  remainingBudget?: AgentRemainingBudget
+  modelCallCount?: number
+  toolCallCount?: number
+  model?: string | null
+  promptVersion?: string | null
+  schemaVersion?: string | null
+  tokenUsage?: AgentTokenUsage
+  createdAt?: string | null
 }
 
 export interface AgentTraceStep {
@@ -247,6 +322,7 @@ export interface AgentTrace {
   run: AgentRunSummary
   steps: AgentTraceStep[]
   toolCalls: AgentTraceToolCall[]
+  loopEvents?: AgentLoopEvent[]
 }
 
 export interface AgentStreamRequest {

@@ -16,7 +16,14 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.metadata import AgentBusinessEvent, AgentRun, AgentStep, AgentThread, AgentToolCall
+from app.models.metadata import (
+    AgentBusinessEvent,
+    AgentLoopEvent,
+    AgentRun,
+    AgentStep,
+    AgentThread,
+    AgentToolCall,
+)
 from app.schemas.agent import Intent, RunStatus
 
 
@@ -101,6 +108,13 @@ class MetadataRepository:
                     tool_call_count=0,
                     input_tokens=0,
                     output_tokens=0,
+                    cache_hit_tokens=0,
+                    cache_miss_tokens=0,
+                    model_provider=None,
+                    configured_model=None,
+                    response_models=[],
+                    prompt_version="meeting-agent-prompts-v3",
+                    schema_version="meeting-agent-state-v3",
                     duration_ms=None,
                     error_code=None,
                     finished_at=None,
@@ -152,6 +166,18 @@ class MetadataRepository:
         duration_ms: int,
     ) -> None:
         with Session(self.engine) as session:
+            existing = session.get(AgentToolCall, tool_call_id)
+            if existing is not None:
+                if (
+                    existing.run_id != run_id
+                    or existing.tool_name != tool_name
+                    or existing.risk_level != risk_level
+                    or existing.sanitized_args != sanitized_args
+                    or existing.status != status
+                    or existing.result_summary != safe_summary(result_summary, 1000)
+                ):
+                    raise ValueError("toolCallId was reused with different audit semantics")
+                return
             session.add(
                 AgentToolCall(
                     tool_call_id=tool_call_id,
@@ -162,6 +188,37 @@ class MetadataRepository:
                     result_summary=safe_summary(result_summary, 1000),
                     status=status,
                     duration_ms=max(0, duration_ms),
+                )
+            )
+            session.commit()
+
+    def record_loop_event(
+        self,
+        *,
+        run_id: str,
+        sequence_no: int,
+        phase: str,
+        iteration: int,
+        decision: str,
+        feedback_codes: list[str],
+        replan_count: int,
+        remaining_model_calls: int,
+        remaining_tool_calls: int,
+        stop_reason: str | None,
+    ) -> None:
+        with Session(self.engine) as session:
+            session.add(
+                AgentLoopEvent(
+                    run_id=run_id,
+                    sequence_no=sequence_no,
+                    phase=safe_summary(phase, 16),
+                    iteration=max(0, iteration),
+                    decision=safe_summary(decision, 128),
+                    feedback_codes=[safe_summary(item, 64) for item in feedback_codes[:16]],
+                    replan_count=max(0, replan_count),
+                    remaining_model_calls=max(0, remaining_model_calls),
+                    remaining_tool_calls=max(0, remaining_tool_calls),
+                    stop_reason=safe_summary(stop_reason or "", 64) or None,
                 )
             )
             session.commit()
@@ -177,6 +234,7 @@ class MetadataRepository:
         tool_call_count: int,
         duration_ms: int,
         error_code: str | None,
+        runtime: dict[str, object] | None = None,
     ) -> None:
         with Session(self.engine) as session:
             run = session.get(AgentRun, run_id)
@@ -189,6 +247,7 @@ class MetadataRepository:
             run.tool_call_count = tool_call_count
             run.duration_ms = max(0, duration_ms)
             run.error_code = error_code
+            _apply_runtime(run, runtime)
             run.finished_at = datetime.now(ZoneInfo("Asia/Shanghai"))
             session.commit()
 
@@ -203,6 +262,7 @@ class MetadataRepository:
         tool_call_count: int,
         duration_ms: int,
         error_code: str | None,
+        runtime: dict[str, object] | None = None,
     ) -> None:
         """Persist a paused/non-terminal Run without changing its immutable trace.
 
@@ -221,6 +281,7 @@ class MetadataRepository:
             run.tool_call_count = tool_call_count
             run.duration_ms = max(0, duration_ms)
             run.error_code = error_code
+            _apply_runtime(run, runtime)
             session.commit()
 
     def record_business_event_once(
@@ -291,6 +352,13 @@ class MetadataRepository:
                     .order_by(AgentToolCall.created_at.asc())
                 )
             )
+            loop_events = list(
+                session.scalars(
+                    select(AgentLoopEvent)
+                    .where(AgentLoopEvent.run_id == run_id)
+                    .order_by(AgentLoopEvent.sequence_no.asc())
+                )
+            )
             return {
                 "run": self._run_view(run),
                 "steps": [
@@ -320,6 +388,22 @@ class MetadataRepository:
                     }
                     for call in tool_calls
                 ],
+                "loopEvents": [
+                    {
+                        "phase": event.phase,
+                        "iteration": event.iteration,
+                        "decision": event.decision,
+                        "feedbackCodes": event.feedback_codes,
+                        "replanCount": event.replan_count,
+                        "remainingBudget": {
+                            "modelCalls": event.remaining_model_calls,
+                            "toolCalls": event.remaining_tool_calls,
+                        },
+                        "stopReason": event.stop_reason,
+                        "createdAt": _timestamp(event.created_at),
+                    }
+                    for event in loop_events
+                ],
             }
 
     @staticmethod
@@ -335,8 +419,44 @@ class MetadataRepository:
             "answerSummary": run.answer_summary,
             "modelCallCount": run.model_call_count,
             "toolCallCount": run.tool_call_count,
+            "modelProvider": run.model_provider,
+            "configuredModel": run.configured_model,
+            "responseModels": run.response_models,
+            "promptVersion": run.prompt_version,
+            "schemaVersion": run.schema_version,
+            "tokenUsage": {
+                "inputTokens": run.input_tokens,
+                "outputTokens": run.output_tokens,
+                "cacheHitTokens": run.cache_hit_tokens,
+                "cacheMissTokens": run.cache_miss_tokens,
+            },
             "durationMs": run.duration_ms,
             "errorCode": run.error_code,
             "createdAt": _timestamp(run.created_at),
             "finishedAt": _timestamp(run.finished_at),
         }
+
+
+def _apply_runtime(run: AgentRun, runtime: dict[str, object] | None) -> None:
+    if runtime is None:
+        return
+    provider = runtime.get("modelProvider")
+    model = runtime.get("configuredModel")
+    run.model_provider = provider if isinstance(provider, str) else None
+    run.configured_model = model if isinstance(model, str) else None
+    response_models = runtime.get("responseModels")
+    run.response_models = (
+        [item for item in response_models if isinstance(item, str)][:12]
+        if isinstance(response_models, list)
+        else []
+    )
+    run.prompt_version = str(runtime.get("promptVersion") or "meeting-agent-prompts-v3")[:64]
+    run.schema_version = str(runtime.get("schemaVersion") or "meeting-agent-state-v3")[:64]
+    run.input_tokens = _runtime_int(runtime.get("inputTokens"))
+    run.output_tokens = _runtime_int(runtime.get("outputTokens"))
+    run.cache_hit_tokens = _runtime_int(runtime.get("cacheHitTokens"))
+    run.cache_miss_tokens = _runtime_int(runtime.get("cacheMissTokens"))
+
+
+def _runtime_int(value: object) -> int:
+    return value if isinstance(value, int) and value >= 0 else 0

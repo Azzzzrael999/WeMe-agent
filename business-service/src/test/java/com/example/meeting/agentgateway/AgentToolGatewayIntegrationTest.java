@@ -63,7 +63,7 @@ class AgentToolGatewayIntegrationTest {
     jdbcTemplate.update("DELETE FROM meeting_room_slot");
     jdbcTemplate.update("DELETE FROM meeting_participant");
     jdbcTemplate.update("DELETE FROM meeting");
-    jdbcTemplate.update("UPDATE meeting_room SET status = 'ACTIVE'");
+    jdbcTemplate.update("UPDATE meeting_room SET status = 'ACTIVE' WHERE code <> 'HQ-MAINT-702'");
   }
 
   @Test
@@ -140,6 +140,43 @@ class AgentToolGatewayIntegrationTest {
   }
 
   @Test
+  void resolvesSeededNaturalLanguageEmployeeNames() throws Exception {
+    performTool(
+            "/internal/v1/tools/resolve-employees",
+            "{\"names\":[\"张三\",\"李四\"],\"departmentNames\":[]}",
+            identity("run_resolve_demo_names", "tool_resolve_demo_names"),
+            SERVICE_TOKEN,
+            true)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.employees.length()").value(2))
+        .andExpect(jsonPath("$.data.employees[0].employeeId").value(1001))
+        .andExpect(jsonPath("$.data.employees[0].displayName").value("张三"))
+        .andExpect(jsonPath("$.data.employees[1].employeeId").value(1003))
+        .andExpect(jsonPath("$.data.employees[1].displayName").value("李四"))
+        .andExpect(jsonPath("$.data.unresolvedNames.length()").value(0));
+  }
+
+  @Test
+  void recentMeetingToolExcludesCancelledMeetings() throws Exception {
+    long confirmedMeetingId =
+        createManualMeeting(101, "2026-09-01T09:00:00+08:00", "2026-09-01T10:00:00+08:00");
+    long cancelledMeetingId =
+        createManualMeeting(102, "2026-09-02T09:00:00+08:00", "2026-09-02T10:00:00+08:00");
+    jdbcTemplate.update("UPDATE meeting SET status='CANCELLED' WHERE id=?", cancelledMeetingId);
+
+    performTool(
+            "/internal/v1/tools/get-recent-meeting",
+            "{\"limit\":5}",
+            identity("run_recent_confirmed", "tool_recent_confirmed"),
+            SERVICE_TOKEN,
+            true)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.meetings.length()").value(1))
+        .andExpect(jsonPath("$.data.meetings[0].id").value(confirmedMeetingId))
+        .andExpect(jsonPath("$.data.meetings[0].status").value("CONFIRMED"));
+  }
+
+  @Test
   void hotDraftHasNoOccupancyAndConfirmationAtomicallyReturnsPending() throws Exception {
     PendingBooking pending = createHotPending("2026-09-01", "hot_pending");
 
@@ -192,6 +229,102 @@ class AgentToolGatewayIntegrationTest {
   }
 
   @Test
+  void synchronousDraftConflictReturnsStructuredServerSideEvidence() throws Exception {
+    createManualMeeting(101, "2026-09-06T10:00:00+08:00", "2026-09-06T11:00:00+08:00");
+    ToolIdentity draftIdentity = identity("run_sync_conflict", "tool_sync_conflict_draft");
+    MvcResult draftResult =
+        performTool(
+                "/internal/v1/tools/booking-drafts",
+                meetingBody(
+                    "同步冲突证据", 101, "2026-09-06T10:00:00+08:00", "2026-09-06T11:00:00+08:00"),
+                draftIdentity,
+                SERVICE_TOKEN,
+                true)
+            .andExpect(status().isOk())
+            .andReturn();
+    String confirmationToken = data(draftResult).get("confirmationToken").asText();
+
+    performTool(
+            "/internal/v1/tools/booking-drafts/" + confirmationToken + "/confirm",
+            null,
+            identity("run_sync_conflict", "tool_sync_conflict_confirm"),
+            SERVICE_TOKEN,
+            true,
+            "idem-sync-conflict")
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("BOOKING_CONFLICT"))
+        .andExpect(jsonPath("$.details[0].field").value("conflict.type"))
+        .andExpect(jsonPath("$.details[0].reason").value("BOOKING_CONFLICT"))
+        .andExpect(jsonPath("$.details[1].field").value("conflict.roomId"))
+        .andExpect(jsonPath("$.details[1].reason").value("101"))
+        .andExpect(jsonPath("$.details[2].field").value("conflict.slots"))
+        .andExpect(jsonPath("$.details[2].reason").value("20,21"));
+  }
+
+  @Test
+  void editedCreateDraftInvalidatesOldTokenBeforeAnyFormalSideEffect() throws Exception {
+    String runId = "run_create_edit";
+    MvcResult first =
+        performTool(
+                "/internal/v1/tools/booking-drafts",
+                meetingBody("编辑前草案", 101, "2026-09-09T09:00:00+08:00", "2026-09-09T10:00:00+08:00"),
+                identity(runId, "tool_create_before_edit"),
+                SERVICE_TOKEN,
+                true)
+            .andExpect(status().isOk())
+            .andReturn();
+    String oldToken = data(first).get("confirmationToken").asText();
+    MvcResult edited =
+        performTool(
+                "/internal/v1/tools/booking-drafts",
+                meetingBody("编辑后草案", 102, "2026-09-09T10:00:00+08:00", "2026-09-09T11:00:00+08:00"),
+                identity(runId, "tool_create_after_edit"),
+                SERVICE_TOKEN,
+                true)
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.draft.title").value("编辑后草案"))
+            .andExpect(jsonPath("$.data.draft.roomId").value(102))
+            .andReturn();
+    String newToken = data(edited).get("confirmationToken").asText();
+
+    assertThat(newToken).isNotEqualTo(oldToken);
+    assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM meeting", Integer.class)).isZero();
+    assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM meeting_room_slot", Integer.class))
+        .isZero();
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT status FROM booking_draft WHERE confirmation_token=?",
+                String.class,
+                oldToken))
+        .isEqualTo("REJECTED");
+
+    performTool(
+            "/internal/v1/tools/booking-drafts/" + oldToken + "/confirm",
+            null,
+            identity(runId, "tool_confirm_old_create"),
+            SERVICE_TOKEN,
+            true,
+            "mutation-create-old-key")
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("DRAFT_ALREADY_USED"));
+    assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM meeting", Integer.class)).isZero();
+
+    performTool(
+            "/internal/v1/tools/booking-drafts/" + newToken + "/confirm",
+            null,
+            identity(runId, "tool_confirm_new_create"),
+            SERVICE_TOKEN,
+            true,
+            "mutation-create-new-key")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.status").value("SUCCESS"));
+    assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM meeting", Integer.class))
+        .isEqualTo(1);
+    assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM meeting_room_slot", Integer.class))
+        .isEqualTo(2);
+  }
+
+  @Test
   void bookingCommandSuccessAndDuplicateMessageCreateOneMeeting() throws Exception {
     PendingBooking pending = createHotPending("2026-09-02", "mq_success");
     String eventJson = commandEvent(pending.requestNo());
@@ -237,7 +370,9 @@ class AgentToolGatewayIntegrationTest {
     createManualMeeting(103, "2026-09-03T10:00:00+08:00", "2026-09-03T11:00:00+08:00");
     PendingBooking pending = createHotPending("2026-09-03", "mq_conflict");
 
-    bookingCommandProcessor.process(commandEvent(pending.requestNo()));
+    String eventJson = commandEvent(pending.requestNo());
+    bookingCommandProcessor.process(eventJson);
+    bookingCommandProcessor.process(eventJson);
 
     assertThat(
             jdbcTemplate.queryForObject(
@@ -252,6 +387,19 @@ class AgentToolGatewayIntegrationTest {
                 "SELECT COUNT(*) FROM message_outbox WHERE event_type='BOOKING_RESULT'",
                 Integer.class))
         .isEqualTo(1);
+    String resultPayload =
+        jdbcTemplate.queryForObject(
+            "SELECT payload_json FROM message_outbox WHERE event_type='BOOKING_RESULT'",
+            String.class);
+    JsonNode resultEvent = objectMapper.readTree(resultPayload);
+    if (resultEvent.isTextual()) {
+      resultEvent = objectMapper.readTree(resultEvent.asText());
+    }
+    assertThat(resultEvent.at("/payload/status").asText()).isEqualTo("CONFLICT");
+    assertThat(resultEvent.at("/payload/conflict/type").asText()).isEqualTo("BOOKING_CONFLICT");
+    assertThat(resultEvent.at("/payload/conflict/roomId").asLong()).isEqualTo(103L);
+    assertThat(resultEvent.at("/payload/conflict/slots").isArray()).isTrue();
+    assertThat(resultEvent.at("/payload/conflict/slots").size()).isEqualTo(2);
     assertThat(
             jdbcTemplate.queryForObject("SELECT COUNT(*) FROM event_consume_record", Integer.class))
         .isEqualTo(1);
@@ -354,12 +502,14 @@ class AgentToolGatewayIntegrationTest {
                 SERVICE_TOKEN,
                 true)
             .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.before.id").value(meetingId))
+            .andExpect(jsonPath("$.data.before.roomId").value(101))
+            .andExpect(jsonPath("$.data.before.version").value(0))
+            .andExpect(jsonPath("$.data.after.roomId").value(102))
+            .andExpect(jsonPath("$.data.after.title").value("Agent 改期"))
             .andReturn();
     String rescheduleToken = data(preview).get("confirmationToken").asText();
-    assertThat(
-            jdbcTemplate.queryForObject(
-                "SELECT room_id FROM meeting WHERE id=?", Long.class, meetingId))
-        .isEqualTo(101L);
+    assertFormalMeetingState(meetingId, 101, "CONFIRMED", 0, 2, 2, 2);
 
     ToolIdentity rescheduleConfirm = identity("run_mutation", "tool_reschedule_confirm");
     performTool(
@@ -369,7 +519,9 @@ class AgentToolGatewayIntegrationTest {
             SERVICE_TOKEN,
             true,
             "mutation-reschedule-key")
-        .andExpect(status().isOk());
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.status").value("SUCCESS"))
+        .andExpect(jsonPath("$.data.meetingId").value(meetingId));
     performTool(
             "/internal/v1/tools/reschedule-drafts/" + rescheduleToken + "/confirm",
             null,
@@ -378,10 +530,7 @@ class AgentToolGatewayIntegrationTest {
             true,
             "mutation-reschedule-key")
         .andExpect(status().isOk());
-    assertThat(
-            jdbcTemplate.queryForObject(
-                "SELECT room_id FROM meeting WHERE id=?", Long.class, meetingId))
-        .isEqualTo(102L);
+    assertFormalMeetingState(meetingId, 102, "CONFIRMED", 1, 1, 2, 2);
 
     ToolIdentity cancellation = identity("run_mutation", "tool_cancel_draft");
     MvcResult cancellationPreview =
@@ -392,12 +541,12 @@ class AgentToolGatewayIntegrationTest {
                 SERVICE_TOKEN,
                 true)
             .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.meeting.id").value(meetingId))
+            .andExpect(jsonPath("$.data.meeting.roomId").value(102))
+            .andExpect(jsonPath("$.data.meeting.status").value("CONFIRMED"))
             .andReturn();
     String cancellationToken = data(cancellationPreview).get("confirmationToken").asText();
-    assertThat(
-            jdbcTemplate.queryForObject(
-                "SELECT status FROM meeting WHERE id=?", String.class, meetingId))
-        .isEqualTo("CONFIRMED");
+    assertFormalMeetingState(meetingId, 102, "CONFIRMED", 1, 1, 2, 2);
 
     ToolIdentity cancellationConfirm = identity("run_mutation", "tool_cancel_confirm");
     performTool(
@@ -407,17 +556,164 @@ class AgentToolGatewayIntegrationTest {
             SERVICE_TOKEN,
             true,
             "mutation-cancel-key")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.status").value("SUCCESS"))
+        .andExpect(jsonPath("$.data.meetingId").value(meetingId));
+    assertFormalMeetingState(meetingId, 102, "CANCELLED", 2, 1, 0, 0);
+  }
+
+  @Test
+  void editedMutationDraftInvalidatesOldTokenAndKeepsNewTokenConfirmable() throws Exception {
+    long meetingId =
+        createManualMeeting(101, "2026-09-07T09:00:00+08:00", "2026-09-07T10:00:00+08:00");
+    ToolIdentity firstDraftIdentity = identity("run_mutation_edit", "tool_reschedule_before_edit");
+    String firstBody =
+        rescheduleBody(
+            meetingId, "改期前草案", 102, "2026-09-07T10:00:00+08:00", "2026-09-07T11:00:00+08:00", 0);
+    MvcResult firstDraft =
+        performTool(
+                "/internal/v1/tools/reschedule-drafts",
+                firstBody,
+                firstDraftIdentity,
+                SERVICE_TOKEN,
+                true)
+            .andExpect(status().isOk())
+            .andReturn();
+    String oldToken = data(firstDraft).get("confirmationToken").asText();
+
+    MvcResult editedDraft =
+        performTool(
+                "/internal/v1/tools/reschedule-drafts",
+                rescheduleBody(
+                    meetingId,
+                    "改期后草案",
+                    102,
+                    "2026-09-07T11:00:00+08:00",
+                    "2026-09-07T12:00:00+08:00",
+                    0),
+                identity("run_mutation_edit", "tool_reschedule_after_edit"),
+                SERVICE_TOKEN,
+                true)
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.before.id").value(meetingId))
+            .andExpect(jsonPath("$.data.after.title").value("改期后草案"))
+            .andReturn();
+    String newToken = data(editedDraft).get("confirmationToken").asText();
+
+    assertThat(newToken).isNotEqualTo(oldToken);
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT status FROM booking_draft WHERE confirmation_token=?",
+                String.class,
+                oldToken))
+        .isEqualTo("REJECTED");
+    assertFormalMeetingState(meetingId, 101, "CONFIRMED", 0, 2, 2, 2);
+
+    performTool(
+            "/internal/v1/tools/reschedule-drafts/" + oldToken + "/confirm",
+            null,
+            identity("run_mutation_edit", "tool_confirm_old_token"),
+            SERVICE_TOKEN,
+            true,
+            "mutation-edit-old-key")
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("DRAFT_ALREADY_USED"));
+    assertFormalMeetingState(meetingId, 101, "CONFIRMED", 0, 2, 2, 2);
+
+    performTool(
+            "/internal/v1/tools/reschedule-drafts/" + newToken + "/confirm",
+            null,
+            identity("run_mutation_edit", "tool_confirm_new_token"),
+            SERVICE_TOKEN,
+            true,
+            "mutation-edit-new-key")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.meetingId").value(meetingId));
+    assertFormalMeetingState(meetingId, 102, "CONFIRMED", 1, 2, 2, 2);
+  }
+
+  @Test
+  void cancellationPreviewRejectsConfirmationAfterTargetMeetingChanges() throws Exception {
+    long meetingId =
+        createManualMeeting(101, "2026-09-08T09:00:00+08:00", "2026-09-08T10:00:00+08:00");
+    MvcResult preview =
+        performTool(
+                "/internal/v1/tools/cancellation-previews",
+                objectMapper.writeValueAsString(Map.of("meetingId", meetingId)),
+                identity("run_cancel_stale", "tool_cancel_stale_preview"),
+                SERVICE_TOKEN,
+                true)
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.meeting.version").value(0))
+            .andReturn();
+    String token = data(preview).get("confirmationToken").asText();
+    assertFormalMeetingState(meetingId, 101, "CONFIRMED", 0, 2, 2, 2);
+
+    mockMvc
+        .perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                    "/api/v1/meetings/{meetingId}", meetingId)
+                .header("Authorization", "Bearer " + userAccessToken())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    rescheduleBody(
+                        meetingId,
+                        "预览后手动改期",
+                        102,
+                        "2026-09-08T10:00:00+08:00",
+                        "2026-09-08T11:00:00+08:00",
+                        0)))
         .andExpect(status().isOk());
-    assertThat(
-            jdbcTemplate.queryForObject(
-                "SELECT status FROM meeting WHERE id=?", String.class, meetingId))
-        .isEqualTo("CANCELLED");
-    assertThat(
-            jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM meeting_room_slot WHERE meeting_id=?",
-                Integer.class,
-                meetingId))
-        .isZero();
+    assertFormalMeetingState(meetingId, 102, "CONFIRMED", 1, 2, 2, 2);
+
+    performTool(
+            "/internal/v1/tools/cancellation-previews/" + token + "/confirm",
+            null,
+            identity("run_cancel_stale", "tool_cancel_stale_confirm"),
+            SERVICE_TOKEN,
+            true,
+            "mutation-cancel-stale-key")
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("MEETING_STATE_CONFLICT"));
+    assertFormalMeetingState(meetingId, 102, "CONFIRMED", 1, 2, 2, 2);
+  }
+
+  @Test
+  void rescheduleConflictReturnsEvidenceAndPreservesOriginalMeeting() throws Exception {
+    long targetMeetingId =
+        createManualMeeting(101, "2026-09-10T09:00:00+08:00", "2026-09-10T10:00:00+08:00");
+    createManualMeeting(102, "2026-09-10T10:00:00+08:00", "2026-09-10T11:00:00+08:00");
+    MvcResult draft =
+        performTool(
+                "/internal/v1/tools/reschedule-drafts",
+                rescheduleBody(
+                    targetMeetingId,
+                    "冲突改期",
+                    102,
+                    "2026-09-10T10:00:00+08:00",
+                    "2026-09-10T11:00:00+08:00",
+                    0),
+                identity("run_reschedule_conflict", "tool_reschedule_conflict_draft"),
+                SERVICE_TOKEN,
+                true)
+            .andExpect(status().isOk())
+            .andReturn();
+    String token = data(draft).get("confirmationToken").asText();
+    assertFormalMeetingState(targetMeetingId, 101, "CONFIRMED", 0, 2, 2, 2);
+
+    performTool(
+            "/internal/v1/tools/reschedule-drafts/" + token + "/confirm",
+            null,
+            identity("run_reschedule_conflict", "tool_reschedule_conflict_confirm"),
+            SERVICE_TOKEN,
+            true,
+            "mutation-reschedule-conflict-key")
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("BOOKING_CONFLICT"))
+        .andExpect(jsonPath("$.details[0].field").value("conflict.type"))
+        .andExpect(jsonPath("$.details[1].reason").value("102"))
+        .andExpect(jsonPath("$.details[2].reason").value("20,21"));
+    assertFormalMeetingState(targetMeetingId, 101, "CONFIRMED", 0, 2, 2, 2);
   }
 
   @Test
@@ -534,6 +830,67 @@ class AgentToolGatewayIntegrationTest {
             List.of(1002),
             "createVideoConference",
             false));
+  }
+
+  private String rescheduleBody(
+      long meetingId, String title, long roomId, String startAt, String endAt, int expectedVersion)
+      throws Exception {
+    Map<String, Object> body =
+        new LinkedHashMap<>(
+            Map.of(
+                "meetingId",
+                meetingId,
+                "title",
+                title,
+                "meetingType",
+                "ARCHITECTURE_REVIEW",
+                "roomId",
+                roomId,
+                "startAt",
+                startAt,
+                "endAt",
+                endAt,
+                "requiredParticipantIds",
+                List.of(),
+                "optionalParticipantIds",
+                List.of(1002)));
+    body.put("createVideoConference", false);
+    body.put("expectedVersion", expectedVersion);
+    return objectMapper.writeValueAsString(body);
+  }
+
+  private void assertFormalMeetingState(
+      long meetingId,
+      long roomId,
+      String status,
+      int version,
+      int participantCount,
+      int roomSlotCount,
+      int employeeBusySlotCount) {
+    Map<String, Object> meeting =
+        jdbcTemplate.queryForMap(
+            "SELECT room_id, status, version FROM meeting WHERE id=?", meetingId);
+    assertThat(((Number) meeting.get("room_id")).longValue()).isEqualTo(roomId);
+    assertThat(meeting.get("status")).isEqualTo(status);
+    assertThat(((Number) meeting.get("version")).intValue()).isEqualTo(version);
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM meeting_participant WHERE meeting_id=?",
+                Integer.class,
+                meetingId))
+        .isEqualTo(participantCount);
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM meeting_room_slot WHERE meeting_id=?",
+                Integer.class,
+                meetingId))
+        .isEqualTo(roomSlotCount);
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM employee_busy_slot WHERE meeting_id=?",
+                Integer.class,
+                meetingId))
+        .isEqualTo(employeeBusySlotCount);
   }
 
   private org.springframework.test.web.servlet.ResultActions performTool(

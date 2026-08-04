@@ -8,10 +8,12 @@ import time
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import suppress
+from datetime import datetime
 from functools import wraps
 from queue import Empty, Queue
 from threading import Thread
 from typing import Annotated, Any, ParamSpec, TypeVar
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Response, status
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -32,13 +34,14 @@ from app.schemas.agent import (
     AgentStreamRequest,
     BookingResultStatus,
     BusinessResultCallback,
+    ConflictRepairFeedbackState,
     Route,
     RunStatus,
 )
 from app.schemas.health import ComponentStatus, HealthResponse, ServiceStatus
 from app.security import AgentContext, InternalAuthenticationError, authenticate_agent_context
 from app.tools import JavaReadToolClient
-from app.workflow import WorkflowError, WorkflowRun, build_workflow_run
+from app.workflow import WorkflowError, WorkflowRun, _visible_draft, build_workflow_run
 
 router = APIRouter(prefix="/internal/v1", tags=["internal"])
 logger = logging.getLogger(__name__)
@@ -191,6 +194,9 @@ def stream_agent_run(
         user_id=context.user_id,
         roles=list(context.roles),
         message=body.message,
+        request_time=datetime.now(ZoneInfo(settings.app_timezone)),
+        model_provider=settings.agent_model_provider,
+        configured_model=settings.deepseek_model or "fixture",
     )
     workflow = _workflow(
         settings=settings,
@@ -414,6 +420,40 @@ def receive_business_result(
     # new graph run invokes Java READ tools again.  The callback itself has no
     # user-visible token or model/prompt data in its response.
     callback_step_count = state.step_count + 1
+    if state.replan_count >= 2:
+        repository.complete_run(
+            run_id=run_id,
+            intent=state.intent,
+            status=RunStatus.WAITING_USER_INPUT,
+            answer_summary="连续并发冲突已达到重规划上限，请调整时间或会议室后重试。",
+            model_call_count=state.model_call_count,
+            tool_call_count=state.tool_call_count,
+            duration_ms=run.duration_ms or 0,
+            error_code="CONFLICT_REPLAN_EXHAUSTED",
+        )
+        _record_callback_event(repository=repository, run_id=run_id, body=body)
+        return _safe_callback_response(
+            status_value="PROCESSED", reason="REPLAN_EXHAUSTED", candidate_count=0
+        )
+    failed_candidate = state.selected_candidate_id
+    if failed_candidate is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AGENT_CALLBACK_RETRY",
+        )
+    excluded_ids = list(dict.fromkeys([*state.excluded_candidate_ids, failed_candidate]))
+    conflict_type = body.conflict.type if body.conflict is not None else "UNKNOWN"
+    preserved = _preserved_constraints(state)
+    repair_feedback = ConflictRepairFeedbackState(
+        conflict_type=conflict_type,
+        failed_candidate_id=failed_candidate,
+        preserved_constraints=preserved,
+        excluded_candidate_ids=excluded_ids,
+        replan_count=state.replan_count + 1,
+        room_id=body.conflict.room_id if body.conflict is not None else None,
+        slots=body.conflict.slots if body.conflict is not None else [],
+        reason="并发最终裁决发生冲突，保留硬约束并排除失败候选后重新读取事实。",
+    )
     _record_business_result_step(
         repository=repository,
         state=state,
@@ -439,6 +479,11 @@ def receive_business_result(
             "status": RunStatus.RUNNING,
             "next_route": Route.REQUIREMENT,
             "step_count": callback_step_count,
+            "replan_count": state.replan_count + 1,
+            "excluded_candidate_ids": excluded_ids,
+            "conflict_repair_feedback": repair_feedback,
+            "loop_iteration": 0,
+            "executed_tool_fingerprints": [],
         }
     )
     try:
@@ -542,7 +587,8 @@ def get_agent_run(
                     candidate.model_dump(by_alias=True, mode="json")
                     for candidate in state.schedule_candidates
                 ],
-                "draft": state.draft.model_dump(by_alias=True, mode="json"),
+                "actionType": state.operation_type.value if state.operation_type else "CREATE",
+                "draft": _visible_draft(state),
                 "confirmationToken": state.confirmation_token,
                 "expiresAt": state.draft_expires_at.isoformat(),
             }
@@ -613,6 +659,7 @@ def _finish_stream(
             tool_call_count=final_state.tool_call_count,
             duration_ms=duration_ms,
             error_code=None,
+            runtime=_runtime_stats(final_state),
         )
         return
     repository.complete_run(
@@ -624,6 +671,7 @@ def _finish_stream(
         tool_call_count=final_state.tool_call_count,
         duration_ms=duration_ms,
         error_code=None,
+        runtime=_runtime_stats(final_state),
     )
     yield _sse(
         "run.completed",
@@ -648,6 +696,11 @@ def _fail_stream(
     error: WorkflowError,
 ) -> Iterator[str]:
     failed_state = workflow.latest_state or fallback_state
+    terminal_code = (
+        "BUDGET_EXHAUSTED"
+        if error.code in {"AGENT_STEP_LIMIT_EXCEEDED", "BUDGET_EXHAUSTED"}
+        else error.code
+    )
     repository.complete_run(
         run_id=failed_state.run_id,
         intent=failed_state.intent,
@@ -656,19 +709,32 @@ def _fail_stream(
         model_call_count=failed_state.model_call_count,
         tool_call_count=failed_state.tool_call_count,
         duration_ms=duration_ms,
-        error_code=error.code,
+        error_code=terminal_code,
+        runtime=_runtime_stats(failed_state),
     )
     yield _sse(
         "run.failed",
         {
             "runId": failed_state.run_id,
             "status": RunStatus.FAILED.value,
-            "errorCode": error.code,
+            "errorCode": terminal_code,
             "message": error.message,
         },
     )
 
 
+def _runtime_stats(state: AgentState) -> dict[str, object]:
+    return {
+        "modelProvider": state.model_provider,
+        "configuredModel": state.configured_model,
+        "responseModels": state.response_models,
+        "promptVersion": state.prompt_version,
+        "schemaVersion": state.schema_version,
+        "inputTokens": state.input_tokens,
+        "outputTokens": state.output_tokens,
+        "cacheHitTokens": state.cache_hit_tokens,
+        "cacheMissTokens": state.cache_miss_tokens,
+    }
 def _owned_run(*, repository: MetadataRepository, run_id: str, context: AgentContext) -> AgentRun:
     run = repository.get_run(run_id)
     if run is None or (run.user_id != context.user_id and not context.is_admin):
@@ -741,6 +807,31 @@ def _record_business_result_step(
         output_summary=summary,
         duration_ms=0,
     )
+
+
+def _preserved_constraints(state: AgentState) -> list[str]:
+    """Summarize immutable scheduling constraints without sensitive content."""
+
+    request = state.meeting_request
+    if request is None:
+        return ["ORIGINAL_MEETING_REQUEST"]
+    preserved = [
+        f"durationMinutes={request.duration_minutes}",
+        f"requiredParticipantCount={len(request.required_participants)}",
+        f"minimumCapacity={request.minimum_capacity or 1}",
+    ]
+    if request.time_window is not None:
+        preserved.append(
+            "timeWindow="
+            f"{request.time_window.start.isoformat()}/{request.time_window.end.isoformat()}"
+        )
+    if request.required_features:
+        preserved.append("requiredFeatures=" + ",".join(sorted(request.required_features)))
+    preserved.extend(
+        f"hard:{constraint.type}={constraint.value}"
+        for constraint in request.hard_constraints
+    )
+    return preserved[:20]
 
 
 def _trace_for_visible_run(

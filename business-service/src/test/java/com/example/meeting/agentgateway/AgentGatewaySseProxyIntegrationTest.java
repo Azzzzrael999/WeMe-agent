@@ -201,6 +201,43 @@ class AgentGatewaySseProxyIntegrationTest {
   }
 
   @Test
+  void cancellationEditCanSelectTargetMeetingWithoutJavaInterpretingIt() throws Exception {
+    String runId = "run_resume_fixture";
+    UPSTREAM_RESPONSE.set(
+        new UpstreamResponse(
+            200,
+            "text/event-stream; charset=utf-8",
+            AgentGatewaySseProxyIntegrationTest::resumeSse));
+
+    MvcResult started =
+        mockMvc
+            .perform(
+                post("/api/v1/agent/runs/{runId}/resume", runId)
+                    .header("Authorization", "Bearer " + userAccessToken())
+                    .header("X-Trace-Id", TRACE_ID)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.TEXT_EVENT_STREAM)
+                    .content(
+                        """
+                        {"action":"EDIT","confirmationToken":"cfm_cancel_fixture","editedDraft":{"meetingId":9001},"feedback":null}
+                        """))
+            .andExpect(status().isOk())
+            .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM))
+            .andExpect(request().asyncStarted())
+            .andReturn();
+
+    started.getAsyncResult(5_000);
+    CapturedUpstreamRequest captured = CAPTURED_REQUEST.get();
+    assertThat(captured).isNotNull();
+    assertThat(captured.path()).isEqualTo("/internal/v1/agent-runs/" + runId + "/resume");
+    JsonNode body = objectMapper.readTree(captured.body());
+    assertThat(body.get("action").asText()).isEqualTo("EDIT");
+    assertThat(body.get("editedDraft").size()).isEqualTo(1);
+    assertThat(body.get("editedDraft").get("meetingId").asLong()).isEqualTo(9001L);
+    assertThat(body.has("actionPayloadValid")).isFalse();
+  }
+
+  @Test
   void resumeRequiresAnAuthenticatedEmployee() throws Exception {
     mockMvc
         .perform(

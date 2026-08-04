@@ -47,13 +47,13 @@
 | Intent accuracy | 1.0 |
 | Constraint precision / recall / F1 | 1.0 / 1.0 / 1.0 |
 | Tool selection accuracy | 1.0 |
-| End-to-end task success | 1.0 |
+| Component task success | 1.0 |
 | OR-Tools 独立硬约束候选检查 | 60 |
 | 硬约束违例 | 0（违例率 0.0） |
 | 政策引用有效性 | 5 / 5 |
 | 网络调用 | 0 |
 
-这是固定 fixture、内存政策语料和确定性求解器的离线基线。真实 DeepSeek 的质量、线上延迟与外部知识覆盖不在此报告的证明范围；写入业务事实的端到端正确性由 Java/Compose Smoke 单独验证。
+这是固定 fixture、内存政策语料和确定性求解器的组件基线，不是 LangGraph 或真实模型端到端评测。真实 DeepSeek 的质量、线上延迟与外部知识覆盖不在此报告的证明范围；全图轨迹和写入业务事实的端到端正确性由 Python trajectory integration 与 Java/Compose Smoke 单独验证。
 
 ## Day 7 稳定性修复
 
@@ -74,3 +74,15 @@
 - `.env.example` 默认启用 `AGENT_CALLBACK_ENABLED=true`；本机已有的旧本地环境值在最终主栈 Smoke 前以**进程环境覆盖**启用，未读取、打印或改写 `.env`。
 - 空卷验收的本地环境由 `scripts/New-LocalEnv.ps1` 随机生成；临时 project 结束后保留命名卷，方便人工检查，不执行 `down -v`。
 - 运行时仍固定为 Supervisor、Requirement、Policy、Scheduling 四个产品 Agent。没有新增 Day 8 或范围外能力。
+
+## 2026-08-13 真实模型修复验收补充
+
+本节覆盖旧报告中“尚未执行真实模型质量评测”的结论。详细命令和失败分类见 `docs/HANDOFF.md` 第 22 节，脱敏 JSON 位于 `artifacts/`。
+
+| 分层 | 最终结论 | 核心结果 |
+|---|---|---|
+| component fixture | PASS | 40 条，网络 0；Intent/Tool/Citation 100%，Constraint F1 96.76%，硬约束违规 0；组件任务成功率 82.5%，不称 E2E。 |
+| integration/Compose | PASS | Java 61 tests、Python 76 tests、Frontend type/build、完整 Compose healthy；三类 HITL 与旧 token 作废回归通过。 |
+| live-model component core | PASS | 12 条 × 3：Route 100%、Intent 97.22%、Constraint 100%、Tool 94.44%、Native Tool/Citation 100%、Source violation 0。 |
+| live-model component full | **FAIL** | 40 条 × 1：Tool 80%、Source violation 1、Citation 80% 未过门禁；整体 component 结论因此仍是 FAIL。 |
+| live-model trajectory | PASS | 公共 Java API 8 条隔离轨迹 7 条通过，87.5%；固定 ID 9001 不存在的准确负例保留为失败。 |

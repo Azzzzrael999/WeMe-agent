@@ -54,12 +54,15 @@ class Settings(BaseSettings):
     qdrant_collection: str = Field(
         default="meeting_policies", validation_alias="QDRANT_COLLECTION", min_length=1
     )
+    rag_source_dir: str = Field(
+        default="/app/rag-documents", validation_alias="RAG_SOURCE_DIR", min_length=1
+    )
     fixture_now: str = Field(default="2026-08-11T10:00:00+08:00", validation_alias="FIXTURE_NOW")
     agent_max_model_calls: int = Field(
-        default=8, validation_alias="AGENT_MAX_MODEL_CALLS", ge=1, le=8
+        default=12, validation_alias="AGENT_MAX_MODEL_CALLS", ge=1, le=12
     )
     agent_max_tool_calls: int = Field(
-        default=12, validation_alias="AGENT_MAX_TOOL_CALLS", ge=1, le=12
+        default=16, validation_alias="AGENT_MAX_TOOL_CALLS", ge=1, le=16
     )
     agent_max_graph_nodes: int = Field(
         default=20, validation_alias="AGENT_MAX_GRAPH_NODES", ge=1, le=20

@@ -1,6 +1,6 @@
 # 企业会议智能调度系统
 
-一个用于技术展示的企业会议智能调度系统。Java 负责鉴权、会议事实源、并发预约、幂等、Outbox 和 RocketMQ；Python 负责固定的四个运行时 Agent、结构化理解、政策检索、OR-Tools、HITL 与恢复；Vue 将完整链路呈现给浏览器。Day 7 已完成交付证据、空卷部署验收和项目包装。
+一个用于技术展示的企业会议智能调度系统。Java 负责鉴权、会议事实源、并发预约、幂等、Outbox 和 RocketMQ；Python 负责固定的四个运行时 Agent、受控反思与重规划、原生 Tool Calling、OR-Tools、HITL 与冲突恢复；Vue 将完整链路呈现给浏览器。
 
 ## 能力与架构边界
 
@@ -8,6 +8,9 @@
 - Java 是会议、房间和预约结果的唯一业务事实源；MySQL 唯一约束是并发最终裁决，Redis 仅作预占、缓存和 checkpoint。
 - Python 只访问自己的 `meeting_agent` 元数据、Redis DB 1 checkpoint、Qdrant collection，以及 Java 白名单 Tool API；不会读写 Java 业务表。
 - 运行时 Agent 固定为 **Supervisor + Requirement + Policy + Scheduling**。Retriever、OR-Tools、HITL 和 Tool 都是确定性节点，不伪装为 Agent。
+- Scheduling 使用有预算的 `Plan -> Act -> Observe -> Verify -> Replan` Loop；模型最多 12 次、工具最多 16 次、业务冲突最多重规划 2 次，触顶后进入稳定可恢复状态。
+- DeepSeek 路径使用原生 `tools/tool_calls/tool` 协议。Pydantic 参数校验、Java 签发上下文、风险门禁、调用指纹去重和稳定 `toolCallId` 位于确定性 Tool Gate，模型不能伪造身份或直接执行写操作。
+- Requirement 使用 Evaluator–Optimizer：确定性评估器只返回结构化反馈，并最多触发一次语义修复；同步 409 和异步 `BOOKING_RESULT(CONFLICT)` 共享同一冲突证据与排除失败候选的重规划路径。
 - 默认 `AGENT_MODEL_PROVIDER=fixture`，所有 Smoke、评测和自动测试均不调用真实 DeepSeek；切换为 `deepseek` 时仅在本机 `.env` 填入真实 Key。
 
 ```mermaid
@@ -38,7 +41,11 @@ sequenceDiagram
     B->>J: Chinese scheduling request (SSE)
     J->>P: Signed context + runId + traceId
     P->>Q: Deterministic policy retrieval
-    P->>J: READ tools (rooms / busy slots)
+    loop Bounded Scheduling Loop
+        P->>J: Native READ Tool Calls (rooms / busy slots)
+        J-->>P: Structured observations
+        P->>P: Verify facts and budgets
+    end
     P-->>J: candidates + HITL token + structured trace
     J-->>B: Standard SSE events
     B->>J: ACCEPT / EDIT / REJECT
@@ -112,6 +119,7 @@ uv sync --frozen --group dev
 uv run ruff check .
 uv run mypy app
 uv run pytest
+uv run python -m app.evaluation
 Pop-Location
 
 Push-Location frontend
@@ -125,7 +133,22 @@ python .\scripts\concurrency-day2.py --mode room --requests 100 --workers 32
 python .\scripts\concurrency-day2.py --mode idempotency --requests 100 --workers 32
 ```
 
-Day 7 的实际运行证据、指标和环境条件在 [docs/REPORTS.md](docs/REPORTS.md)，本次验收使用的已解析镜像内容标识在 [docs/image-manifest-day7.json](docs/image-manifest-day7.json)。跨服务实现状态和下一条允许任务以 [docs/HANDOFF.md](docs/HANDOFF.md) 为准。
+Day 7 的全栈验收证据、指标和环境条件在 [docs/REPORTS.md](docs/REPORTS.md)，受控 Agent Loop 的设计与停止条件在 [docs/11-controlled-agent-loop-design.md](docs/11-controlled-agent-loop-design.md)。跨服务实现状态和下一条允许任务以 [docs/HANDOFF.md](docs/HANDOFF.md) 为准。
+
+真实模型评测另提供两个显式入口，报告层级不得互相替代：
+
+```powershell
+# 无业务写入的真实 DeepSeek component；未配置 Key 时明确 SKIPPED
+Push-Location agent-service
+uv run python -m app.evaluation.live --mode component --suite core --repeats 3 --output ..\artifacts\live-eval\component-core.json
+uv run python -m app.evaluation.live --mode component --suite full --repeats 1 --output ..\artifacts\live-eval\component-full.json
+Pop-Location
+
+# 完整 Compose 上经 Java 公共 API/SSE 运行隔离业务轨迹
+python .\scripts\live-model-trajectory.py --public-base http://localhost --output .\artifacts\live-eval\trajectory-final.json
+```
+
+2026-08-13 最新结果：core 12×3 component PASS，full 40×1 component FAIL，因此整体 live-model component 仍为 FAIL；公共 API trajectory 为 7/8（87.5%）PASS。详情与失败分类以 `docs/HANDOFF.md` 第 22 节为准。
 
 ## 目录说明
 
@@ -141,10 +164,11 @@ Day 7 的实际运行证据、指标和环境条件在 [docs/REPORTS.md](docs/RE
 ## 当前范围与限制
 
 - 无真实邮件、日历、视频会议或 IoT 供应商；视频会议只使用本地 Mock。
-- Qdrant 中是固定的最小政策语料与确定性 hash embedding，不是通用文档同步、OCR、知识图谱或 rerank 系统。
+- Qdrant 使用确定性 hash embedding；4 条固定种子只保留为 fixture/兼容语料，生产会议制度由受控文件导入器索引。
+- `rag-init` 会把 `deploy/rag-documents/` 中的 UTF-8 Markdown 或文本型 PDF 幂等导入 Qdrant，并在 Python 自有 `rag_document` 表登记 checksum 与索引状态；不做 OCR、Rerank、目录镜像删除或公共上传 API。
 - 不包含 SSO、多租户、多级审批、复杂访客流程、自动移动他人会议、Kubernetes、服务网格、完整 OpenTelemetry/Grafana 或故障注入平台。
 - RocketMQ 采用至少一次投递与业务幂等，不宣称 exactly-once。
-- DeepSeek 是可替换的 OpenAI-compatible Provider；默认 fixture 用于离线可复现验收，不代表真实模型质量。
+- DeepSeek 是可替换的 OpenAI-compatible Provider；默认模型名由 `DEEPSEEK_MODEL` 配置，fixture 用于离线可复现验收，不代表真实模型质量或线上 E2E 成功率。
 
 ## 规范与协作入口
 

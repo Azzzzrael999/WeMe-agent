@@ -2,6 +2,9 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import { authStore } from '../auth/store'
 
+const CHAT_ACTIVE_RUN_STORAGE_KEY = 'meetops.chat-active-run.v1'
+const SAFE_RUN_ID = /^[A-Za-z0-9_-]{1,64}$/
+
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
@@ -58,7 +61,24 @@ export const router = createRouter({
   ],
 })
 
-router.beforeEach(async (to) => {
+router.beforeEach(async (to, from) => {
+  const leavingRunId = from.query.runId
+  if (
+    from.name === 'chat'
+    && to.name !== 'chat'
+    && typeof leavingRunId === 'string'
+    && SAFE_RUN_ID.test(leavingRunId)
+  ) {
+    window.sessionStorage.setItem(CHAT_ACTIVE_RUN_STORAGE_KEY, leavingRunId)
+  }
+
+  if (to.name === 'chat' && to.query.runId === undefined) {
+    const activeRunId = window.sessionStorage.getItem(CHAT_ACTIVE_RUN_STORAGE_KEY)
+    if (activeRunId !== null && SAFE_RUN_ID.test(activeRunId)) {
+      return { name: 'chat', query: { ...to.query, runId: activeRunId } }
+    }
+  }
+
   if (to.meta.requiresAuth) {
     if (!authStore.isAuthenticated.value) {
       return { name: 'login', query: { redirect: to.fullPath } }

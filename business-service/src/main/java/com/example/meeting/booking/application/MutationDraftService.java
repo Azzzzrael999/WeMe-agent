@@ -98,7 +98,10 @@ public class MutationDraftService {
     MeetingView meeting =
         meetingQueryService.getVisible(request.meetingId(), context.authenticatedUser());
     BookingDraftRecord draft =
-        insertDraft("CANCEL", new CancellationDraftPayload(request.meetingId()), context);
+        insertDraft(
+            "CANCEL",
+            new CancellationDraftPayload(request.meetingId(), snapshot.getVersion()),
+            context);
     return new CreateCancellationPreviewResponse(
         draft.getConfirmationToken(),
         draft.getExpiresAt().atZone(zoneId).toOffsetDateTime(),
@@ -108,6 +111,9 @@ public class MutationDraftService {
   private BookingDraftRecord insertDraft(
       String operation, Object payload, AgentToolContext context) {
     LocalDateTime now = LocalDateTime.now(clock);
+    // EDIT/replanning creates a fresh confirmation boundary.  Any older mutation draft for the
+    // same Run must stop being confirmable before the new token is issued.
+    draftMapper.invalidatePendingForRun(context.userId(), context.runId(), operation, now);
     String json = write(payload);
     BookingDraftRecord draft = new BookingDraftRecord();
     draft.setConfirmationToken("cfm_" + UUID.randomUUID().toString().replace("-", ""));

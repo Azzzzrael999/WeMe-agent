@@ -90,6 +90,7 @@ ROOM_102 = {
 class FakeJavaTools:
     draft_failures_remaining: int = 0
     confirm_results: list[str] = field(default_factory=lambda: ["SUCCESS"])
+    confirm_conflict_details: dict[str, str] = field(default_factory=dict)
     room_sequences: list[list[dict[str, object]]] = field(
         default_factory=lambda: [[ROOM_103, ROOM_102]]
     )
@@ -98,8 +99,15 @@ class FakeJavaTools:
     confirm_calls: list[tuple[str, str | None, str | None]] = field(default_factory=list)
     _draft_count: int = 0
 
-    def resolve_employees(self, *, context: object, names: list[str]) -> ToolOutcome:
-        del context
+    def resolve_employees(
+        self,
+        *,
+        context: object,
+        names: list[str],
+        department_names: list[str] | None = None,
+        tool_call_id: str | None = None,
+    ) -> ToolOutcome:
+        del context, department_names
         self.calls.append("resolve_employees")
         employees = [
             {"employeeId": 1001, "displayName": "张三"},
@@ -109,6 +117,7 @@ class FakeJavaTools:
             "resolve_employees",
             "READ",
             {"employees": employees[: len(names)], "unresolvedNames": []},
+            tool_call_id=tool_call_id,
         )
 
     def get_employee_free_busy(
@@ -118,6 +127,7 @@ class FakeJavaTools:
         employee_ids: list[int],
         from_: datetime,
         to: datetime,
+        tool_call_id: str | None = None,
     ) -> ToolOutcome:
         del context, from_, to
         self.calls.append("get_employee_free_busy")
@@ -125,6 +135,7 @@ class FakeJavaTools:
             "get_employee_free_busy",
             "READ",
             {"employees": [{"employeeId": value, "busySlots": []} for value in employee_ids]},
+            tool_call_id=tool_call_id,
         )
 
     def search_available_rooms(
@@ -135,11 +146,17 @@ class FakeJavaTools:
         to: datetime,
         minimum_capacity: int,
         required_features: list[str],
+        tool_call_id: str | None = None,
     ) -> ToolOutcome:
         del context, from_, to, minimum_capacity, required_features
         self.calls.append("search_available_rooms")
         index = min(self.calls.count("search_available_rooms") - 1, len(self.room_sequences) - 1)
-        return _outcome("search_available_rooms", "READ", {"rooms": self.room_sequences[index]})
+        return _outcome(
+            "search_available_rooms",
+            "READ",
+            {"rooms": self.room_sequences[index]},
+            tool_call_id=tool_call_id,
+        )
 
     def create_booking_draft(
         self,
@@ -196,6 +213,8 @@ class FakeJavaTools:
         self.calls.append("confirm_booking")
         self.confirm_calls.append((confirmation_token, tool_call_id, idempotency_key))
         result = self.confirm_results.pop(0) if self.confirm_results else "SUCCESS"
+        if result == "CONFLICT":
+            raise JavaToolError("TOOL_CONFLICT", details=self.confirm_conflict_details)
         response = (
             ConfirmBookingResponse(status="SUCCESS", meeting_id=9001)
             if result == "SUCCESS"
@@ -215,9 +234,15 @@ class FakeJavaTools:
         )
 
 
-def _outcome(tool_name: str, risk_level: str, data: dict[str, object]) -> ToolOutcome:
+def _outcome(
+    tool_name: str,
+    risk_level: str,
+    data: dict[str, object],
+    *,
+    tool_call_id: str | None = None,
+) -> ToolOutcome:
     return ToolOutcome(
-        tool_call_id=f"tool_fixture_{tool_name}_{uuid.uuid4().hex}",
+        tool_call_id=tool_call_id or f"tool_fixture_{tool_name}_{uuid.uuid4().hex}",
         tool_name=tool_name,
         risk_level=risk_level,  # type: ignore[arg-type]
         data=data,
@@ -369,6 +394,59 @@ def test_initial_hitl_persists_candidates_without_leaking_token_to_trace(
     assert trace["toolCalls"][-1]["riskLevel"] == "DRAFT"  # type: ignore[index]
 
 
+def test_trajectory_integration_exposes_bounded_native_tool_loop(
+    configured_app: None,
+) -> None:
+    """Run the real LangGraph and assert the observable Plan/Verify trajectory."""
+
+    # The configured fixture implements the same complete_tools protocol as DeepSeek.
+    run_id = f"run_{uuid.uuid4().hex}"
+    trace_id = f"trc_{uuid.uuid4().hex}"
+    with TestClient(app) as client:
+        events = _start(client, run_id, trace_id)
+
+    loops = [payload for name, payload in events if name == "agent.loop"]
+    assert [payload["phase"] for payload in loops] == ["PLAN", "VERIFY"]
+    assert loops[0]["iteration"] == 1
+    assert loops[-1]["iteration"] <= 4
+    assert loops[-1]["stopReason"] == "READY_FOR_CONFIRMATION"
+    assert loops[-1]["remainingBudget"]["modelCalls"] >= 0  # type: ignore[index]
+    assert loops[-1]["remainingBudget"]["toolCalls"] >= 0  # type: ignore[index]
+
+
+def test_tool_trace_replay_is_idempotent_but_rejects_semantic_reuse(
+    metadata_repository: MetadataRepository,
+) -> None:
+    metadata_repository.create_run(
+        run_id="run_tool_trace",
+        thread_id="thread_tool_trace",
+        trace_id="trc_tool_trace",
+        user_id=1001,
+        question_summary="安排会议",
+    )
+    record = {
+        "tool_call_id": "tool_trace_stable",
+        "run_id": "run_tool_trace",
+        "tool_name": "resolve_employees",
+        "risk_level": "READ",
+        "sanitized_args": {"nameCount": 1},
+        "result_summary": "已解析 1 名员工",
+        "status": "SUCCEEDED",
+        "duration_ms": 3,
+    }
+
+    metadata_repository.record_tool_call(**record)
+    metadata_repository.record_tool_call(**{**record, "duration_ms": 9})
+
+    trace = metadata_repository.get_trace("run_tool_trace")
+    assert trace is not None
+    assert len(trace["toolCalls"]) == 1  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="different audit semantics"):
+        metadata_repository.record_tool_call(
+            **{**record, "sanitized_args": {"nameCount": 2}}
+        )
+
+
 def test_stream_executes_graph_on_one_dedicated_producer_thread(
     configured_app: None,
     monkeypatch: pytest.MonkeyPatch,
@@ -466,6 +544,44 @@ def test_accept_uses_fresh_trace_but_keeps_initial_trace_and_completes(
     write = trace["toolCalls"][-1]  # type: ignore[index]
     assert write["riskLevel"] == "WRITE"
     assert "cfm_fixture" not in json.dumps(write, ensure_ascii=False)
+
+
+def test_synchronous_conflict_replans_before_returning_to_hitl(
+    configured_app: None,
+    metadata_repository: MetadataRepository,
+    fixture_tools: FakeJavaTools,
+) -> None:
+    fixture_tools.confirm_results = ["CONFLICT"]
+    fixture_tools.confirm_conflict_details = {
+        "conflict.type": "BOOKING_CONFLICT",
+        "conflict.roomId": "103",
+        "conflict.slots": "30,31,32",
+    }
+    fixture_tools.room_sequences = [[ROOM_103, ROOM_102], [ROOM_102]]
+    run_id = f"run_{uuid.uuid4().hex}"
+    trace_id = f"trc_{uuid.uuid4().hex}"
+    with TestClient(app) as client:
+        token = _hitl_token(_start(client, run_id, trace_id))
+        response = client.post(
+            f"/internal/v1/agent-runs/{run_id}/resume",
+            headers=_headers(run_id=run_id, trace_id=f"trc_{uuid.uuid4().hex}"),
+            json={"action": "ACCEPT", "confirmationToken": token},
+        )
+
+    events = _events(response.text)
+    assert response.status_code == 200
+    assert any(
+        name == "agent.step" and payload["nodeName"] == "conflict_repair"
+        for name, payload in events
+    )
+    assert events[-1][0] == "hitl.required"
+    assert fixture_tools.calls.count("confirm_booking") == 1
+    assert fixture_tools.calls.count("get_employee_free_busy") == 2
+    assert fixture_tools.calls.count("search_available_rooms") == 2
+    assert fixture_tools.draft_payloads[-1].room_id == 102
+    trace = metadata_repository.get_trace(run_id)
+    assert trace is not None
+    assert trace["run"]["status"] == "WAITING_CONFIRMATION"  # type: ignore[index]
 
 
 def test_edit_revalidates_and_creates_new_draft_without_direct_write(
@@ -766,4 +882,4 @@ def test_graph_limit_emits_one_failed_terminal_event(
     assert events[0][0] == "run.started"
     assert [name for name, _ in events].count("run.failed") == 1
     assert [name for name, _ in events].count("run.completed") == 0
-    assert events[-1][1]["errorCode"] == "AGENT_STEP_LIMIT_EXCEEDED"
+    assert events[-1][1]["errorCode"] == "BUDGET_EXHAUSTED"

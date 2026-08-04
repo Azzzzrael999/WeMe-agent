@@ -1,3 +1,5 @@
+from sqlalchemy import UniqueConstraint
+
 import app.models  # noqa: F401
 from app.database.base import Base
 
@@ -18,6 +20,13 @@ def test_day_one_metadata_columns_match_data_contract() -> None:
             "tool_call_count",
             "input_tokens",
             "output_tokens",
+            "cache_hit_tokens",
+            "cache_miss_tokens",
+            "model_provider",
+            "configured_model",
+            "response_models",
+            "prompt_version",
+            "schema_version",
             "duration_ms",
             "error_code",
             "created_at",
@@ -34,6 +43,20 @@ def test_day_one_metadata_columns_match_data_contract() -> None:
             "output_summary",
             "duration_ms",
             "error_code",
+            "created_at",
+        },
+        "agent_loop_event": {
+            "id",
+            "run_id",
+            "sequence_no",
+            "phase",
+            "iteration",
+            "decision",
+            "feedback_codes",
+            "replan_count",
+            "remaining_model_calls",
+            "remaining_tool_calls",
+            "stop_reason",
             "created_at",
         },
         "agent_tool_call": {
@@ -86,3 +109,13 @@ def test_preference_user_id_is_not_generated_by_python_database() -> None:
     assert user_id.primary_key is True
     assert user_id.autoincrement is False
 
+
+def test_rag_document_checksum_is_unique() -> None:
+    table = Base.metadata.tables["rag_document"]
+    unique_sets = {
+        tuple(column.name for column in constraint.columns)
+        for constraint in table.constraints
+        if isinstance(constraint, UniqueConstraint)
+    }
+
+    assert ("checksum",) in unique_sets

@@ -1,0 +1,1600 @@
+{
+  "generatedAt": "2026-08-11T10:00:00+08:00",
+  "limitations": [
+    "This report validates the deterministic fixture baseline, not a live DeepSeek model.",
+    "It does not replace the Java/Docker end-to-end smoke tests for business writes.",
+    "Citation validation is limited to the versioned in-memory policy seed corpus."
+  ],
+  "metrics": {
+    "categoryCounts": {
+      "COMPLEX_CONSTRAINT": 6,
+      "MODIFY_OR_CANCEL": 6,
+      "MULTI_PARTY_COORDINATION": 6,
+      "NORMAL_BOOKING": 8,
+      "POLICY": 5,
+      "PREFERENCE_OR_CLARIFICATION": 4,
+      "RECOMMENDATION_OR_CONFLICT": 5
+    },
+    "citationValidity": 1.0,
+    "citationsChecked": 5,
+    "citationsValid": 5,
+    "componentTaskSuccess": 0.825,
+    "constraintF1": 0.9675925925925926,
+    "constraintPrecision": 0.9675925925925926,
+    "constraintRecall": 0.9675925925925926,
+    "hardConstraintCandidatesChecked": 60,
+    "hardConstraintViolationRate": 0.0,
+    "hardConstraintViolations": 0,
+    "intentAccuracy": 1.0,
+    "toolSelectionAccuracy": 1.0,
+    "totalCases": 40
+  },
+  "mode": "component-fixture",
+  "networkCalls": 0,
+  "provider": "FixtureModelProvider + InMemoryPolicyRetriever + ScheduleSolver",
+  "results": [
+    {
+      "candidatesChecked": 3,
+      "caseId": "normal-001",
+      "category": "NORMAL_BOOKING",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": false,
+          "durationMinutes": 60,
+          "minimumCapacity": 6,
+          "missingFields": [],
+          "requiredFeatures": [
+            "LARGE_SCREEN"
+          ],
+          "requiredParticipantNames": [
+            "张三"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "CREATE_MEETING",
+        "selectedTools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_booking_draft"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "WAITING_CONFIRMATION"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 3,
+      "caseId": "normal-002",
+      "category": "NORMAL_BOOKING",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": false,
+          "durationMinutes": 30,
+          "minimumCapacity": 4,
+          "missingFields": [],
+          "requiredFeatures": [
+            "WHITEBOARD"
+          ],
+          "requiredParticipantNames": [
+            "李四"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "CREATE_MEETING",
+        "selectedTools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_booking_draft"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "WAITING_CONFIRMATION"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 3,
+      "caseId": "normal-003",
+      "category": "NORMAL_BOOKING",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": true,
+          "durationMinutes": 90,
+          "minimumCapacity": 8,
+          "missingFields": [],
+          "requiredFeatures": [
+            "VIDEO_CONFERENCE"
+          ],
+          "requiredParticipantNames": [
+            "张三",
+            "李四"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "CREATE_MEETING",
+        "selectedTools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_booking_draft"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "WAITING_CONFIRMATION"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 3,
+      "caseId": "normal-004",
+      "category": "NORMAL_BOOKING",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": false,
+          "durationMinutes": 60,
+          "minimumCapacity": 5,
+          "missingFields": [],
+          "requiredFeatures": [
+            "WHITEBOARD"
+          ],
+          "requiredParticipantNames": [
+            "王经理"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "CREATE_MEETING",
+        "selectedTools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_booking_draft"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "WAITING_CONFIRMATION"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 3,
+      "caseId": "normal-005",
+      "category": "NORMAL_BOOKING",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": true,
+          "durationMinutes": 120,
+          "minimumCapacity": 12,
+          "missingFields": [],
+          "requiredFeatures": [
+            "LARGE_SCREEN",
+            "VIDEO_CONFERENCE"
+          ],
+          "requiredParticipantNames": [
+            "张三"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "CREATE_MEETING",
+        "selectedTools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_booking_draft"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "WAITING_CONFIRMATION"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 3,
+      "caseId": "normal-006",
+      "category": "NORMAL_BOOKING",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": false,
+          "durationMinutes": 30,
+          "minimumCapacity": 3,
+          "missingFields": [],
+          "requiredFeatures": [],
+          "requiredParticipantNames": [
+            "张三"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "CREATE_MEETING",
+        "selectedTools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_booking_draft"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "WAITING_CONFIRMATION"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 3,
+      "caseId": "normal-007",
+      "category": "NORMAL_BOOKING",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": false,
+          "durationMinutes": 90,
+          "minimumCapacity": 10,
+          "missingFields": [],
+          "requiredFeatures": [
+            "LARGE_SCREEN"
+          ],
+          "requiredParticipantNames": [
+            "李四",
+            "王经理"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "CREATE_MEETING",
+        "selectedTools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_booking_draft"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "WAITING_CONFIRMATION"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 3,
+      "caseId": "normal-008",
+      "category": "NORMAL_BOOKING",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": false,
+          "durationMinutes": 60,
+          "minimumCapacity": 7,
+          "missingFields": [],
+          "requiredFeatures": [
+            "WHITEBOARD"
+          ],
+          "requiredParticipantNames": [
+            "张三",
+            "李四"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "CREATE_MEETING",
+        "selectedTools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_booking_draft"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "WAITING_CONFIRMATION"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 3,
+      "caseId": "coord-001",
+      "category": "MULTI_PARTY_COORDINATION",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": false,
+          "durationMinutes": 60,
+          "minimumCapacity": 6,
+          "missingFields": [],
+          "requiredFeatures": [
+            "WHITEBOARD"
+          ],
+          "requiredParticipantNames": [
+            "张三",
+            "李四",
+            "王经理"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "CREATE_MEETING",
+        "selectedTools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_booking_draft"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "WAITING_CONFIRMATION"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 3,
+      "caseId": "coord-002",
+      "category": "MULTI_PARTY_COORDINATION",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": true,
+          "durationMinutes": 90,
+          "minimumCapacity": 12,
+          "missingFields": [],
+          "requiredFeatures": [
+            "VIDEO_CONFERENCE"
+          ],
+          "requiredParticipantNames": [
+            "张三",
+            "李四",
+            "王经理"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "CREATE_MEETING",
+        "selectedTools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_booking_draft"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "WAITING_CONFIRMATION"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 3,
+      "caseId": "coord-003",
+      "category": "MULTI_PARTY_COORDINATION",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": false,
+          "durationMinutes": 30,
+          "minimumCapacity": 5,
+          "missingFields": [],
+          "requiredFeatures": [],
+          "requiredParticipantNames": [
+            "张三",
+            "李四"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "CREATE_MEETING",
+        "selectedTools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_booking_draft"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "WAITING_CONFIRMATION"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 3,
+      "caseId": "coord-004",
+      "category": "MULTI_PARTY_COORDINATION",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": false,
+          "durationMinutes": 120,
+          "minimumCapacity": 15,
+          "missingFields": [],
+          "requiredFeatures": [
+            "LARGE_SCREEN"
+          ],
+          "requiredParticipantNames": [
+            "张三",
+            "李四",
+            "王经理"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "CREATE_MEETING",
+        "selectedTools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_booking_draft"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "WAITING_CONFIRMATION"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 3,
+      "caseId": "coord-005",
+      "category": "MULTI_PARTY_COORDINATION",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": true,
+          "durationMinutes": 60,
+          "minimumCapacity": 8,
+          "missingFields": [],
+          "requiredFeatures": [
+            "WHITEBOARD",
+            "VIDEO_CONFERENCE"
+          ],
+          "requiredParticipantNames": [
+            "张三",
+            "王经理"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "CREATE_MEETING",
+        "selectedTools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_booking_draft"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "WAITING_CONFIRMATION"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 3,
+      "caseId": "coord-006",
+      "category": "MULTI_PARTY_COORDINATION",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": false,
+          "durationMinutes": 90,
+          "minimumCapacity": 9,
+          "missingFields": [],
+          "requiredFeatures": [
+            "LARGE_SCREEN"
+          ],
+          "requiredParticipantNames": [
+            "李四",
+            "王经理"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "CREATE_MEETING",
+        "selectedTools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_booking_draft"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "WAITING_CONFIRMATION"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 3,
+      "caseId": "complex-001",
+      "category": "COMPLEX_CONSTRAINT",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": true,
+          "durationMinutes": 90,
+          "minimumCapacity": 20,
+          "missingFields": [],
+          "requiredFeatures": [
+            "LARGE_SCREEN",
+            "WHITEBOARD",
+            "VIDEO_CONFERENCE"
+          ],
+          "requiredParticipantNames": [
+            "张三"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "CREATE_MEETING",
+        "selectedTools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_booking_draft"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "WAITING_CONFIRMATION"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 3,
+      "caseId": "complex-002",
+      "category": "COMPLEX_CONSTRAINT",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": true,
+          "durationMinutes": 120,
+          "minimumCapacity": 18,
+          "missingFields": [],
+          "requiredFeatures": [
+            "WHITEBOARD",
+            "VIDEO_CONFERENCE"
+          ],
+          "requiredParticipantNames": [
+            "李四"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "CREATE_MEETING",
+        "selectedTools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_booking_draft"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "WAITING_CONFIRMATION"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 3,
+      "caseId": "complex-003",
+      "category": "COMPLEX_CONSTRAINT",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": false,
+          "durationMinutes": 30,
+          "minimumCapacity": 2,
+          "missingFields": [],
+          "requiredFeatures": [
+            "LARGE_SCREEN"
+          ],
+          "requiredParticipantNames": [
+            "王经理"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "CREATE_MEETING",
+        "selectedTools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_booking_draft"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "WAITING_CONFIRMATION"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 3,
+      "caseId": "complex-004",
+      "category": "COMPLEX_CONSTRAINT",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": false,
+          "durationMinutes": 120,
+          "minimumCapacity": 16,
+          "missingFields": [],
+          "requiredFeatures": [
+            "LARGE_SCREEN",
+            "WHITEBOARD"
+          ],
+          "requiredParticipantNames": [
+            "张三",
+            "李四"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "CREATE_MEETING",
+        "selectedTools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_booking_draft"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "WAITING_CONFIRMATION"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 3,
+      "caseId": "complex-005",
+      "category": "COMPLEX_CONSTRAINT",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": true,
+          "durationMinutes": 90,
+          "minimumCapacity": 30,
+          "missingFields": [],
+          "requiredFeatures": [
+            "VIDEO_CONFERENCE"
+          ],
+          "requiredParticipantNames": [
+            "张三",
+            "李四",
+            "王经理"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "CREATE_MEETING",
+        "selectedTools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_booking_draft"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "WAITING_CONFIRMATION"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 3,
+      "caseId": "complex-006",
+      "category": "COMPLEX_CONSTRAINT",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": true,
+          "durationMinutes": 60,
+          "minimumCapacity": 11,
+          "missingFields": [],
+          "requiredFeatures": [
+            "LARGE_SCREEN",
+            "WHITEBOARD",
+            "VIDEO_CONFERENCE"
+          ],
+          "requiredParticipantNames": [
+            "李四"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "CREATE_MEETING",
+        "selectedTools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_booking_draft"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "WAITING_CONFIRMATION"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 0,
+      "caseId": "recommend-001",
+      "category": "RECOMMENDATION_OR_CONFLICT",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": false,
+          "durationMinutes": 60,
+          "minimumCapacity": 8,
+          "missingFields": [],
+          "requiredFeatures": [
+            "LARGE_SCREEN"
+          ],
+          "requiredParticipantNames": [
+            "张三"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "RECOMMEND_ROOM",
+        "selectedTools": [
+          "resolve_employees"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "SUCCEEDED"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 0,
+      "caseId": "recommend-002",
+      "category": "RECOMMENDATION_OR_CONFLICT",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": false,
+          "durationMinutes": 90,
+          "minimumCapacity": 8,
+          "missingFields": [],
+          "requiredFeatures": [],
+          "requiredParticipantNames": [
+            "张三",
+            "李四"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "FIND_COMMON_TIME",
+        "selectedTools": [
+          "resolve_employees"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "SUCCEEDED"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 0,
+      "caseId": "recommend-003",
+      "category": "RECOMMENDATION_OR_CONFLICT",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": false,
+          "durationMinutes": 60,
+          "minimumCapacity": 6,
+          "missingFields": [],
+          "requiredFeatures": [
+            "WHITEBOARD"
+          ],
+          "requiredParticipantNames": [
+            "李四"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "RECOMMEND_ROOM",
+        "selectedTools": [
+          "resolve_employees"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "SUCCEEDED"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 0,
+      "caseId": "recommend-004",
+      "category": "RECOMMENDATION_OR_CONFLICT",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": false,
+          "durationMinutes": 60,
+          "minimumCapacity": 5,
+          "missingFields": [],
+          "requiredFeatures": [],
+          "requiredParticipantNames": [
+            "张三",
+            "王经理"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "FIND_COMMON_TIME",
+        "selectedTools": [
+          "resolve_employees"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "SUCCEEDED"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 0,
+      "caseId": "recommend-005",
+      "category": "RECOMMENDATION_OR_CONFLICT",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": false,
+          "durationMinutes": 60,
+          "minimumCapacity": 6,
+          "missingFields": [],
+          "requiredFeatures": [
+            "LARGE_SCREEN"
+          ],
+          "requiredParticipantNames": [
+            "张三"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "RECOMMEND_ROOM",
+        "selectedTools": [
+          "resolve_employees"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "SUCCEEDED"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 0,
+      "caseId": "policy-001",
+      "category": "POLICY",
+      "citationsChecked": 1,
+      "citationsValid": 1,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 0,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [
+          {
+            "chunkId": "chunk_vip_room_v1",
+            "headingPath": [
+              "VIP会议室",
+              "预约规则"
+            ],
+            "page": 1,
+            "title": "VIP会议室使用规则"
+          }
+        ],
+        "constraints": {
+          "createVideoConference": null,
+          "durationMinutes": null,
+          "minimumCapacity": null,
+          "missingFields": null,
+          "requiredFeatures": null,
+          "requiredParticipantNames": null,
+          "targetMeetingId": null
+        },
+        "intent": "QUERY_POLICY",
+        "selectedTools": [],
+        "supervisorRoute": "POLICY",
+        "terminalStatus": "SUCCEEDED"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 0,
+      "caseId": "policy-002",
+      "category": "POLICY",
+      "citationsChecked": 1,
+      "citationsValid": 1,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 0,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [
+          {
+            "chunkId": "chunk_architecture_review_v1",
+            "headingPath": [
+              "架构评审",
+              "会议室与设备"
+            ],
+            "page": 2,
+            "title": "架构评审规范"
+          }
+        ],
+        "constraints": {
+          "createVideoConference": null,
+          "durationMinutes": null,
+          "minimumCapacity": null,
+          "missingFields": null,
+          "requiredFeatures": null,
+          "requiredParticipantNames": null,
+          "targetMeetingId": null
+        },
+        "intent": "QUERY_POLICY",
+        "selectedTools": [],
+        "supervisorRoute": "POLICY",
+        "terminalStatus": "SUCCEEDED"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 0,
+      "caseId": "policy-003",
+      "category": "POLICY",
+      "citationsChecked": 1,
+      "citationsValid": 1,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 0,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [
+          {
+            "chunkId": "chunk_vip_room_v1",
+            "headingPath": [
+              "VIP会议室",
+              "预约规则"
+            ],
+            "page": 1,
+            "title": "VIP会议室使用规则"
+          }
+        ],
+        "constraints": {
+          "createVideoConference": null,
+          "durationMinutes": null,
+          "minimumCapacity": null,
+          "missingFields": null,
+          "requiredFeatures": null,
+          "requiredParticipantNames": null,
+          "targetMeetingId": null
+        },
+        "intent": "QUERY_POLICY",
+        "selectedTools": [],
+        "supervisorRoute": "POLICY",
+        "terminalStatus": "SUCCEEDED"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 0,
+      "caseId": "policy-004",
+      "category": "POLICY",
+      "citationsChecked": 1,
+      "citationsValid": 1,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 0,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [
+          {
+            "chunkId": "chunk_architecture_review_v1",
+            "headingPath": [
+              "架构评审",
+              "会议室与设备"
+            ],
+            "page": 2,
+            "title": "架构评审规范"
+          }
+        ],
+        "constraints": {
+          "createVideoConference": null,
+          "durationMinutes": null,
+          "minimumCapacity": null,
+          "missingFields": null,
+          "requiredFeatures": null,
+          "requiredParticipantNames": null,
+          "targetMeetingId": null
+        },
+        "intent": "QUERY_POLICY",
+        "selectedTools": [],
+        "supervisorRoute": "POLICY",
+        "terminalStatus": "SUCCEEDED"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 0,
+      "caseId": "policy-005",
+      "category": "POLICY",
+      "citationsChecked": 1,
+      "citationsValid": 1,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 0,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [
+          {
+            "chunkId": "chunk_vip_room_v1",
+            "headingPath": [
+              "VIP会议室",
+              "预约规则"
+            ],
+            "page": 1,
+            "title": "VIP会议室使用规则"
+          }
+        ],
+        "constraints": {
+          "createVideoConference": null,
+          "durationMinutes": null,
+          "minimumCapacity": null,
+          "missingFields": null,
+          "requiredFeatures": null,
+          "requiredParticipantNames": null,
+          "targetMeetingId": null
+        },
+        "intent": "QUERY_POLICY",
+        "selectedTools": [],
+        "supervisorRoute": "POLICY",
+        "terminalStatus": "SUCCEEDED"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 0,
+      "caseId": "change-001",
+      "category": "MODIFY_OR_CANCEL",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 7,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": false,
+          "durationMinutes": 60,
+          "minimumCapacity": 4,
+          "missingFields": [],
+          "requiredFeatures": [
+            "WHITEBOARD"
+          ],
+          "requiredParticipantNames": [
+            "张三"
+          ],
+          "targetMeetingId": 101
+        },
+        "intent": "MODIFY_MEETING",
+        "selectedTools": [
+          "resolve_employees"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "SUCCEEDED"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 0,
+      "caseId": "change-002",
+      "category": "MODIFY_OR_CANCEL",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 7,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": true,
+          "durationMinutes": 90,
+          "minimumCapacity": 8,
+          "missingFields": [],
+          "requiredFeatures": [
+            "VIDEO_CONFERENCE"
+          ],
+          "requiredParticipantNames": [
+            "李四"
+          ],
+          "targetMeetingId": 202
+        },
+        "intent": "MODIFY_MEETING",
+        "selectedTools": [
+          "resolve_employees"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "SUCCEEDED"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 0,
+      "caseId": "change-003",
+      "category": "MODIFY_OR_CANCEL",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": true,
+      "constraintFalseNegative": 0,
+      "constraintFalsePositive": 0,
+      "constraintTruePositive": 7,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": false,
+          "durationMinutes": 60,
+          "minimumCapacity": 6,
+          "missingFields": [],
+          "requiredFeatures": [
+            "LARGE_SCREEN"
+          ],
+          "requiredParticipantNames": [
+            "王经理"
+          ],
+          "targetMeetingId": 303
+        },
+        "intent": "MODIFY_MEETING",
+        "selectedTools": [
+          "resolve_employees"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "SUCCEEDED"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 0,
+      "caseId": "change-004",
+      "category": "MODIFY_OR_CANCEL",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": false,
+      "constraintFalseNegative": 1,
+      "constraintFalsePositive": 1,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": false,
+          "durationMinutes": 60,
+          "minimumCapacity": 2,
+          "missingFields": [],
+          "requiredFeatures": [],
+          "requiredParticipantNames": [
+            "张三"
+          ],
+          "targetMeetingId": 401
+        },
+        "intent": "CANCEL_MEETING",
+        "selectedTools": [
+          "resolve_employees"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "SUCCEEDED"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 0,
+      "caseId": "change-005",
+      "category": "MODIFY_OR_CANCEL",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": false,
+      "constraintFalseNegative": 1,
+      "constraintFalsePositive": 1,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": false,
+          "durationMinutes": 60,
+          "minimumCapacity": 2,
+          "missingFields": [],
+          "requiredFeatures": [],
+          "requiredParticipantNames": [
+            "李四"
+          ],
+          "targetMeetingId": 502
+        },
+        "intent": "CANCEL_MEETING",
+        "selectedTools": [
+          "resolve_employees"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "SUCCEEDED"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 0,
+      "caseId": "change-006",
+      "category": "MODIFY_OR_CANCEL",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": false,
+      "constraintFalseNegative": 1,
+      "constraintFalsePositive": 1,
+      "constraintTruePositive": 6,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": false,
+          "durationMinutes": 60,
+          "minimumCapacity": 2,
+          "missingFields": [],
+          "requiredFeatures": [],
+          "requiredParticipantNames": [
+            "王经理"
+          ],
+          "targetMeetingId": 603
+        },
+        "intent": "CANCEL_MEETING",
+        "selectedTools": [
+          "resolve_employees"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "SUCCEEDED"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 0,
+      "caseId": "preference-001",
+      "category": "PREFERENCE_OR_CLARIFICATION",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": false,
+      "constraintFalseNegative": 1,
+      "constraintFalsePositive": 1,
+      "constraintTruePositive": 5,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": false,
+          "durationMinutes": 60,
+          "minimumCapacity": 2,
+          "missingFields": [],
+          "requiredFeatures": [],
+          "requiredParticipantNames": [
+            "张三"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "UPDATE_PREFERENCE",
+        "selectedTools": [
+          "resolve_employees"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "SUCCEEDED"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 0,
+      "caseId": "preference-002",
+      "category": "PREFERENCE_OR_CLARIFICATION",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": false,
+      "constraintFalseNegative": 1,
+      "constraintFalsePositive": 1,
+      "constraintTruePositive": 5,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": false,
+          "durationMinutes": 60,
+          "minimumCapacity": 2,
+          "missingFields": [],
+          "requiredFeatures": [],
+          "requiredParticipantNames": [
+            "李四"
+          ],
+          "targetMeetingId": null
+        },
+        "intent": "UPDATE_PREFERENCE",
+        "selectedTools": [
+          "resolve_employees"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "SUCCEEDED"
+      },
+      "terminalStatusMatch": true,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 0,
+      "caseId": "preference-003",
+      "category": "PREFERENCE_OR_CLARIFICATION",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": false,
+      "constraintFalseNegative": 1,
+      "constraintFalsePositive": 1,
+      "constraintTruePositive": 5,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": false,
+          "durationMinutes": 60,
+          "minimumCapacity": 1,
+          "missingFields": [],
+          "requiredFeatures": [],
+          "requiredParticipantNames": [],
+          "targetMeetingId": null
+        },
+        "intent": "CREATE_MEETING",
+        "selectedTools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_booking_draft"
+        ],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "WAITING_CONFIRMATION"
+      },
+      "terminalStatusMatch": false,
+      "toolSelectionMatch": true
+    },
+    {
+      "candidatesChecked": 0,
+      "caseId": "preference-004",
+      "category": "PREFERENCE_OR_CLARIFICATION",
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "componentSuccess": false,
+      "constraintFalseNegative": 1,
+      "constraintFalsePositive": 1,
+      "constraintTruePositive": 5,
+      "hardConstraintViolations": 0,
+      "intentMatch": true,
+      "prediction": {
+        "citations": [],
+        "constraints": {
+          "createVideoConference": false,
+          "durationMinutes": 60,
+          "minimumCapacity": 8,
+          "missingFields": [],
+          "requiredFeatures": [
+            "WHITEBOARD"
+          ],
+          "requiredParticipantNames": [],
+          "targetMeetingId": null
+        },
+        "intent": "RECOMMEND_ROOM",
+        "selectedTools": [],
+        "supervisorRoute": "REQUIREMENT",
+        "terminalStatus": "SUCCEEDED"
+      },
+      "terminalStatusMatch": false,
+      "toolSelectionMatch": true
+    }
+  ],
+  "schemaVersion": "component-fixture-evaluation-v2"
+}

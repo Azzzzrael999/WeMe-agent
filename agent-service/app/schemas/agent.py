@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -71,6 +71,17 @@ class Route(StrEnum):
     FAIL = "FAIL"
 
 
+class OperationType(StrEnum):
+    CREATE = "CREATE"
+    RESCHEDULE = "RESCHEDULE"
+    CANCEL = "CANCEL"
+
+
+class EvidenceProvenance(StrEnum):
+    USER_EXPLICIT = "USER_EXPLICIT"
+    USER_DERIVED = "USER_DERIVED"
+
+
 class Participant(AgentSchema):
     name: str = Field(min_length=1, max_length=64)
     employee_id: int | None = Field(default=None, ge=1)
@@ -110,6 +121,7 @@ class MeetingRequest(AgentSchema):
     soft_constraints: list[Constraint] = Field(default_factory=list, max_length=20)
     create_video_conference: bool = False
     target_meeting_id: int | None = Field(default=None, ge=1)
+    target_meeting_reference: str | None = Field(default=None, max_length=240)
 
 
 class Citation(AgentSchema):
@@ -139,14 +151,79 @@ class PolicyResult(AgentSchema):
 
 class SupervisorDecision(AgentSchema):
     route: Route
+    intent_hint: Intent | None = None
+    confidence: float = Field(default=0.0, ge=0, le=1)
+    evidence: str = Field(default="", max_length=500)
+    summary: str = Field(min_length=1, max_length=240)
+
+
+class FieldEvidence(AgentSchema):
+    field: str = Field(min_length=1, max_length=64)
+    source: str = Field(min_length=1, max_length=500)
+    provenance: EvidenceProvenance
+
+
+class RequirementDraft(AgentSchema):
+    intent: Intent
+    title: str | None = Field(default=None, max_length=128)
+    meeting_type: str | None = Field(default=None, max_length=32)
+    duration_minutes: int | None = Field(default=None, ge=30, le=480, multiple_of=30)
+    time_window: TimeWindow | None = None
+    required_participant_names: list[str] = Field(default_factory=list, max_length=50)
+    optional_groups: list[str] = Field(default_factory=list, max_length=20)
+    required_features: list[str] = Field(default_factory=list, max_length=20)
+    minimum_capacity: int | None = Field(default=None, ge=1, le=10_000)
+    preferred_buildings: list[str] = Field(default_factory=list, max_length=20)
+    hard_constraints: list[Constraint] = Field(default_factory=list, max_length=20)
+    soft_constraints: list[Constraint] = Field(default_factory=list, max_length=20)
+    create_video_conference: bool = False
+    target_meeting_id: int | None = Field(default=None, ge=1)
+    target_meeting_reference: str | None = Field(default=None, max_length=240)
+    field_evidence: list[FieldEvidence] = Field(default_factory=list, max_length=40)
+    needs_policy: bool = False
     summary: str = Field(min_length=1, max_length=240)
 
 
 class RequirementExtraction(AgentSchema):
-    meeting_request: MeetingRequest
+    requirement_draft: RequirementDraft
     missing_fields: list[str] = Field(default_factory=list, max_length=10)
-    needs_policy: bool = False
-    summary: str = Field(min_length=1, max_length=240)
+
+    @property
+    def meeting_request(self) -> MeetingRequest:
+        """Compatibility view for the deterministic fixture evaluator."""
+
+        draft = self.requirement_draft
+        duration = draft.duration_minutes
+        if duration is None and draft.time_window is not None:
+            duration = int((draft.time_window.end - draft.time_window.start).total_seconds() / 60)
+        return MeetingRequest(
+            intent=draft.intent,
+            title=draft.title or "会议安排",
+            meeting_type=draft.meeting_type or "GENERAL",
+            duration_minutes=duration or 30,
+            time_window=draft.time_window,
+            required_participants=[
+                Participant(name=name) for name in draft.required_participant_names
+            ],
+            optional_groups=draft.optional_groups,
+            required_features=draft.required_features,
+            minimum_capacity=max(
+                draft.minimum_capacity or 1,
+                1 + len(set(draft.required_participant_names)),
+            ),
+            preferred_buildings=draft.preferred_buildings,
+            hard_constraints=draft.hard_constraints,
+            soft_constraints=draft.soft_constraints,
+            create_video_conference=draft.create_video_conference,
+            target_meeting_id=draft.target_meeting_id,
+            target_meeting_reference=draft.target_meeting_reference,
+        )
+
+
+class NormalizationReport(AgentSchema):
+    defaults_applied: list[str] = Field(default_factory=list, max_length=20)
+    derived_fields: list[str] = Field(default_factory=list, max_length=20)
+    evidence_coverage: float = Field(ge=0, le=1)
 
 
 class PolicySelection(AgentSchema):
@@ -359,6 +436,55 @@ class BookingDraft(AgentSchema):
         return self
 
 
+class MeetingParticipantView(AgentSchema):
+    employee_id: int = Field(ge=1)
+    display_name: str = Field(min_length=1, max_length=64)
+    participant_type: str = Field(pattern="^(REQUIRED|OPTIONAL)$")
+
+
+class MeetingView(AgentSchema):
+    id: int = Field(ge=1)
+    meeting_no: str = Field(min_length=1, max_length=40)
+    title: str = Field(min_length=1, max_length=128)
+    meeting_type: str = Field(min_length=1, max_length=32)
+    organizer_id: int = Field(ge=1)
+    organizer_name: str = Field(min_length=1, max_length=64)
+    room_id: int = Field(ge=1)
+    room_code: str = Field(min_length=1, max_length=32)
+    room_name: str = Field(min_length=1, max_length=64)
+    start_at: datetime
+    end_at: datetime
+    status: str = Field(min_length=1, max_length=24)
+    source: str = Field(min_length=1, max_length=16)
+    participants: list[MeetingParticipantView] = Field(default_factory=list, max_length=100)
+    version: int = Field(ge=0)
+    created_at: datetime
+    updated_at: datetime
+    cancelled_at: datetime | None = None
+
+
+class CreateDraftView(AgentSchema):
+    action_type: Literal[OperationType.CREATE] = OperationType.CREATE
+    draft: BookingDraft
+
+
+class RescheduleDraftView(AgentSchema):
+    action_type: Literal[OperationType.RESCHEDULE] = OperationType.RESCHEDULE
+    original_meeting: MeetingView
+    proposed_meeting: BookingDraft
+
+
+class CancellationDraftView(AgentSchema):
+    action_type: Literal[OperationType.CANCEL] = OperationType.CANCEL
+    meeting: MeetingView
+
+
+MutationDraft = Annotated[
+    CreateDraftView | RescheduleDraftView | CancellationDraftView,
+    Field(discriminator="action_type"),
+]
+
+
 class ResumeAction(StrEnum):
     ACCEPT = "ACCEPT"
     EDIT = "EDIT"
@@ -368,6 +494,7 @@ class ResumeAction(StrEnum):
 class EditedDraft(AgentSchema):
     room_id: int | None = Field(default=None, ge=1)
     start_at: datetime | None = None
+    meeting_id: int | None = Field(default=None, ge=1)
 
     @field_validator("start_at")
     @classmethod
@@ -378,8 +505,8 @@ class EditedDraft(AgentSchema):
 
     @model_validator(mode="after")
     def require_a_change(self) -> EditedDraft:
-        if self.room_id is None and self.start_at is None:
-            raise ValueError("editedDraft must contain roomId or startAt")
+        if self.room_id is None and self.start_at is None and self.meeting_id is None:
+            raise ValueError("editedDraft must contain roomId, startAt or meetingId")
         return self
 
 
@@ -462,6 +589,23 @@ class SchedulingPlan(AgentSchema):
         return tool_names
 
 
+class RequirementFeedbackState(AgentSchema):
+    codes: list[str] = Field(min_length=1, max_length=10)
+    summary: str = Field(min_length=1, max_length=500)
+    repairable: bool
+
+
+class ConflictRepairFeedbackState(AgentSchema):
+    conflict_type: str = Field(min_length=1, max_length=64)
+    failed_candidate_id: str = Field(min_length=1, max_length=64)
+    preserved_constraints: list[str] = Field(min_length=1, max_length=20)
+    excluded_candidate_ids: list[str] = Field(min_length=1, max_length=3)
+    replan_count: int = Field(ge=1, le=2)
+    room_id: int | None = Field(default=None, ge=1)
+    slots: list[int] = Field(default_factory=list, max_length=48)
+    reason: str = Field(min_length=1, max_length=240)
+
+
 class AgentError(AgentSchema):
     code: str = Field(min_length=1, max_length=64)
     message: str = Field(min_length=1, max_length=240)
@@ -476,6 +620,7 @@ class AgentState(AgentSchema):
     user_id: int = Field(ge=1)
     roles: list[str] = Field(min_length=1, max_length=10)
     message: str = Field(min_length=1, max_length=4000)
+    request_time: datetime
     intent: Intent | None = None
     meeting_request: MeetingRequest | None = None
     missing_fields: list[str] = Field(default_factory=list)
@@ -486,7 +631,8 @@ class AgentState(AgentSchema):
     selected_candidate_id: str | None = Field(default=None, max_length=64)
     unsat_analysis: UnsatAnalysis | None = None
     user_preferences: SchedulingPreferences | None = None
-    draft: BookingDraft | None = None
+    operation_type: OperationType | None = None
+    draft: MutationDraft | None = None
     confirmation_token: str | None = Field(default=None, max_length=80)
     draft_expires_at: datetime | None = None
     draft_tool_call_id: str | None = Field(default=None, max_length=80)
@@ -501,8 +647,25 @@ class AgentState(AgentSchema):
     next_route: Route | None = None
     answer_summary: str | None = Field(default=None, max_length=500)
     step_count: int = Field(default=0, ge=0, le=20)
-    model_call_count: int = Field(default=0, ge=0, le=8)
-    tool_call_count: int = Field(default=0, ge=0, le=12)
+    model_call_count: int = Field(default=0, ge=0, le=12)
+    tool_call_count: int = Field(default=0, ge=0, le=16)
+    loop_iteration: int = Field(default=0, ge=0, le=4)
+    replan_count: int = Field(default=0, ge=0, le=2)
+    executed_tool_fingerprints: list[str] = Field(default_factory=list, max_length=16)
+    excluded_candidate_ids: list[str] = Field(default_factory=list, max_length=3)
+    requirement_feedback: RequirementFeedbackState | None = None
+    normalization_report: NormalizationReport | None = None
+    conflict_repair_feedback: ConflictRepairFeedbackState | None = None
+    stop_reason: str | None = Field(default=None, max_length=64)
+    model_provider: str | None = Field(default=None, max_length=32)
+    configured_model: str | None = Field(default=None, max_length=128)
+    response_models: list[str] = Field(default_factory=list, max_length=12)
+    prompt_version: str = Field(default="meeting-agent-prompts-v3", max_length=64)
+    schema_version: str = Field(default="meeting-agent-state-v3", max_length=64)
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
+    cache_hit_tokens: int = Field(default=0, ge=0)
+    cache_miss_tokens: int = Field(default=0, ge=0)
     status: RunStatus = RunStatus.RUNNING
     error: AgentError | None = None
 

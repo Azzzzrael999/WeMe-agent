@@ -1,5 +1,23 @@
 # 07. 测试与评测规范
 
+## 0. Spec 1.1 Agent Loop 评测门槛
+
+新增评测必须区分三层，不得把 Fixture 组件评测写成真实 E2E：
+
+1. `component-fixture`：确定性验证 Schema、Evaluator、Tool Gate、求解器和停止条件，网络调用为0。
+2. `trajectory-integration`：运行完整 LangGraph 与 Java Tool mock/测试服务，验证 Tool 调用序列、重复调用拦截、HITL 前零副作用、checkpoint 恢复和冲突重规划。
+3. `live-model`：显式启用 DeepSeek 后运行隔离数据集；报告 provider/model、Prompt/Schema 版本、每例重复次数、成功率、延迟、Token/成本和失败样本。未配置 Key 时跳过且不得标记 PASS。
+
+现有 `python -m app.evaluation` 报告的 `mode` 固定为 `component-fixture`，指标名为 `componentTaskSuccess`；它不能命名为端到端成功。LangGraph 全图、HITL、checkpoint 与冲突重规划证据由 `trajectory-integration` 测试和 Compose Smoke 单独给出。
+
+必须覆盖：
+
+- 原生 `tools/tool_calls` 请求和 `assistant -> tool -> assistant` 消息闭环。
+- 非法 JSON、额外参数、伪造 userId/runId、越权 Tool、重复指纹、模型提前结束和超预算。
+- Requirement 首次失败、结构化 feedback、一次修复成功/失败和需用户澄清。
+- Java CONFLICT 后重新读取事实、排除失败候选、保留硬约束、候选发生变化、最多2次重规划。
+- `Hard Constraint Violation = 0`、`HITL Before Side Effects = 100%`、`Loop Normal Termination >= 99%`（fixture/integration）和重复 Tool 执行率为0。
+
 ## 1. 测试目标
 
 测试必须证明三件事：
@@ -149,6 +167,11 @@
 ## 5. RAG测试
 
 - 文档checksum相同不重复入库。
+- Markdown Front Matter 缺字段、非法枚举、非 ACTIVE 状态或错误时区必须拒绝。
+- 文本型 PDF 可提取正文并使用同名 sidecar 元数据；扫描型或空文本 PDF 必须明确失败，不做 OCR。
+- Markdown 按标题路径切片，超长章节按段落拆分；chunkId 在相同内容重复导入时保持稳定。
+- 相同 documentId 内容变化时旧 Qdrant points 被替换；删除源文件不得自动清空已有索引。
+- 导入状态按 `INDEXING -> INDEXED` 或 `INDEXING -> FAILED` 转换，只有 Qdrant 完整 upsert 成功才记录 `indexed_at`。
 - 架构评审问题召回架构评审文档。
 - VIP问题召回VIP规则。
 - 回答引用的chunkId真实存在。
@@ -200,10 +223,12 @@
 |---|---|---:|
 | Intent Accuracy | 正确Intent/总数 | >= 90% |
 | Constraint Field F1 | 字段级精确率和召回率 | >= 85% |
-| Tool Selection Accuracy | 必需Tool命中且无禁用Tool | >= 85% |
+| Tool Selection Accuracy | 必需Tool命中且无禁用Tool | >= 90% |
 | Hard Constraint Violation | 非法方案/全部方案 | 0% |
 | Citation Validity | 有效引用/全部引用 | 100% |
-| E2E Task Success | 完成预期终态/总数 | >= 80% |
+| Component Task Success | 完成组件预期终态/总数 | 报告真实值，不称 E2E |
+
+真实模型另要求 Route Accuracy >= 95%（Policy 必须全对）、Source Fidelity Violation=0、Native Tool Protocol=100%、Citation Validity=100%，以及隔离公共 API 自然语言轨迹成功率 >= 80%。
 
 这些目标针对固定模型、Prompt版本和演示数据，不宣称通用能力。
 
@@ -282,4 +307,3 @@
 - 真实外部日历和视频供应商契约测试。
 
 这些限制必须在README中说明。
-

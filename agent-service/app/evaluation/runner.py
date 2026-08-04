@@ -45,7 +45,7 @@ ModelT = TypeVar("ModelT", bound=BaseModel)
 
 
 class OfflineEvaluationRunner:
-    """Execute all assertions against the deterministic fixture boundary."""
+    """Execute component assertions against the deterministic fixture boundary."""
 
     def __init__(self) -> None:
         self._structured_runner = StructuredModelRunner()
@@ -57,8 +57,8 @@ class OfflineEvaluationRunner:
         resolved_cases = cases or load_day7_cases()
         results = [self._evaluate_case(case) for case in resolved_cases]
         return EvaluationReport(
-            schema_version="day7-agent-evaluation-v1",
-            mode="offline-deterministic-fixture",
+            schema_version="component-fixture-evaluation-v2",
+            mode="component-fixture",
             provider="FixtureModelProvider + InMemoryPolicyRetriever + ScheduleSolver",
             network_calls=0,
             generated_at=resolved_cases[0].context.now,
@@ -137,7 +137,7 @@ class OfflineEvaluationRunner:
             hard_constraint_violations=0,
             citations_checked=len(citations),
             citations_valid=citations_valid,
-            end_to_end_success=intent_match and tool_match and terminal_match and citation_match,
+            component_success=intent_match and tool_match and terminal_match and citation_match,
             prediction=prediction,
         )
 
@@ -191,7 +191,7 @@ class OfflineEvaluationRunner:
             hard_constraint_violations=hard_constraint_violations,
             citations_checked=0,
             citations_valid=0,
-            end_to_end_success=(
+            component_success=(
                 intent_match
                 and constraints_match
                 and tool_match
@@ -390,7 +390,7 @@ def _metrics(results: list[EvaluationCaseResult]) -> EvaluationMetrics:
         citations_checked=citations_checked,
         citations_valid=citations_valid,
         citation_validity=_ratio(citations_valid, citations_checked),
-        end_to_end_task_success=_ratio(sum(result.end_to_end_success for result in results), total),
+        component_task_success=_ratio(sum(result.component_success for result in results), total),
     )
 
 

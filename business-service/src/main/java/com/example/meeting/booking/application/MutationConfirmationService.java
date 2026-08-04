@@ -86,7 +86,8 @@ public class MutationConfirmationService {
           CancellationDraftPayload payload =
               read(draft.getPayloadJson(), CancellationDraftPayload.class);
           MeetingView meeting =
-              meetingService.cancel(payload.meetingId(), context.authenticatedUser());
+              meetingService.cancel(
+                  payload.meetingId(), payload.expectedVersion(), context.authenticatedUser());
           return new ConfirmBookingResponse("SUCCESS", meeting.id(), null);
         });
   }

@@ -17,7 +17,7 @@ import httpx
 from pydantic import Field, model_validator
 
 from app.config import Settings
-from app.schemas.agent import AgentSchema, BookingDraft
+from app.schemas.agent import AgentSchema, BookingDraft, MeetingView
 from app.security import AgentContext
 
 
@@ -105,6 +105,28 @@ class CreateBookingDraftResponse(AgentSchema):
     draft: BookingDraft
 
 
+class RescheduleDraftInput(CreateBookingDraftInput):
+    meeting_id: int = Field(ge=1, serialization_alias="meetingId")
+    expected_version: int = Field(ge=0, serialization_alias="expectedVersion")
+
+
+class CancellationPreviewInput(ToolInput):
+    meeting_id: int = Field(ge=1, serialization_alias="meetingId")
+
+
+class CreateRescheduleDraftResponse(AgentSchema):
+    confirmation_token: str = Field(min_length=1, max_length=80)
+    expires_at: datetime
+    before: MeetingView
+    after: BookingDraft
+
+
+class CreateCancellationPreviewResponse(AgentSchema):
+    confirmation_token: str = Field(min_length=1, max_length=80)
+    expires_at: datetime
+    meeting: MeetingView
+
+
 class ConfirmBookingResponse(AgentSchema):
     status: Literal["SUCCESS", "PENDING"]
     meeting_id: int | None = Field(default=None, ge=1)
@@ -121,9 +143,10 @@ class ConfirmBookingResponse(AgentSchema):
 
 
 class JavaToolError(RuntimeError):
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, *, details: dict[str, str] | None = None) -> None:
         super().__init__(code)
         self.code = code
+        self.details = details or {}
 
 
 @dataclass(frozen=True)
@@ -146,7 +169,12 @@ class JavaReadToolClient:
     http_client: httpx.Client | None = None
 
     def resolve_employees(
-        self, *, context: AgentContext, names: list[str], department_names: list[str] | None = None
+        self,
+        *,
+        context: AgentContext,
+        names: list[str],
+        department_names: list[str] | None = None,
+        tool_call_id: str | None = None,
     ) -> ToolOutcome:
         payload = ResolveEmployeesInput(names=names, department_names=department_names or [])
         outcome = self._invoke(
@@ -155,6 +183,7 @@ class JavaReadToolClient:
             path="/internal/v1/tools/resolve-employees",
             payload=payload,
             risk_level="READ",
+            tool_call_id=tool_call_id,
         )
         employee_count = len(outcome.data.get("employees", []))
         return _with_summary(outcome, f"已解析 {employee_count} 名员工")
@@ -166,6 +195,7 @@ class JavaReadToolClient:
         employee_ids: list[int],
         from_: datetime,
         to: datetime,
+        tool_call_id: str | None = None,
     ) -> ToolOutcome:
         outcome = self._invoke(
             context=context,
@@ -173,6 +203,7 @@ class JavaReadToolClient:
             path="/internal/v1/tools/get-employee-free-busy",
             payload=FreeBusyInput(employee_ids=employee_ids, from_=from_, to=to),
             risk_level="READ",
+            tool_call_id=tool_call_id,
         )
         return _with_summary(
             outcome,
@@ -187,6 +218,7 @@ class JavaReadToolClient:
         to: datetime,
         minimum_capacity: int,
         required_features: list[str],
+        tool_call_id: str | None = None,
     ) -> ToolOutcome:
         outcome = self._invoke(
             context=context,
@@ -199,16 +231,20 @@ class JavaReadToolClient:
                 required_features=required_features,
             ),
             risk_level="READ",
+            tool_call_id=tool_call_id,
         )
         return _with_summary(outcome, f"已查询 {len(outcome.data.get('rooms', []))} 间可用会议室")
 
-    def get_recent_meeting(self, *, context: AgentContext, limit: int = 5) -> ToolOutcome:
+    def get_recent_meeting(
+        self, *, context: AgentContext, limit: int = 5, tool_call_id: str | None = None
+    ) -> ToolOutcome:
         outcome = self._invoke(
             context=context,
             tool_name="get_recent_meeting",
             path="/internal/v1/tools/get-recent-meeting",
             payload=RecentMeetingInput(limit=limit),
             risk_level="READ",
+            tool_call_id=tool_call_id,
         )
         return _with_summary(outcome, f"已查询 {len(outcome.data.get('meetings', []))} 条最近会议")
 
@@ -278,6 +314,112 @@ class JavaReadToolClient:
         summary = "预约确认已完成" if confirmation.status == "SUCCESS" else "预约请求已进入排队"
         return _with_summary(outcome, summary), confirmation
 
+    def create_reschedule_draft(
+        self,
+        *,
+        context: AgentContext,
+        payload: RescheduleDraftInput,
+        tool_call_id: str,
+    ) -> tuple[ToolOutcome, CreateRescheduleDraftResponse]:
+        outcome = self._invoke(
+            context=context,
+            tool_name="create_reschedule_draft",
+            path="/internal/v1/tools/reschedule-drafts",
+            payload=payload,
+            risk_level="DRAFT",
+            tool_call_id=tool_call_id,
+        )
+        try:
+            response = CreateRescheduleDraftResponse.model_validate(outcome.data)
+        except ValueError as exc:
+            raise JavaToolError("TOOL_RESPONSE_INVALID") from exc
+        return _with_summary(outcome, "已创建待确认改期草案"), response
+
+    def create_cancellation_preview(
+        self,
+        *,
+        context: AgentContext,
+        meeting_id: int,
+        tool_call_id: str,
+    ) -> tuple[ToolOutcome, CreateCancellationPreviewResponse]:
+        outcome = self._invoke(
+            context=context,
+            tool_name="create_cancellation_preview",
+            path="/internal/v1/tools/cancellation-previews",
+            payload=CancellationPreviewInput(meeting_id=meeting_id),
+            risk_level="DRAFT",
+            tool_call_id=tool_call_id,
+        )
+        try:
+            response = CreateCancellationPreviewResponse.model_validate(outcome.data)
+        except ValueError as exc:
+            raise JavaToolError("TOOL_RESPONSE_INVALID") from exc
+        return _with_summary(outcome, "已创建待确认取消预览"), response
+
+    def confirm_reschedule(
+        self,
+        *,
+        context: AgentContext,
+        confirmation_token: str,
+        tool_call_id: str,
+        idempotency_key: str,
+    ) -> tuple[ToolOutcome, ConfirmBookingResponse]:
+        return self._confirm_mutation(
+            context=context,
+            confirmation_token=confirmation_token,
+            operation="confirm_reschedule",
+            path_prefix="/internal/v1/tools/reschedule-drafts",
+            tool_call_id=tool_call_id,
+            idempotency_key=idempotency_key,
+        )
+
+    def confirm_cancellation(
+        self,
+        *,
+        context: AgentContext,
+        confirmation_token: str,
+        tool_call_id: str,
+        idempotency_key: str,
+    ) -> tuple[ToolOutcome, ConfirmBookingResponse]:
+        return self._confirm_mutation(
+            context=context,
+            confirmation_token=confirmation_token,
+            operation="confirm_cancellation",
+            path_prefix="/internal/v1/tools/cancellation-previews",
+            tool_call_id=tool_call_id,
+            idempotency_key=idempotency_key,
+        )
+
+    def _confirm_mutation(
+        self,
+        *,
+        context: AgentContext,
+        confirmation_token: str,
+        operation: str,
+        path_prefix: str,
+        tool_call_id: str,
+        idempotency_key: str,
+    ) -> tuple[ToolOutcome, ConfirmBookingResponse]:
+        if not confirmation_token or len(confirmation_token) > 80:
+            raise JavaToolError("CONFIRMATION_TOKEN_INVALID")
+        outcome = self._invoke(
+            context=context,
+            tool_name=operation,
+            path=f"{path_prefix}/{confirmation_token}/confirm",
+            payload=ToolInput(),
+            risk_level="WRITE",
+            idempotency_key=idempotency_key,
+            tool_call_id=tool_call_id,
+        )
+        try:
+            response = ConfirmBookingResponse.model_validate(outcome.data)
+        except ValueError as exc:
+            raise JavaToolError("TOOL_RESPONSE_INVALID") from exc
+        if response.status != "SUCCESS":
+            raise JavaToolError("TOOL_RESPONSE_INVALID")
+        summary = "改期确认已完成" if operation == "confirm_reschedule" else "取消确认已完成"
+        return _with_summary(outcome, summary), response
+
     def _invoke(
         self,
         *,
@@ -339,11 +481,14 @@ class JavaReadToolClient:
                     if response.status_code in (401, 403):
                         raise JavaToolError("TOOL_FORBIDDEN")
                     if response.status_code == 409:
-                        raise JavaToolError("TOOL_CONFLICT")
+                        conflict_details = _conflict_details(response)
+                        if conflict_details is not None:
+                            raise JavaToolError("TOOL_CONFLICT", details=conflict_details)
+                        raise JavaToolError("TOOL_REJECTED")
                     if response.status_code == 503:
                         raise JavaToolError("TOOL_UNAVAILABLE")
                     if response.status_code >= 400:
-                        raise JavaToolError("TOOL_REJECTED")
+                        raise JavaToolError(_java_error_code(response) or "TOOL_REJECTED")
                     body = response.json()
                     if not isinstance(body, dict):
                         raise JavaToolError("TOOL_RESPONSE_INVALID")
@@ -364,6 +509,17 @@ class JavaReadToolClient:
         raise JavaToolError("TOOL_UNAVAILABLE")
 
 
+def _java_error_code(response: httpx.Response) -> str | None:
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    if not isinstance(body, dict):
+        return None
+    code = body.get("code")
+    return code if isinstance(code, str) and 1 <= len(code) <= 64 else None
+
+
 def _with_summary(outcome: ToolOutcome, summary: str) -> ToolOutcome:
     return ToolOutcome(
         tool_call_id=outcome.tool_call_id,
@@ -375,6 +531,30 @@ def _with_summary(outcome: ToolOutcome, summary: str) -> ToolOutcome:
         idempotency_key=outcome.idempotency_key,
         http_status=outcome.http_status,
     )
+
+
+def _conflict_details(response: httpx.Response) -> dict[str, str] | None:
+    """Parse only the documented conflict evidence from a Java ApiError."""
+
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    if not isinstance(body, dict) or body.get("code") != "BOOKING_CONFLICT":
+        return None
+    raw_details = body.get("details")
+    if not isinstance(raw_details, list):
+        return {}
+    allowed = {"conflict.type", "conflict.roomId", "conflict.slots"}
+    parsed: dict[str, str] = {}
+    for item in raw_details:
+        if not isinstance(item, dict):
+            continue
+        field = item.get("field")
+        reason = item.get("reason")
+        if field in allowed and isinstance(reason, str) and len(reason) <= 256:
+            parsed[field] = reason
+    return parsed
 
 
 def stable_tool_identity(run_id: str, operation: str, stable_input: str) -> str:

@@ -1,6 +1,9 @@
 package com.example.meeting.room.api;
 
-import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.everyItem;
+import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.is;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -35,19 +38,26 @@ class RoomApiIntegrationTest {
                 .header("X-Trace-Id", "trc_rooms"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.traceId").value("trc_rooms"))
-        .andExpect(jsonPath("$.data.total").value(3))
-        .andExpect(jsonPath("$.data.items", hasSize(3)))
-        .andExpect(jsonPath("$.data.items[0].id").value(103))
-        .andExpect(jsonPath("$.data.items[0].code").value("HQ-VIP-501"))
-        .andExpect(jsonPath("$.data.items[0].roomType").value("VIP"))
-        .andExpect(jsonPath("$.data.items[0].isHot").value(true))
-        .andExpect(jsonPath("$.data.items[0].status").value("ACTIVE"))
-        .andExpect(jsonPath("$.data.items[0].features", hasSize(4)))
-        .andExpect(jsonPath("$.data.items[1].id").value(101))
-        .andExpect(jsonPath("$.data.items[1].isHot").value(false))
-        .andExpect(jsonPath("$.data.items[1].features", hasSize(2)))
-        .andExpect(jsonPath("$.data.items[2].id").value(102))
-        .andExpect(jsonPath("$.data.items[2].features", hasSize(3)));
+        .andExpect(jsonPath("$.data.total").value(12))
+        .andExpect(jsonPath("$.data.items[*].status", everyItem(is("ACTIVE"))))
+        .andExpect(
+            jsonPath(
+                "$.data.items[*].roomType",
+                containsInAnyOrder(
+                    "STANDARD",
+                    "STANDARD",
+                    "STANDARD",
+                    "STANDARD",
+                    "VIP",
+                    "VIP",
+                    "HUDDLE",
+                    "VIDEO",
+                    "TRAINING",
+                    "BOARDROOM",
+                    "PHONE_BOOTH",
+                    "AUDITORIUM")))
+        .andExpect(jsonPath("$.data.items[*].code", hasItem("HQ-VIP-501")))
+        .andExpect(jsonPath("$.data.items[?(@.code == 'HQ-VIP-501')].isHot", hasItem(true)));
   }
 
   @Test

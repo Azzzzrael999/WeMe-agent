@@ -144,9 +144,12 @@ INTERNAL_SERVICE_TOKEN=__REPLACE_WITH_RANDOM_SERVICE_TOKEN__
 AGENT_MODEL_PROVIDER=fixture
 DEEPSEEK_API_KEY=
 DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_MODEL=deepseek-chat
+DEEPSEEK_MODEL=deepseek-v4-flash
 MODEL_TIMEOUT_SECONDS=45
 MODEL_MAX_RETRIES=2
+AGENT_MAX_MODEL_CALLS=12
+AGENT_MAX_TOOL_CALLS=16
+AGENT_MAX_GRAPH_NODES=20
 EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
 QDRANT_URL=http://qdrant:6333
 QDRANT_COLLECTION=meeting_policies
@@ -212,14 +215,13 @@ MySQL首次启动执行 `00-create-databases.sh`：
 
 ### 7.4 RAG 初始化
 
-当前 P0 使用固定、可复现的最小政策语料，而不是可变的文件导入任务。`agent-service` 的确定性 Retriever 首次执行政策检索时，会对 Qdrant collection `meeting_policies` 做幂等创建和 upsert：
+RAG 使用一次性 `rag-init` Compose 服务完成受控文件导入；`agent-service` 只有在 `rag-init` 成功退出后启动：
 
-1. 使用版本内固定的 `SEED_CHUNKS`、稳定 chunk ID 与确定性 hash embedding；不下载外部模型。
-2. collection 不存在时创建，存在时按相同 ID 覆盖写入，因此容器重启和空卷首次启动都可重复执行。
-3. 政策节点只在成功检索后返回带 `chunkId`、`title`、`headingPath`、`page` 的可验证引用。
-4. Day 7 空卷 Smoke 通过真实 Agent Golden Path 触发该初始化并验证完整链路；无需、也不存在 `rag-init` Compose profile。
-
-将来若加入外部文档导入，必须另行版本化 checksum/删除策略和验收用例；不能把当前确定性语料误称为文件同步器。
+1. `deploy/rag-documents/` 只读挂载到 `/app/rag-documents`，支持 UTF-8 Markdown 与文本型 PDF；PDF 不做 OCR。
+2. `rag-init` 先执行 Alembic，再运行 `python -m app.rag.ingest --source-dir /app/rag-documents`，对 Front Matter、标题切片、checksum、`rag_document` 和 Qdrant payload 做校验与幂等写入。
+3. 相同 checksum 的重复启动跳过；同 documentId 内容变化时替换该文档的完整向量集合；源文件消失不会自动删除索引。
+4. Retriever 继续使用稳定 chunk ID 与确定性 hash embedding，不下载外部模型；版本内 4 条 `SEED_CHUNKS` 只保留为 fixture/向后兼容最小语料，真实文件 corpus 由 `rag-init` 写入同一 collection。
+5. 任一文档导入失败使 `rag-init` 非零退出，`agent-service` 不在部分初始化状态下启动。Qdrant 运行期不可用时，Policy Agent 仍按既有降级规则返回无证据状态。
 
 ## 8. Compose骨架
 
@@ -530,7 +532,7 @@ docker compose config --quiet
 - 10 GB可用内存；本地Embedding首次加载时建议更多。
 - 15 GB可用磁盘。
 
-当前 `compose.yaml` 还声明了可由 Docker Compose 在本地引擎执行的硬上限：常驻服务合计最多约 **4.2 GiB RAM / 5.75 CPU**，一次性 RocketMQ 初始化容器另有最多 **384 MiB / 0.75 CPU** 的短暂上限。关键单服务上限为 MySQL、RocketMQ Broker、Java 和 Python 各 768 MiB；Qdrant、NameServer 各 384 MiB；Redis 192 MiB；前端和 Video Mock 各 128 MiB。实际性能报告必须同时记录宿主机/Docker Desktop 分配，而不能把这些上限当作已测得使用量。
+当前 `compose.yaml` 还声明了可由 Docker Compose 在本地引擎执行的硬上限：常驻服务合计最多约 **4.2 GiB RAM / 5.75 CPU**；一次性 RocketMQ 初始化容器最多使用 **384 MiB / 0.75 CPU**，一次性 `rag-init` 最多使用 **384 MiB / 0.50 CPU**。关键单服务上限为 MySQL、RocketMQ Broker、Java 和 Python 各 768 MiB；Qdrant、NameServer 和 `rag-init` 各 384 MiB；Redis 192 MiB；前端和 Video Mock 各 128 MiB。实际性能报告必须同时记录宿主机/Docker Desktop 分配，而不能把这些上限当作已测得使用量。
 
 如果机器资源不足：
 

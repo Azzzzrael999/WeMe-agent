@@ -124,14 +124,22 @@ public class BookingConfirmationService {
           idempotencyKey,
           requestHash);
     }
-    SlotHoldReservation hold =
-        slotHoldService.acquire(
-            command, context.userId(), "confirm:" + confirmationToken + ':' + idempotencyKey);
+    SlotHoldReservation hold;
+    try {
+      hold =
+          slotHoldService.acquire(
+              command, context.userId(), "confirm:" + confirmationToken + ':' + idempotencyKey);
+    } catch (BusinessException exception) {
+      if (exception.errorCode() == ErrorCode.BOOKING_CONFLICT) {
+        throw BookingConflictEvidence.exception(command);
+      }
+      throw exception;
+    }
     try {
       return synchronousService.confirm(
           confirmationToken, context.userId(), context.traceId(), idempotencyKey, requestHash);
     } catch (DataIntegrityViolationException exception) {
-      throw new BusinessException(ErrorCode.BOOKING_CONFLICT);
+      throw BookingConflictEvidence.exception(command);
     } finally {
       slotHoldService.release(hold);
     }

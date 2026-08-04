@@ -1,5 +1,47 @@
 # 04. Multi-Agent 规范
 
+## 0. Spec 1.1：受控 Agent Loop 升级
+
+本节覆盖后续章节中与一次性固定 Tool 计划冲突的旧描述。运行时 Agent 数量仍固定为 Supervisor、Requirement、Policy、Scheduling；Evaluator、Tool Executor、Verifier、Solver、HITL 和 Conflict Repair Handler 均为确定性组件，不新增 Critic Agent，也不引入 DeepAgents。
+
+### 0.1 主循环
+
+Scheduling Agent 使用有界 `PLAN -> ACT -> OBSERVE -> VERIFY -> SOLVE/REPLAN`：
+
+1. PLAN：DeepSeek 通过 OpenAI-compatible `tools` 选择 Java READ Tool，并生成符合 JSON Schema 的参数。
+2. ACT：Tool Gate 校验名称、Pydantic 参数、AgentContext 派生的用户身份、时间/人数上限、风险等级和调用指纹；模型不得提供可信 userId、runId 或权限。
+3. OBSERVE：只把脱敏、限量的 Tool 结果作为 `role=tool` 消息返回模型，并将结构化摘要写 Trace。
+4. VERIFY：确定性 Evaluator 检查所需事实是否齐备、调用是否重复、参数是否偏离 canonical requirement、预算是否耗尽；不通过时把结构化 feedback 返回同一 Scheduling Agent。
+5. SOLVE：事实齐备后由 OR-Tools 求解，结果必须再经过独立 HardConstraintValidator。
+6. REPLAN：Tool 校验失败、可恢复 Tool 错误、无效计划或 Java 最终冲突可触发重规划；不得绕过验证直接创建业务记录。
+
+普通 `https://api.deepseek.com` 端点使用原生 Tool Calling，但不发送 Beta 专属的 `function.strict=true`；严格性由本地 Pydantic `extra=forbid`、canonical context 和 Tool Gate 保证。只有显式将 Base URL 配为 `/beta` 并完成兼容测试后，才允许启用服务端 strict mode。Tool Loop 显式设置 `thinking.type=disabled`，避免 V4 默认思考模式要求跨轮回传 `reasoning_content`；本系统不存储或展示该隐藏推理。默认示例模型使用当前仍受支持的 `deepseek-v4-flash`，实际模型名始终由环境变量注入。
+
+### 0.2 预算与停止条件
+
+- 单次 Scheduling Tool Loop 最多4轮；同一 `(toolName, canonicalArgsHash)` 不得重复执行。
+- 全 Run 最多12次模型调用、16次 Tool 调用、2次业务冲突重规划；Schema 修复和 Evaluator 修复均计入模型调用，该预算允许初始规划加两次完整的事实刷新，沿用图节点上限作为最后保险。达到预算统一返回稳定 `BUDGET_EXHAUSTED`，而不是笼统内部错误。
+- 预算终态固定为 `READY_FOR_CONFIRMATION`、`NEED_CLARIFICATION`、`NO_SOLUTION`、`BUDGET_EXHAUSTED`、`TOOL_UNAVAILABLE`、`WAITING_BUSINESS_RESULT`、`COMPLETED`、`FAILED`。
+- Loop 到达 `READY_FOR_CONFIRMATION` 后才允许确定性节点创建无占用草案；确认写 Tool 只在 HITL ACCEPT 后暴露给确定性确认节点。
+
+### 0.3 Requirement Evaluator-Optimizer
+
+- 第一次 Requirement 输出仍由 Pydantic 校验；Schema 修复重试和语义优化重试分别最多1次，但同一次错误不得触发无界嵌套重试。
+- 语义 Evaluator 至少检查：服务端注入的 `requestTime`、Asia/Shanghai 相对日期基准、30分钟槽位、持续时间、必需参会者、容量与人员数一致性、修改/取消 targetMeetingId、硬软约束冲突。
+- 可自动修复的问题以 `RequirementFeedback{codes,summary}` 返回同一 Requirement Agent；必须由用户提供的信息进入 `WAITING_USER_INPUT`，禁止模型猜测。
+
+### 0.4 并发冲突修复
+
+- Java `BOOKING_RESULT.CONFLICT` 仍是最终事实；Python 从回调、失败草案和原始约束派生 `ConflictRepairFeedback`。
+- Feedback 至少包含 conflictType、failedCandidateId、preservedConstraints、excludedCandidateIds、replanCount 和可向用户展示的变更原因。
+- 重规划必须重新读取 Java 忙闲/房间事实、排除失败候选、保留硬约束并重新经过 OR-Tools 与独立 Validator。
+- 只有候选或约束发生真实变化才生成新草案；重复候选、超过2次冲突或必须放宽硬约束时停止并请求用户决策。
+
+### 0.5 Trace 与评测
+
+- Trace 可记录 loop phase、iteration、decision、tool name、参数摘要、observation 摘要、feedback code、replan count、stop reason、剩余预算、模型/Prompt/Schema 版本和 API 返回的 Token usage；不得记录隐藏推理或秘密。
+- Fixture 评测只能命名为组件/回归评测。`E2E Task Success` 必须实际运行完整 Graph；真实模型报告必须单独标注 provider/model、重复次数、网络调用、延迟、Token/成本和失败样本。
+
 ## 1. 目标
 
 Agent服务负责把自然语言会议任务转换为可验证、可确认、可执行的业务动作。它不拥有会议业务事实，也不直接写业务数据库。
@@ -78,6 +120,13 @@ ADVISORY_ONLY
 
 RAG产生的规则不能绕过Java最终校验。证据不足时标记 `UNVERIFIED`。
 
+RAG 语料导入是确定性基础设施组件，不是新的 Agent：
+
+- 只接受会议制度与会议规范的 UTF-8 Markdown 和文本型 PDF；不做 OCR、Rerank 或知识图谱。
+- 按标题路径切片并保留 documentId、chunkId、标题、页码、版本、优先级和 checksum，Policy Agent 只能引用本轮真实召回且能重新打开的 chunk。
+- 文件导入失败不得用内置模型知识补齐；检索无可验证依据时必须回答“未找到可验证证据”并标记 `UNVERIFIED`。
+- 文档索引最终一致，不改变 Java 业务事实、预约权限或硬约束；Java 写入前仍重新校验全部业务规则。
+
 ### 2.4 Scheduling Agent
 
 职责：
@@ -125,7 +174,7 @@ flowchart TD
 - 每个专业Agent是独立LangGraph节点或子图。
 - Agent间只通过共享State中的结构化字段交接。
 - 不依赖自然语言消息作为唯一内部协议。
-- 每个Run最多8次模型调用、12次工具调用和20个图节点。
+- 每个Run最多12次模型调用、16次工具调用和20个图节点。
 - 超限后返回 `AGENT_STEP_LIMIT_EXCEEDED`。
 
 ## 4. 共享状态
@@ -492,4 +541,3 @@ totalCost =
 - OR-Tools硬约束属性测试。
 - RAG引用存在性测试。
 - 离线评测集端到端测试。
-

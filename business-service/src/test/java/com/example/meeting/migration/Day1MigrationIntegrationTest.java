@@ -44,13 +44,52 @@ class Day1MigrationIntegrationTest {
   }
 
   @Test
-  void demoSeedContainsTwoRolesThreeRoomsAndFourFeatureTypes() {
+  void demoSeedContainsVariedPeopleDepartmentsRoomsAndFeatureTypes() {
     assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM sys_user", Integer.class))
-        .isEqualTo(2);
+        .isEqualTo(17);
     assertThat(jdbcTemplate.queryForList("SELECT role FROM sys_user ORDER BY role", String.class))
-        .containsExactly("ADMIN", "EMPLOYEE");
+        .contains("ADMIN", "EMPLOYEE");
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT COUNT(DISTINCT department_id) FROM sys_user WHERE status = 'ACTIVE'",
+                Integer.class))
+        .isEqualTo(8);
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM sys_user WHERE role = 'ADMIN' AND status = 'ACTIVE'",
+                Integer.class))
+        .isEqualTo(2);
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM sys_user WHERE status = 'INACTIVE'", Integer.class))
+        .isEqualTo(1);
+    assertThat(
+            jdbcTemplate.queryForList(
+                "SELECT id, username, display_name, department_id FROM sys_user WHERE id IN (1001,1003) ORDER BY id"))
+        .containsExactly(
+            java.util.Map.of(
+                "id", 1001L, "username", "zhangsan", "display_name", "张三", "department_id", 10L),
+            java.util.Map.of(
+                "id", 1003L, "username", "lisi", "display_name", "李四", "department_id", 10L));
     assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM meeting_room", Integer.class))
-        .isEqualTo(3);
+        .isEqualTo(13);
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT COUNT(DISTINCT room_type) FROM meeting_room", Integer.class))
+        .isEqualTo(8);
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT COUNT(DISTINCT building) FROM meeting_room", Integer.class))
+        .isEqualTo(4);
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM meeting_room WHERE is_hot = TRUE", Integer.class))
+        .isEqualTo(5);
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM meeting_room WHERE code = 'HQ-MAINT-702' AND room_type = 'STANDARD'",
+                Integer.class))
+        .isEqualTo(1);
     assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM room_feature", Integer.class))
         .isEqualTo(4);
   }

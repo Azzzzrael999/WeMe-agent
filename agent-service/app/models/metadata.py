@@ -43,6 +43,13 @@ class AgentRun(Base):
     tool_call_count: Mapped[int] = mapped_column(Integer, nullable=False)
     input_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False)
     output_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    cache_hit_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    cache_miss_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    model_provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    configured_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    response_models: Mapped[list[str]] = mapped_column(mysql.JSON, nullable=False, default=list)
+    prompt_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
     duration_ms: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = timestamp_column()
@@ -63,6 +70,26 @@ class AgentStep(Base):
     output_summary: Mapped[str] = mapped_column(Text, nullable=False)
     duration_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = timestamp_column()
+
+
+class AgentLoopEvent(Base):
+    __tablename__ = "agent_loop_event"
+    __table_args__ = (UniqueConstraint("run_id", "sequence_no", name="uk_agent_loop_run_sequence"),)
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True
+    )
+    run_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    sequence_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    phase: Mapped[str] = mapped_column(String(16), nullable=False)
+    iteration: Mapped[int] = mapped_column(Integer, nullable=False)
+    decision: Mapped[str] = mapped_column(String(128), nullable=False)
+    feedback_codes: Mapped[list[str]] = mapped_column(mysql.JSON, nullable=False)
+    replan_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    remaining_model_calls: Mapped[int] = mapped_column(Integer, nullable=False)
+    remaining_tool_calls: Mapped[int] = mapped_column(Integer, nullable=False)
+    stop_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = timestamp_column()
 
 
@@ -102,6 +129,7 @@ class AgentBusinessEvent(Base):
 
 class RagDocument(Base):
     __tablename__ = "rag_document"
+    __table_args__ = (UniqueConstraint("checksum", name="uk_rag_document_checksum"),)
 
     document_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)

@@ -20,6 +20,7 @@ from app.config import Settings
 from app.schemas.agent import Citation
 
 VECTOR_SIZE = 64
+MAX_RERANK_CANDIDATES = 200
 
 
 class PolicyRetrievalError(RuntimeError):
@@ -34,6 +35,11 @@ class PolicyChunk:
     page: int
     content: str
     score: float = 0.0
+    document_id: str | None = None
+    document_type: str | None = None
+    version: str | None = None
+    priority: int | None = None
+    checksum: str | None = None
 
     def citation(self) -> Citation:
         return Citation(
@@ -74,6 +80,16 @@ SEED_CHUNKS: tuple[PolicyChunk, ...] = (
         page=1,
         content="需要演示材料时应选择具备LARGE_SCREEN设备的会议室；白板需求应作为房间硬约束。",
     ),
+    PolicyChunk(
+        chunk_id="chunk_meeting_mutation_v1",
+        title="会议改期与取消规则",
+        heading_path=("会议变更", "人工确认"),
+        page=3,
+        content=(
+            "Agent 发起的会议改期或取消必须先展示目标会议或变更草案，经用户确认后才可执行；"
+            "拒绝草案不得改变正式会议。"
+        ),
+    ),
 )
 
 
@@ -89,6 +105,33 @@ def deterministic_embedding(text: str) -> list[float]:
         vector[index] += 1.0 if digest[1] & 1 else -1.0
     norm = math.sqrt(sum(value * value for value in vector))
     return vector if norm == 0 else [value / norm for value in vector]
+
+
+def _lexical_terms(text: str) -> set[str]:
+    normalized = text.lower()
+    terms = set(re.findall(r"[a-z0-9_]+", normalized))
+    for sequence in re.findall(r"[\u4e00-\u9fff]+", normalized):
+        for width in (1, 2, 3):
+            terms.update(
+                sequence[index : index + width]
+                for index in range(len(sequence) - width + 1)
+            )
+    return terms
+
+
+def _lexical_score(query: str, chunk: PolicyChunk) -> float:
+    query_terms = _lexical_terms(query)
+    if not query_terms:
+        return 0.0
+    heading_terms = _lexical_terms(" ".join((chunk.title, *chunk.heading_path)))
+    content_terms = _lexical_terms(chunk.content)
+
+    def term_weight(term: str) -> float:
+        return float(min(len(term), 3) ** 2)
+
+    heading_score = sum(term_weight(term) for term in query_terms & heading_terms)
+    content_score = sum(term_weight(term) for term in query_terms & content_terms)
+    return heading_score * 3.0 + content_score
 
 
 def _point_id(chunk_id: str) -> int:
@@ -166,6 +209,7 @@ class QdrantPolicyRetriever:
                             "headingPath": list(chunk.heading_path),
                             "page": chunk.page,
                             "content": chunk.content,
+                            "source": "BUILT_IN_SEED",
                         },
                     )
                     for chunk in SEED_CHUNKS
@@ -177,11 +221,12 @@ class QdrantPolicyRetriever:
 
     def search(self, query: str, limit: int = 5) -> list[PolicyChunk]:
         self.ensure_seeded()
+        candidate_limit = min(MAX_RERANK_CANDIDATES, max(limit, limit * 20))
         try:
             result = self._qdrant().query_points(
                 collection_name=self.settings.qdrant_collection,
                 query=deterministic_embedding(query),
-                limit=limit,
+                limit=candidate_limit,
                 with_payload=True,
             )
         except Exception as exc:  # Qdrant client has several transport exception classes.
@@ -194,7 +239,13 @@ class QdrantPolicyRetriever:
             chunk = _chunk_from_payload(payload, float(point.score))
             if chunk is not None:
                 chunks.append(chunk)
-        return chunks
+        return sorted(
+            chunks,
+            key=lambda chunk: (
+                -(_lexical_score(query, chunk) + chunk.score),
+                chunk.chunk_id,
+            ),
+        )[:limit]
 
     def open_candidates(
         self, *, candidates: list[PolicyChunk], selected_chunk_ids: list[str]
@@ -208,6 +259,11 @@ def _chunk_from_payload(payload: dict[str, Any], score: float) -> PolicyChunk | 
     heading_path = payload.get("headingPath")
     page = payload.get("page")
     content = payload.get("content")
+    document_id = payload.get("documentId")
+    document_type = payload.get("documentType")
+    version = payload.get("version")
+    priority = payload.get("priority")
+    checksum = payload.get("checksum")
     if (
         not isinstance(chunk_id, str)
         or not isinstance(title, str)
@@ -224,6 +280,11 @@ def _chunk_from_payload(payload: dict[str, Any], score: float) -> PolicyChunk | 
         page=page,
         content=content,
         score=score,
+        document_id=document_id if isinstance(document_id, str) else None,
+        document_type=document_type if isinstance(document_type, str) else None,
+        version=version if isinstance(version, str) else None,
+        priority=priority if isinstance(priority, int) else None,
+        checksum=checksum if isinstance(checksum, str) else None,
     )
 
 

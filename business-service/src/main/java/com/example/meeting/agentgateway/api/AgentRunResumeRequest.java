@@ -19,7 +19,10 @@ public record AgentRunResumeRequest(
     @Valid EditedDraft editedDraft,
     @Size(max = 1000) String feedback) {
 
-  @AssertTrue(message = "editedDraft must only be supplied for EDIT and include roomId or startAt") @JsonIgnore
+  @AssertTrue(
+      message =
+          "editedDraft must only be supplied for EDIT and include meetingId, roomId or startAt")
+  @JsonIgnore
   public boolean isActionPayloadValid() {
     return switch (action == null ? null : action) {
       case EDIT -> editedDraft != null && editedDraft.hasAtLeastOneChange();
@@ -34,11 +37,12 @@ public record AgentRunResumeRequest(
     REJECT
   }
 
-  public record EditedDraft(@Positive Long roomId, OffsetDateTime startAt) {
+  public record EditedDraft(
+      @Positive Long meetingId, @Positive Long roomId, OffsetDateTime startAt) {
 
     @JsonIgnore
     boolean hasAtLeastOneChange() {
-      return roomId != null || startAt != null;
+      return meetingId != null || roomId != null || startAt != null;
     }
   }
 }

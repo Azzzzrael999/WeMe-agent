@@ -149,7 +149,7 @@ public class AgentToolQueryService {
       RecentMeetingRequest request, AgentToolContext context) {
     return new RecentMeetingResponse(
         meetingQueryService
-            .list(context.authenticatedUser(), null, null, null, 1, request.limit())
+            .list(context.authenticatedUser(), null, null, "CONFIRMED", 1, request.limit())
             .items());
   }
 

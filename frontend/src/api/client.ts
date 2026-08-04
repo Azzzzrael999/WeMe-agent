@@ -134,6 +134,10 @@ export interface SseMessage {
   data: unknown
 }
 
+export interface SseConnectionMetadata {
+  runId: string | null
+}
+
 function decodeSseFrame(frame: string): SseMessage | null {
   let event = 'message'
   const dataLines: string[] = []
@@ -178,6 +182,7 @@ export async function apiSseRequest(
   body: unknown,
   onMessage: (message: SseMessage) => void,
   signal?: AbortSignal,
+  onOpen?: (metadata: SseConnectionMetadata) => void,
 ): Promise<void> {
   const init: RequestInit = {
     method: 'POST',
@@ -211,6 +216,8 @@ export async function apiSseRequest(
       status: response.status,
     })
   }
+
+  onOpen?.({ runId: response.headers.get('X-Run-Id') })
 
   const reader = response.body?.getReader()
   if (reader === undefined) {
