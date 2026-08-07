@@ -14,6 +14,8 @@ import com.example.meeting.agentgateway.internal.AgentToolDtos.RecentMeetingResp
 import com.example.meeting.agentgateway.internal.AgentToolDtos.RescheduleDraftRequest;
 import com.example.meeting.agentgateway.internal.AgentToolDtos.ResolveEmployeesRequest;
 import com.example.meeting.agentgateway.internal.AgentToolDtos.ResolveEmployeesResponse;
+import com.example.meeting.agentgateway.internal.AgentToolDtos.ResolveParticipantScopeRequest;
+import com.example.meeting.agentgateway.internal.AgentToolDtos.ResolveParticipantScopeResponse;
 import com.example.meeting.agentgateway.internal.AgentToolDtos.SearchRoomsRequest;
 import com.example.meeting.agentgateway.internal.AgentToolDtos.SearchRoomsResponse;
 import com.example.meeting.booking.application.BookingConfirmationService;
@@ -78,6 +80,22 @@ public class AgentToolController {
             body,
             ResolveEmployeesResponse.class,
             () -> queryService.resolveEmployees(body));
+    return responseFactory.success(result, request);
+  }
+
+  @PostMapping("/resolve-participant-scope")
+  public ApiSuccess<ResolveParticipantScopeResponse> resolveParticipantScope(
+      @Valid @RequestBody ResolveParticipantScopeRequest body,
+      @RequestAttribute(AgentToolContext.REQUEST_ATTRIBUTE) AgentToolContext context,
+      HttpServletRequest request) {
+    ResolveParticipantScopeResponse result =
+        auditService.execute(
+            context,
+            "resolve_participant_scope",
+            "READ",
+            body,
+            ResolveParticipantScopeResponse.class,
+            () -> queryService.resolveParticipantScope(body, context));
     return responseFactory.success(result, request);
   }
 

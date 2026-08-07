@@ -610,6 +610,7 @@ Day 2 手动会议接口使用以下冻结响应数据；所有数据仍包在 4
 
 ```text
 POST /api/v1/agent/runs/stream
+POST /api/v1/agent/runs/{runId}/input
 POST /api/v1/agent/runs/{runId}/resume
 GET  /api/v1/agent/runs/{runId}
 GET  /api/v1/agent/runs/{runId}/trace
@@ -627,6 +628,30 @@ DELETE /api/v1/agent/preferences
   "clientRequestId": "uuid"
 }
 ```
+
+需求补充请求仅用于 `WAITING_USER_INPUT`：
+
+```json
+{
+  "message": "会开2个小时，要有投屏，没别的要求，最好2点开始",
+  "clientRequestId": "uuid",
+  "expectedRevision": 1
+}
+```
+
+- 成功响应为 `text/event-stream`，首事件为 `run.resumed`；`runId` 保持不变，当前 HTTP 动作使用新的 `traceId`。
+- 只有 Run 所属用户或 ADMIN 可以补充；Run 非 `WAITING_USER_INPUT`、revision 过期或同一 `clientRequestId` 对应不同消息时，Java公共入口返回409 `AGENT_RUN_STATE_CONFLICT`，不得误报为503依赖故障。
+- 补充动作只合并需求并重新进入 Requirement/Policy/Scheduling，不接受 `confirmationToken`，也不直接暴露 DRAFT/WRITE Tool。
+- 首轮和补充轮均可发送 `requirement.updated`：
+
+```text
+event: requirement.updated
+data: {"runId":"run_uuid","revision":1,"ready":false,"items":[{"field":"timeWindow","status":"DEFAULTED","summary":"2026-08-25 12:00-18:00","source":"25号下午"},{"field":"durationMinutes","status":"MISSING","summary":"待补充","source":null},{"field":"requiredParticipants","status":"DIRECTORY_RESOLVED","summary":"支付组，共5人","source":"小组会议"}]}
+```
+
+事件只包含用户可见摘要，不包含组织查询参数、隐藏推理、内部错误码或令牌。为兼容现有客户端，待补充流仍以 `run.completed(status=WAITING_USER_INPUT)` 结束。
+
+`RequirementItem.status` 的可选项语义为：未说明时 `UNSPECIFIED`，明确设备/地点时 `EXPLICIT`，明确“没有其他要求”时 `CLOSED`；三者均不阻塞。必需槽位继续使用 `EXPLICIT|DEFAULTED|DIRECTORY_RESOLVED|MISSING|AMBIGUOUS|CONFLICT`。
 
 Day 3 只实现 Java SSE 代理边界骨架：校验用户 JWT、把请求转发到 Python 最终内部路径并透传标准 SSE 事件；Python 端点不存在或不可用时返回稳定 `AGENT_UNAVAILABLE`，不得由 Java 伪造 Agent 输出。实际 Multi-Agent 流留到 Day 4。
 
@@ -738,6 +763,29 @@ POST /internal/v1/tools/resolve-employees
   "departmentNames": ["支付组"]
 }
 ```
+
+### 6.1.1 当前用户人员范围解析
+
+```text
+POST /internal/v1/tools/resolve-participant-scope
+```
+
+```json
+{"scope":"MY_DEPARTMENT"}
+```
+
+响应：
+
+```json
+{
+  "scope":"MY_DEPARTMENT",
+  "scopeName":"支付组",
+  "members":[{"employeeId":1001,"username":"zhangsan","displayName":"张三","departmentId":10,"departmentName":"支付组","status":"ACTIVE"}]
+}
+```
+
+- Java 只从 AgentContextToken `sub` 取得当前用户，不接受请求体 userId 或部门名。
+- 仅返回当前用户所属 ACTIVE 部门内最多50名 ACTIVE 员工；无部门、部门停用、空成员或超过上限返回稳定校验错误。
 
 响应数据：
 
@@ -1019,3 +1067,11 @@ Day 5 的 `resume` 与 `business-result` 使用与 Stream 完全相同的 Java A
 - 单次时间窗口最大14天。
 - 单个会议最大100名参与者。
 - Tool结果正文默认不超过32KB，超出返回摘要和结果ID。
+新建 Run 请求可选携带失败基线：
+
+```json
+{"threadId":"thread_uuid","message":"参会人去掉赵六","clientRequestId":"input_uuid","baseRunId":"run_failed_uuid"}
+```
+
+- `baseRunId` 仅允许指向同一用户、同一 `threadId`、状态为 `FAILED` 且具有有效 Requirement checkpoint 的 Run；否则返回409 `REQUIREMENT_BASELINE_NOT_RECOVERABLE`。
+- 新 Run 只继承需求基线，不继承调用预算、候选、草案、确认令牌、业务结果或工具幂等指纹。省略 `baseRunId` 明确表示全新需求。

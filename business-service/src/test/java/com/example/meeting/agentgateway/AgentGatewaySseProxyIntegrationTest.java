@@ -119,6 +119,7 @@ class AgentGatewaySseProxyIntegrationTest {
     assertThat(body.get("threadId").asText()).isEqualTo("thread_fixture");
     assertThat(body.get("message").asText()).isEqualTo("帮张三和李四安排架构评审");
     assertThat(body.get("clientRequestId").asText()).isEqualTo("client-sse-fixture");
+    assertThat(body.get("baseRunId").asText()).isEqualTo("run_failed_fixture");
   }
 
   @Test
@@ -198,6 +199,71 @@ class AgentGatewaySseProxyIntegrationTest {
     assertThat(body.get("editedDraft").get("startAt").asText())
         .isEqualTo("2026-08-19T15:30:00+08:00");
     assertThat(body.has("actionPayloadValid")).isFalse();
+  }
+
+  @Test
+  void relaysWaitingUserInputContinuationWithSameRunAndNewTraceContext() throws Exception {
+    String runId = "run_input_fixture";
+    UPSTREAM_RESPONSE.set(
+        new UpstreamResponse(
+            200,
+            "text/event-stream; charset=utf-8",
+            AgentGatewaySseProxyIntegrationTest::resumeSse));
+
+    MvcResult started =
+        mockMvc
+            .perform(
+                post("/api/v1/agent/runs/{runId}/input", runId)
+                    .header("Authorization", "Bearer " + userAccessToken())
+                    .header("X-Trace-Id", TRACE_ID)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.TEXT_EVENT_STREAM)
+                    .content(
+                        """
+                        {"message":"会开2个小时，要有投屏，没别的要求，最好2点开始","clientRequestId":"client-input-1","expectedRevision":1}
+                        """))
+            .andExpect(status().isOk())
+            .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM))
+            .andExpect(request().asyncStarted())
+            .andReturn();
+
+    started.getAsyncResult(5_000);
+    CapturedUpstreamRequest captured = CAPTURED_REQUEST.get();
+    assertThat(captured).isNotNull();
+    assertThat(captured.path()).isEqualTo("/internal/v1/agent-runs/" + runId + "/input");
+    JsonNode body = objectMapper.readTree(captured.body());
+    assertThat(body.get("expectedRevision").asInt()).isEqualTo(1);
+    assertThat(body.get("clientRequestId").asText()).isEqualTo("client-input-1");
+    AgentContextIdentity context =
+        agentContextTokenService.parse(captured.authorization().substring("Bearer ".length()));
+    assertThat(context.runId()).isEqualTo(runId);
+    assertThat(context.traceId()).isEqualTo(TRACE_ID);
+  }
+
+  @Test
+  void mapsWaitingUserInputRevisionConflictWithoutMisreportingAgentUnavailable() throws Exception {
+    String runId = "run_input_fixture";
+    UPSTREAM_RESPONSE.set(
+        new UpstreamResponse(
+            409,
+            MediaType.APPLICATION_JSON_VALUE,
+            (ignoredRunId, ignoredTraceId) ->
+                "{\"detail\":\"REQUIREMENT_REVISION_CONFLICT\"}".getBytes(StandardCharsets.UTF_8)));
+
+    mockMvc
+        .perform(
+            post("/api/v1/agent/runs/{runId}/input", runId)
+                .header("Authorization", "Bearer " + userAccessToken())
+                .header("X-Trace-Id", TRACE_ID)
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.TEXT_EVENT_STREAM)
+                .content(
+                    """
+                    {"message":"补充需求","clientRequestId":"client-input-conflict","expectedRevision":1}
+                    """))
+        .andExpect(request().asyncNotStarted())
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("AGENT_RUN_STATE_CONFLICT"));
   }
 
   @Test
@@ -327,7 +393,7 @@ class AgentGatewaySseProxyIntegrationTest {
             .accept(MediaType.TEXT_EVENT_STREAM)
             .content(
                 """
-                {"threadId":"thread_fixture","message":"帮张三和李四安排架构评审","clientRequestId":"client-sse-fixture"}
+                {"threadId":"thread_fixture","message":"帮张三和李四安排架构评审","clientRequestId":"client-sse-fixture","baseRunId":"run_failed_fixture"}
                 """));
   }
 
@@ -392,6 +458,9 @@ class AgentGatewaySseProxyIntegrationTest {
           "/internal/v1/agent-runs/stream", AgentGatewaySseProxyIntegrationTest::handle);
       server.createContext(
           "/internal/v1/agent-runs/run_resume_fixture/resume",
+          AgentGatewaySseProxyIntegrationTest::handle);
+      server.createContext(
+          "/internal/v1/agent-runs/run_input_fixture/input",
           AgentGatewaySseProxyIntegrationTest::handle);
       server.createContext(
           "/internal/v1/agent-runs/run_recovery_fixture",

@@ -280,6 +280,7 @@ Agent回调不放在数据库事务内；由结果事件的独立消费者完成
 | Tool | 风险 | Java能力 |
 |---|---|---|
 | resolve_employees | READ | 按姓名/部门解析员工 |
+| resolve_participant_scope | READ | 仅根据当前 AgentContext 解析“我的小组”为所属部门 ACTIVE 成员 |
 | get_employee_free_busy | READ | 返回指定窗口忙碌槽位 |
 | search_available_rooms | READ | 按时间、容量、设备查询 |
 | get_recent_meeting | READ | 查询当前用户最近会议/草案 |
@@ -319,6 +320,8 @@ Day 3 冻结的内部鉴权语义：
 - 设置首包、空闲和总超时。
 - 客户端断开时关闭上游流；已提交业务请求不回滚。
 - `GET /api/v1/agent/runs/{runId}`用于断线恢复。
+- `POST /api/v1/agent/runs/{runId}/input` 仅代理 `WAITING_USER_INPUT` 的自然语言补充，沿用同一 `runId`、签发新的 `traceId`，并携带 `clientRequestId + expectedRevision`；它不得接受 HITL token 或执行写 Tool。
+- `POST /api/v1/agent/runs/{runId}/resume` 继续只代理 `WAITING_CONFIRMATION` 的 `ACCEPT/EDIT/REJECT`，不得承担普通对话续接。
 
 ## 11. 错误码
 
@@ -339,6 +342,7 @@ Day 3 冻结的内部鉴权语义：
 | BOOKING_PENDING | 202 | 热门请求已受理 |
 | TOOL_NOT_ALLOWED | 403 | Agent工具不在白名单 |
 | AGENT_UNAVAILABLE | 503 | Python服务不可用 |
+| AGENT_RUN_STATE_CONFLICT | 409 | Run等待状态、需求revision或补充请求幂等状态已经变化 |
 | DEPENDENCY_UNAVAILABLE | 503 | Redis、MQ等依赖不可用 |
 
 统一错误响应：

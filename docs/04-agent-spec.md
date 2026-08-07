@@ -42,6 +42,25 @@ Scheduling Agent 使用有界 `PLAN -> ACT -> OBSERVE -> VERIFY -> SOLVE/REPLAN`
 - Trace 可记录 loop phase、iteration、decision、tool name、参数摘要、observation 摘要、feedback code、replan count、stop reason、剩余预算、模型/Prompt/Schema 版本和 API 返回的 Token usage；不得记录隐藏推理或秘密。
 - Fixture 评测只能命名为组件/回归评测。`E2E Task Success` 必须实际运行完整 Graph；真实模型报告必须单独标注 provider/model、重复次数、网络调用、延迟、Token/成本和失败样本。
 
+### 0.6 澄清与用户可见错误
+
+- Evaluator、Tool Gate、Java Tool 和 OR-Tools 只负责确定问题与可信事实；内部错误码只进入 Trace 和日志，不得直接拼接到用户回答。
+- 需要用户补充信息时，确定性组件先把问题映射为 `explanation + requestedInput + verifiedFacts`。Supervisor 只能基于该结构和原始请求生成自然语言澄清，不得新增事实、放宽约束或声称已经产生业务写入。
+- Supervisor 的澄清输出必须经过 Pydantic、内部错误码泄露、未验证写入结论和数字/时间来源校验；模型不可用或输出未通过校验时，使用确定性中文模板，不得把表达失败升级为整个 Run 失败。
+- `timeWindow` 表示候选方案的可搜索窗口，`durationMinutes` 表示单场会议时长。用户同时给出“13:00 到 18:00 之间”和“60 分钟”时，两者必须独立保留；只有明确表达固定起止时间且没有另给时长时，才允许从起止时间推导时长。
+- 人员无法唯一识别、关键信息缺失、人员共同空闲冲突、会议室/设备无解和并发重规划耗尽都必须使用普通业务语言说明，并给出下一步可执行选择；不得要求非专业用户理解内部协议或错误枚举。
+
+### 0.7 多轮需求槽位收敛
+
+- Requirement 首轮输出和后续补充都先形成 `RequirementDraft`；只有时间窗口、会议时长和必需参会范围全部达到可执行状态后，才物化完整 `MeetingRequest` 并进入 Scheduling。禁止用30分钟或仅发起人占位绕过缺失校验。
+- 每个关键槽位记录 `EXPLICIT|DEFAULTED|DIRECTORY_RESOLVED|MISSING|AMBIGUOUS|CONFLICT`、来源文本、规则标识和 revision；非刚需可选项额外使用 `UNSPECIFIED|CLOSED`。最新用户明确值覆盖历史默认/通讯录推定；旧的明确值在用户未修改时继续保留。
+- 日期计算、时段映射、跨午夜、30分钟槽位、过去时间检查和“最好/必须”软硬语义由确定性 Normalizer/Evaluator 裁决；LLM 只抽取原始表达与意图。
+- “我的小组/同组人员”先提取为人员范围，不允许模型生成姓名。确定性节点调用 Java `resolve_participant_scope`，由 Java 从 AgentContext 的用户身份解析所属部门和 ACTIVE 名单；单一结果可以作为可纠正的 `DIRECTORY_RESOLVED`，无部门、空部门或多义范围进入澄清。
+- 澄清计划固定包含 `verifiedFacts + appliedDefaults + directoryAssumptions + blockingQuestions + optionalPrompt`。可选设备/地点没有回复时采用无硬性要求，不得反复阻塞。
+- `WAITING_USER_INPUT` checkpoint 保留部分 Draft、槽位来源、revision 和已验证通讯录结果。`POST /agent-runs/{runId}/input` 在运行锁内校验归属、状态、revision 和 `clientRequestId`，合并新一轮 `RequirementDelta` 后从 Requirement 重新执行；同一 Run 的模型/Tool/图预算继续累计。
+- 人员修改必须先确定 ADD/REMOVE/REPLACE，再作用于上一版已验证名单；REMOVE 只允许删除旧名单中被用户点名且带删除语义的人员。人员变化后必须同步过滤 `resolvedEmployees`、重算容量并重新验证新增姓名。
+- FAILED Run 的普通继续输入创建新 Run，并通过显式 `baseRunId` 继承最后有效 Requirement 基线。继承仅允许同用户、同 thread 的 FAILED Run；所有运行预算、候选、草案、HITL 令牌、业务结果和工具幂等状态必须重置。
+
 ## 1. 目标
 
 Agent服务负责把自然语言会议任务转换为可验证、可确认、可执行的业务动作。它不拥有会议业务事实，也不直接写业务数据库。

@@ -136,10 +136,11 @@ class SourceFidelityEvaluator:
     _TIME_RANGE = re.compile(r"(\d{1,2})(?::(\d{2})|点)\s*(?:到|至|-)\s*(\d{1,2})(?::(\d{2})|点)")
     _FEATURE_ALIASES = {
         "WHITEBOARD": ("白板",),
-        "LARGE_SCREEN": ("大屏", "大屏幕"),
+        "LARGE_SCREEN": ("大屏", "大屏幕", "投屏"),
         "VIDEO_CONFERENCE": ("视频会议", "视频设备"),
         "PROJECTOR": ("投影", "投影仪"),
     }
+    _SEARCH_WINDOW_SUFFIX = re.compile(r"^\s*(?:之间|以内|内|范围内|时段内|期间)")
 
     def evaluate(self, draft: RequirementDraft, source: str) -> RequirementFeedback | None:
         codes: list[str] = []
@@ -175,6 +176,7 @@ class SourceFidelityEvaluator:
                 and draft.duration_minutes != expected
                 and draft.intent
                 not in {Intent.FIND_COMMON_TIME, Intent.RECOMMEND_ROOM}
+                and not self.is_search_window(source, explicit_range)
             ):
                 codes.append("DURATION_INTERVAL_MISMATCH")
         expected_route, expected_intent = RouteEvaluator().fallback(source)
@@ -197,11 +199,20 @@ class SourceFidelityEvaluator:
             else None
         )
 
+    @classmethod
+    def is_search_window(cls, source: str, match: re.Match[str]) -> bool:
+        """Distinguish an allowed candidate window from a fixed meeting interval."""
+
+        suffix = source[match.end() : match.end() + 8]
+        return cls._SEARCH_WINDOW_SUFFIX.search(suffix) is not None
+
 
 class RequirementNormalizer:
     """Own safe defaults and derived canonical fields after fidelity validation."""
 
-    def normalize(self, draft: RequirementDraft) -> tuple[MeetingRequest, NormalizationReport]:
+    def normalize(
+        self, draft: RequirementDraft, *, source: str = ""
+    ) -> tuple[MeetingRequest, NormalizationReport]:
         defaults: list[str] = []
         derived: list[str] = []
         title = draft.title
@@ -213,16 +224,22 @@ class RequirementNormalizer:
             meeting_type = "GENERAL"
             defaults.append("meetingType")
         duration = draft.duration_minutes
-        if duration is None and draft.time_window is not None:
+        if (
+            duration is None
+            and draft.time_window is not None
+            and not _source_describes_search_window(source)
+        ):
             duration = int((draft.time_window.end - draft.time_window.start).total_seconds() / 60)
             derived.append("durationMinutes")
         if duration is None:
             duration = 30
             defaults.append("durationMinutesPlaceholder")
-        minimum_capacity = max(
-            draft.minimum_capacity or 1,
-            1 + len(set(draft.required_participant_names)),
+        participant_count = (
+            len(set(draft.required_participant_names))
+            if draft.participant_scope == "MY_DEPARTMENT"
+            else 1 + len(set(draft.required_participant_names))
         )
+        minimum_capacity = max(draft.minimum_capacity or 1, participant_count)
         if draft.minimum_capacity != minimum_capacity:
             derived.append("minimumCapacity")
         populated = {
@@ -340,7 +357,11 @@ def _explicit_participant_names(source: str) -> set[str]:
     if invite:
         for value in re.split(r"[、，和与]", invite.group(1)):
             value = value.strip()
-            if 2 <= len(value) <= 4 and not any(term in value for term in ("会议", "帮我")):
+            if (
+                2 <= len(value) <= 4
+                and value not in {"我自己", "只有我", "就我一个人"}
+                and not any(term in value for term in ("会议", "帮我"))
+            ):
                 anchors.add(value)
     return anchors
 
@@ -363,7 +384,16 @@ def _evidence_supported(
         )
     if field in {"minimumCapacity", "minimum_capacity"}:
         match = SourceFidelityEvaluator._HEADCOUNT.search(source)
-        return match is not None and str(draft.minimum_capacity) == match.group(1)
+        if match is not None:
+            return str(draft.minimum_capacity) == match.group(1)
+        # Capacity may be deterministically derived from the organiser plus
+        # explicitly named required participants even though that integer is
+        # not a literal source substring.
+        named_count = len(set(draft.required_participant_names))
+        return (
+            draft.minimum_capacity in {max(1, named_count), max(1, named_count + 1)}
+            and all(name in source for name in draft.required_participant_names)
+        )
     if field in {"durationMinutes", "duration_minutes", "timeWindow", "time_window"}:
         explicit_range = SourceFidelityEvaluator._TIME_RANGE.search(source)
         if explicit_range is None:
@@ -405,6 +435,11 @@ def _evidence_supported(
             return any(alias in source for alias in aliases.get(canonical, ()))
         return False
     return False
+
+
+def _source_describes_search_window(source: str) -> bool:
+    match = SourceFidelityEvaluator._TIME_RANGE.search(source)
+    return match is not None and SourceFidelityEvaluator.is_search_window(source, match)
 
 
 def _canonical_feature(value: str) -> str:

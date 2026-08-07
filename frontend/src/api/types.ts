@@ -247,6 +247,26 @@ export interface AgentRunSummary {
   finishedAt: string | null
 }
 
+export type AgentRequirementStatus =
+  | 'EXPLICIT'
+  | 'DEFAULTED'
+  | 'DIRECTORY_RESOLVED'
+  | 'MISSING'
+  | 'AMBIGUOUS'
+  | 'CONFLICT'
+  | 'UNSPECIFIED'
+  | 'CLOSED'
+  | string
+
+export interface AgentRequirementItem {
+  field: string
+  status: AgentRequirementStatus
+  summary: string
+  source?: string | null
+  ruleId?: string | null
+  blocking?: boolean
+}
+
 /** A no-store recovery view returned only for the owner or an ADMIN. */
 export interface AgentRunRecovery extends AgentRunSummary {
   candidates?: AgentCandidate[]
@@ -255,6 +275,9 @@ export interface AgentRunRecovery extends AgentRunSummary {
   draft?: AgentHitlDraft
   confirmationToken?: string
   expiresAt?: string
+  requirementRevision?: number
+  requirementItems?: AgentRequirementItem[]
+  requirementBaselineAvailable?: boolean
 }
 
 export type AgentLoopPhase = 'PLAN' | 'ACT' | 'OBSERVE' | 'VERIFY' | 'REPLAN' | string
@@ -326,6 +349,7 @@ export interface AgentStreamRequest {
   threadId: string | null
   message: string
   clientRequestId: string
+  baseRunId?: string
 }
 
 export type AgentResumeAction = 'ACCEPT' | 'EDIT' | 'REJECT'

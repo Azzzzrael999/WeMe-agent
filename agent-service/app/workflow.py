@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 import uuid
 from collections.abc import Callable, Iterator
@@ -29,6 +30,7 @@ from app.agent_loop import (
     LoopStopReason,
     ReadToolGate,
     RequirementEvaluator,
+    RequirementFeedback,
     RequirementNormalizer,
     RouteEvaluator,
     SourceFidelityEvaluator,
@@ -56,7 +58,9 @@ from app.schemas.agent import (
     AvailabilitySnapshot,
     BusyInterval,
     CancellationDraftView,
+    ClarificationResponse,
     ConflictRepairFeedbackState,
+    Constraint,
     CreateDraftView,
     EmployeeBusySlots,
     HitlResumeCommand,
@@ -70,6 +74,8 @@ from app.schemas.agent import (
     RequirementDraft,
     RequirementExtraction,
     RequirementFeedbackState,
+    RequirementItem,
+    RequirementSlotStatus,
     RescheduleDraftView,
     ResumeAction,
     RoomAvailability,
@@ -93,8 +99,8 @@ from app.tools.java import (
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "meeting-agent-prompts-v3"
-SCHEMA_VERSION = "meeting-agent-state-v3"
+PROMPT_VERSION = "meeting-agent-prompts-v6"
+SCHEMA_VERSION = "meeting-agent-state-v5"
 
 SUPERVISOR_PROMPT = """You are the Supervisor Agent for an enterprise meeting scheduler.
 Only classify the current objective. Initial routes are POLICY, REQUIREMENT, or CLARIFICATION.
@@ -105,15 +111,32 @@ one continuous verbatim substring of USER_MESSAGE. Return only the schema JSON; 
 
 REQUIREMENT_PROMPT = """You are the Requirement Agent. Extract only source-supported facts into
 RequirementDraft. Missing facts remain null/empty. Never invent names from a headcount. Copy named
-participants exactly. Preserve explicit start/end timestamps and derive duration from that interval.
-Supported features: 白板=WHITEBOARD, 大屏=LARGE_SCREEN, 视频会议=VIDEO_CONFERENCE,
-投影=PROJECTOR. title and meetingType may be null because deterministic code owns safe defaults.
+participants exactly. timeWindow is the allowed candidate-search window, while durationMinutes is
+the length of one meeting. When the user supplies both, preserve them independently. Derive duration
+from a fixed start/end interval only when no separate duration was supplied and the text does not
+describe an allowed range with words such as 之间、以内、范围内 or 时段内.
+"给出候选方案/不要替我确认" describes the mandatory HITL behavior; when the user asks to arrange
+a meeting with participants and duration, it remains CREATE_MEETING rather than RECOMMEND_ROOM.
+Supported features: 白板=WHITEBOARD, 大屏/投屏=LARGE_SCREEN, 视频会议=VIDEO_CONFERENCE,
+投影仪=PROJECTOR. “我的小组/同组人员” must be participantScope=MY_DEPARTMENT and must not
+contain invented member names. title and meetingType may be null because deterministic code owns
+safe defaults. On a continuation turn, extract only facts present in the current USER_MESSAGE; do
+not copy the previous roster. Expressions such as 去掉、不参加、请假不会来 are participant removal
+instructions that deterministic code applies to the verified previous roster.
 Every populated user-derived field needs fieldEvidence whose source is a continuous verbatim
 substring of USER_MESSAGE. Do not call tools, create drafts, confirm, or expose reasoning."""
 
 REQUIREMENT_REPAIR_PROMPT = """Repair RequirementDraft using only USER_MESSAGE,
 SERVER_REQUEST_TIME, and EVALUATOR_FEEDBACK. Correct only rejected fields. Unsupported facts must
 be null/empty. Return only the corrected schema JSON; no reasoning."""
+
+CLARIFICATION_PROMPT = """You are the existing Supervisor Agent. Turn the supplied verified
+clarification contract into concise, friendly Chinese for a non-technical user. Explain what is
+missing or inconsistent, then ask for exactly the requested input or present the supplied choices.
+Use only VERIFIED_FACTS, EXPLANATIONS, REQUESTED_INPUTS and FALLBACK_MESSAGE. Never mention internal
+codes, validators, schemas, prompts or traces. Never invent a person, time, room, conflict or
+business result. Never claim a meeting was created, confirmed, changed or cancelled. Return schema
+JSON only."""
 
 
 class WorkflowError(RuntimeError):
@@ -177,9 +200,23 @@ class SupervisorAgent:
             route, intent = self.evaluator.fallback(state.message)
         if route is Route.POLICY:
             intent = Intent.QUERY_POLICY
+        clarification = None
+        if route is Route.CLARIFICATION:
+            clarification, clarification_completions = _compose_clarification(
+                provider=self.provider,
+                issue_codes=["OBJECTIVE_NOT_UNDERSTOOD"],
+                request=None,
+            )
+            completions.extend(clarification_completions)
         updated = _apply_completions(state, completions)
         return (
-            updated.model_copy(update={"next_route": route, "intent": intent}),
+            updated.model_copy(
+                update={
+                    "next_route": route,
+                    "intent": intent,
+                    "answer_summary": clarification,
+                }
+            ),
             decision.summary,
             len(completions),
         )
@@ -189,12 +226,14 @@ class SupervisorAgent:
 class RequirementAgent:
     provider: ModelProvider
     runner: StructuredModelRunner
+    tools: JavaReadToolClient | None = None
+    context: AgentContext | None = None
 
     evaluator: RequirementEvaluator = field(default_factory=RequirementEvaluator)
     fidelity: SourceFidelityEvaluator = field(default_factory=SourceFidelityEvaluator)
     normalizer: RequirementNormalizer = field(default_factory=RequirementNormalizer)
 
-    def execute(self, state: AgentState) -> tuple[AgentState, str, int]:
+    def execute(self, state: AgentState) -> tuple[AgentState, str, int, list[ToolOutcome]]:
         prompt = _requirement_prompt(state)
         extraction, completions = _model_output_with_count(
             provider=self.provider,
@@ -209,12 +248,27 @@ class RequirementAgent:
             draft, state.message, request_time=state.request_time
         )
         feedback = self.fidelity.evaluate(draft, state.message)
-        request = None
-        report = None
-        if feedback is None:
-            request, report = self.normalizer.normalize(draft)
-            semantic = self.evaluator.evaluate(request, request_time=state.request_time)
-            feedback = semantic
+        if (
+            feedback is not None
+            and feedback.codes == ["INTENT_SOURCE_MISMATCH"]
+            and state.intent is not None
+        ):
+            # The Supervisor's high-confidence verb anchors already decide
+            # the mutation boundary.  “Give candidates / do not confirm” is
+            # HITL guidance, not a room-recommendation intent, so avoid an
+            # unnecessary model repair that could rewrite otherwise faithful
+            # evidence strings.
+            draft = draft.model_copy(update={"intent": state.intent})
+            feedback = self.fidelity.evaluate(draft, state.message)
+        if (
+            feedback is None
+            and not state.continuation_turn
+            and not (draft.pending_start_at is not None and draft.duration_minutes is None)
+        ):
+            initial_request, _ = self.normalizer.normalize(draft, source=state.message)
+            feedback = self.evaluator.evaluate(
+                initial_request, request_time=state.request_time
+            )
         if feedback is not None and feedback.repairable:
             extraction, repair_completions = _model_output_with_count(
                 provider=self.provider,
@@ -244,12 +298,98 @@ class RequirementAgent:
                 # an unambiguous “预约/改到/取消” verb.
                 draft = draft.model_copy(update={"intent": state.intent})
                 feedback = self.fidelity.evaluate(draft, state.message)
-            if feedback is None:
-                request, report = self.normalizer.normalize(draft)
-                feedback = self.evaluator.evaluate(request, request_time=state.request_time)
-        if request is None:
-            request, report = self.normalizer.normalize(draft)
-        assert report is not None
+        previous_draft = state.requirement_draft if state.continuation_turn else None
+        draft = _resolve_ambiguous_pending_start(previous_draft, draft, state.message)
+        draft = _apply_participant_delta(previous_draft, draft, state.message)
+        merged = _merge_requirement_drafts(previous_draft, draft, source=state.message)
+        if (
+            merged.time_window is None
+            and merged.pending_start_at is not None
+            and not merged.pending_start_ambiguous
+            and merged.duration_minutes is not None
+        ):
+            merged = merged.model_copy(
+                update={
+                    "time_window": TimeWindow(
+                        start=merged.pending_start_at,
+                        end=merged.pending_start_at
+                        + timedelta(minutes=merged.duration_minutes),
+                    )
+                }
+            )
+        outcomes: list[ToolOutcome] = []
+        resolved_employees = list(state.resolved_employees)
+        if previous_draft is not None and (
+            merged.required_participant_names
+            != previous_draft.required_participant_names
+        ):
+            final_names = set(merged.required_participant_names)
+            resolved_employees = [
+                item for item in resolved_employees if item.name in final_names
+            ]
+        if (
+            merged.participant_scope == "MY_DEPARTMENT"
+            and not merged.required_participant_names
+            and not merged.participant_list_modified
+        ):
+            if self.tools is None or self.context is None:
+                feedback = feedback or _requirement_feedback(
+                    "PARTICIPANT_SCOPE_UNRESOLVED", "无法读取当前用户所属小组。"
+                )
+            else:
+                try:
+                    outcome = self.tools.resolve_participant_scope(
+                        context=self.context,
+                        tool_call_id=stable_tool_identity(
+                            state.run_id,
+                            "resolve_participant_scope",
+                            f"requirement-revision-{state.requirement_revision + 1}",
+                        ),
+                    )
+                    members = _scope_members(outcome)
+                    if not members:
+                        feedback = _requirement_feedback(
+                            "PARTICIPANT_SCOPE_UNRESOLVED", "当前小组没有可用于排期的在职成员。"
+                        )
+                    else:
+                        outcomes.append(outcome)
+                        resolved_employees = members
+                        merged = merged.model_copy(
+                            update={
+                                "required_participant_names": [item.name for item in members],
+                                "minimum_capacity": max(
+                                    merged.minimum_capacity or 1,
+                                    len({item.employee_id for item in members}),
+                                ),
+                            }
+                        )
+                except JavaToolError:
+                    feedback = _requirement_feedback(
+                        "PARTICIPANT_SCOPE_UNRESOLVED", "无法从通讯录确定当前小组成员。"
+                    )
+
+        request, report = self.normalizer.normalize(merged, source=state.message)
+        if (
+            merged.duration_minutes is None
+            and "durationMinutes" in report.derived_fields
+            and _source_describes_fixed_interval(state.message)
+        ):
+            merged = merged.model_copy(update={"duration_minutes": request.duration_minutes})
+        semantic = self.evaluator.evaluate(request, request_time=state.request_time)
+        if (
+            merged.pending_start_at is not None
+            and not merged.pending_start_ambiguous
+            and merged.duration_minutes is None
+            and semantic is not None
+            and semantic.codes == ["TIME_WINDOW_REQUIRED"]
+        ):
+            semantic = None
+        if semantic is not None:
+            feedback = semantic
+        if merged.time_window is None and _source_has_ambiguous_single_time(state.message):
+            feedback = _requirement_feedback(
+                "TIME_MERIDIEM_AMBIGUOUS", "单独的几点存在上午和下午两种解释。"
+            )
         # EDIT is intentionally revalidated by Requirement before it reaches
         # Scheduling.  Only the documented bounded fields may override it.
         if state.edited_draft is not None and state.edited_draft.start_at is not None:
@@ -272,58 +412,70 @@ class RequirementAgent:
             else None
         )
         semantic_missing = [] if feedback is None else feedback.codes
-        # Safe defaults and derived values are owned by the normalizer.  A
-        # stale model missingFields entry must not undo that deterministic
-        # contract or force the user to supply an internal enum.
-        normalizer_owned = {
-            *report.defaults_applied,
-            *report.derived_fields,
-            "title",
-            "meetingType",
-            "preferredBuildings",
-            "optionalGroups",
-            "durationMinutes" if request.duration_minutes else "",
-            "timeWindow" if request.time_window is not None else "",
-            "targetMeetingReference" if request.target_meeting_reference else "",
-            "targetMeetingId" if request.target_meeting_id is not None else "",
-            "hardConstraints",
-            "softConstraints",
-            "needsPolicy",
-        }
-        extraction_missing = [
-            item
-            for item in extraction.missing_fields
-            if item not in normalizer_owned
-            and not (item == "targetMeetingId" and request.target_meeting_reference)
-            and not (
-                item == "targetMeetingReference" and request.target_meeting_id is not None
-            )
-            and not (
-                item in {"requiredParticipants", "requiredParticipantNames"}
-                and request.intent is Intent.CREATE_MEETING
-            )
-        ]
-        missing_fields = list(dict.fromkeys([*extraction_missing, *semantic_missing]))
+        missing_fields = list(semantic_missing)
+        if request.intent in {
+            Intent.CREATE_MEETING,
+            Intent.FIND_COMMON_TIME,
+            Intent.RECOMMEND_ROOM,
+        }:
+            if merged.time_window is None and (
+                merged.pending_start_at is None or merged.pending_start_ambiguous
+            ):
+                missing_fields.append("timeWindow")
+            if merged.duration_minutes is None:
+                missing_fields.append("durationMinutes")
+            if (
+                not merged.required_participant_names
+                and merged.participant_scope != "ORGANIZER_ONLY"
+            ):
+                missing_fields.append("requiredParticipants")
+        if request.intent in {Intent.MODIFY_MEETING, Intent.CANCEL_MEETING} and (
+            request.target_meeting_id is None and not request.target_meeting_reference
+        ):
+            missing_fields.append("targetMeeting")
+        missing_fields = list(dict.fromkeys(missing_fields))
+        optional_closed = state.optional_requirements_closed or _closes_optional_requirements(
+            state.message
+        )
+        items = _requirement_items(
+            draft=merged,
+            request=request,
+            missing_fields=missing_fields,
+            source=state.message,
+            previous_items=state.requirement_items,
+            optional_closed=optional_closed,
+        )
         next_route = (
             Route.CLARIFICATION
             if missing_fields
             else Route.POLICY
-            if draft.needs_policy
+            if merged.needs_policy
             else Route.SCHEDULING
         )
+        clarification = None
+        if missing_fields:
+            clarification = _format_requirement_clarification(items)
         return (
             _apply_completions(state, completions).model_copy(
                 update={
                     "intent": request.intent,
                     "meeting_request": request,
+                    "requirement_draft": merged,
+                    "requirement_items": items,
+                    "requirement_revision": state.requirement_revision + 1,
+                    "continuation_turn": False,
+                    "optional_requirements_closed": optional_closed,
+                    "resolved_employees": resolved_employees,
                     "missing_fields": missing_fields,
                     "requirement_feedback": feedback_state,
                     "normalization_report": report,
                     "next_route": next_route,
+                    "answer_summary": clarification,
                 }
             ),
-            draft.summary if feedback is None else feedback.summary,
+            merged.summary if feedback is None else feedback.summary,
             len(completions),
+            outcomes,
         )
 
 
@@ -467,12 +619,20 @@ class SchedulingAgent:
             if not tool_response.tool_calls:
                 if _read_facts_ready(request, free_busy_data, rooms_data, recent_data):
                     break
+                required_tools = _missing_read_tools(
+                    request=request,
+                    resolved=resolved,
+                    free_busy_data=free_busy_data,
+                    rooms_data=rooms_data,
+                    recent_data=recent_data,
+                )
                 messages.append(
                     ToolLoopMessage(
                         role="user",
                         content=(
                             "VERIFY_FEEDBACK={\"codes\":[\"REQUIRED_FACTS_MISSING\"],"
-                            "\"instruction\":\"Call the missing READ tools only.\"}"
+                            "\"instruction\":\"Call the listed READ tools now.\","
+                            f"\"requiredTools\":{json.dumps(required_tools)}}}"
                         ),
                     )
                 )
@@ -513,8 +673,45 @@ class SchedulingAgent:
                 if call.name == "resolve_employees":
                     resolved = _participants_from_java(gated_result.outcome.data)
                     unresolved = gated_result.outcome.data.get("unresolvedNames", [])
-                    if not isinstance(unresolved, list) or unresolved or len(resolved) < len(names):
-                        raise WorkflowError("EMPLOYEE_UNRESOLVED", "存在无法解析的必需参会者")
+                    if not isinstance(unresolved, list) or any(
+                        not isinstance(item, str) for item in unresolved
+                    ):
+                        raise WorkflowError("TOOL_RESPONSE_INVALID", "员工查询响应格式无效")
+                    if unresolved or len(resolved) < len(names):
+                        resolved_names = {item.name for item in resolved}
+                        unresolved_names = list(
+                            dict.fromkeys(
+                                [
+                                    *unresolved,
+                                    *[name for name in names if name not in resolved_names],
+                                ]
+                            )
+                        )
+                        answer, clarification_completions = _compose_clarification(
+                            provider=self.provider,
+                            issue_codes=["EMPLOYEE_UNRESOLVED"],
+                            request=request,
+                            extra_facts=["无法匹配的姓名为" + "、".join(unresolved_names)],
+                        )
+                        tool_usage.extend(clarification_completions)
+                        model_calls += len(clarification_completions)
+                        return (
+                            _apply_completions(state, tool_usage).model_copy(
+                                update={
+                                    "resolved_employees": resolved,
+                                    "missing_fields": ["requiredParticipants"],
+                                    "answer_summary": answer,
+                                    "status": RunStatus.WAITING_USER_INPUT,
+                                    "next_route": Route.FINAL,
+                                    "stop_reason": LoopStopReason.NEED_CLARIFICATION.value,
+                                    "loop_iteration": loop_iteration,
+                                    "executed_tool_fingerprints": sorted(fingerprints),
+                                }
+                            ),
+                            answer,
+                            outcomes,
+                            model_calls,
+                        )
                 elif call.name == "get_employee_free_busy":
                     free_busy_data = gated_result.outcome.data
                 elif call.name == "search_available_rooms":
@@ -551,7 +748,27 @@ class SchedulingAgent:
             # turn. A tool-free response is the explicit protocol boundary
             # that lets the verifier advance to deterministic solving.
         if not _read_facts_ready(request, free_busy_data, rooms_data, recent_data):
-            raise WorkflowError("AGENT_STEP_LIMIT_EXCEEDED", "调度循环在预算内未取得完整事实")
+            answer = (
+                "会议需求已保存，但本轮没有完成忙闲和会议室查询。"
+                "请回复“继续查询”，无需重述需求。"
+            )
+            return (
+                _apply_completions(state, tool_usage).model_copy(
+                    update={
+                        "resolved_employees": resolved,
+                        "executed_tool_fingerprints": sorted(fingerprints),
+                        "loop_iteration": loop_iteration,
+                        "status": RunStatus.WAITING_USER_INPUT,
+                        "missing_fields": [],
+                        "answer_summary": answer,
+                        "next_route": Route.FINAL,
+                        "stop_reason": LoopStopReason.NEED_CLARIFICATION.value,
+                    }
+                ),
+                answer,
+                outcomes,
+                model_calls,
+            )
 
         usage_state = _apply_completions(state, tool_usage)
         common_update: dict[str, object] = {
@@ -812,6 +1029,226 @@ def _requirement_prompt(state: AgentState) -> str:
     )
 
 
+_CLARIFICATION_GUIDANCE: dict[str, tuple[str, str]] = {
+    "OBJECTIVE_NOT_UNDERSTOOD": (
+        "我还不能确定你希望查询规则、查找时间，还是创建、修改或取消会议。",
+        "请直接说明要完成的会议操作。",
+    ),
+    "TIME_WINDOW_REQUIRED": (
+        "还没有可用于排期的日期和时间范围。",
+        "请告诉我希望安排在哪一天、哪个时间段。",
+    ),
+    "TIME_WINDOW_IN_PAST": (
+        "给出的时间范围已经过去，无法继续排期。",
+        "请提供一个未来的日期和时间范围。",
+    ),
+    "TIME_NOT_ON_30_MINUTE_SLOT": (
+        "会议时间需要落在半小时的时间点上。",
+        "请把开始和结束时间调整到整点或半点。",
+    ),
+    "WINDOW_SHORTER_THAN_DURATION": (
+        "可选时间范围短于会议需要的时长。",
+        "请延长可选时间范围，或缩短会议时长。",
+    ),
+    "DURATION_INTERVAL_MISMATCH": (
+        "固定起止时间和会议时长不一致。",
+        "请确认以起止时间为准，还是以会议时长为准。",
+    ),
+    "TARGET_REFERENCE_MISSING": (
+        "还不能唯一确定要修改或取消哪场会议。",
+        "请提供会议编号，或说明会议标题和时间。",
+    ),
+    "TARGET_MEETING_REQUIRED": (
+        "还不能唯一确定要修改或取消哪场会议。",
+        "请提供会议编号，或说明会议标题和时间。",
+    ),
+    "uniqueTargetMeeting": (
+        "找到了不止一场可能匹配的会议。",
+        "请提供会议编号，或补充会议标题和时间。",
+    ),
+    "CAPACITY_BELOW_PARTICIPANTS": (
+        "会议室容量要求小于必须参加的人数。",
+        "请提高最低容量，或确认哪些人不是必需参会者。",
+    ),
+    "HARD_SOFT_CONSTRAINT_CONFLICT": (
+        "同一个条件同时被设为必须满足和尽量满足。",
+        "请确认这个条件是硬性要求还是偏好。",
+    ),
+    "EXPLICIT_PARTICIPANT_OMITTED": (
+        "参会者信息没有被可靠识别完整。",
+        "请重新列出必须参加的人员姓名。",
+    ),
+    "PARTICIPANT_NOT_IN_SOURCE": (
+        "参会者信息无法从原请求中可靠确认。",
+        "请重新列出必须参加的人员姓名。",
+    ),
+    "HEADCOUNT_AS_PARTICIPANT": (
+        "人数被误识别成了人员姓名。",
+        "请分别说明必须参加的人员姓名和预计总人数。",
+    ),
+    "CAPACITY_SOURCE_MISMATCH": (
+        "预计人数没有被可靠识别。",
+        "请重新确认预计总人数。",
+    ),
+    "FEATURE_NOT_IN_SOURCE": (
+        "所需设备无法从原请求中可靠确认。",
+        "请重新说明必须具备的会议室设备。",
+    ),
+    "EXPLICIT_TIME_CHANGED": (
+        "时间范围没有被可靠保留下来。",
+        "请重新确认允许安排会议的开始和结束时间。",
+    ),
+    "INTENT_SOURCE_MISMATCH": (
+        "会议操作没有被可靠识别。",
+        "请确认要创建、修改还是取消会议。",
+    ),
+    "EVIDENCE_NOT_IN_SOURCE": (
+        "有一项信息无法从原请求中可靠确认。",
+        "请用一句话重新说明时间、时长、参会者和必要设备。",
+    ),
+    "EMPLOYEE_UNRESOLVED": (
+        "有一位或多位参会者无法在组织通讯录中唯一匹配。",
+        "请核对姓名；如有同名人员，请补充部门信息。",
+    ),
+}
+
+_CLARIFICATION_FIELD_GUIDANCE: tuple[tuple[str, tuple[str, str]], ...] = (
+    (
+        "participant",
+        (
+            "还不知道哪些人必须参加这场会议。",
+            "请告诉我必需参会者姓名；如果只有你参加，也请直接说明。",
+        ),
+    ),
+    ("duration", ("还不知道会议需要持续多久。", "请提供会议时长，例如30分钟或60分钟。")),
+    ("time", ("还没有可用于排期的时间信息。", "请提供日期和允许安排的时间范围。")),
+    (
+        "target",
+        ("还不能唯一确定要操作哪场会议。", "请提供会议编号，或说明会议标题和时间。"),
+    ),
+)
+
+
+def _compose_clarification(
+    *,
+    provider: ModelProvider,
+    issue_codes: list[str],
+    request: MeetingRequest | None,
+    extra_facts: list[str] | None = None,
+) -> tuple[str, list[ModelCompletion]]:
+    """Let Supervisor phrase verified issues; fail closed to a deterministic template."""
+
+    contract = _clarification_contract(
+        issue_codes=issue_codes,
+        request=request,
+        extra_facts=extra_facts,
+    )
+    fallback = str(contract["fallbackMessage"])
+    model_request = ModelRequest(
+        agent_name="supervisor",
+        system_prompt=CLARIFICATION_PROMPT,
+        user_prompt="CLARIFICATION_CONTRACT="
+        + json.dumps(contract, ensure_ascii=False, separators=(",", ":")),
+        schema_name=ClarificationResponse.__name__,
+        schema=ClarificationResponse.model_json_schema(by_alias=True),
+    )
+    try:
+        completion_value = provider.complete(model_request)
+    except ModelProviderError:
+        return fallback, []
+    completion = (
+        completion_value
+        if isinstance(completion_value, ModelCompletion)
+        else ModelCompletion(content=completion_value)
+    )
+    completions = [completion]
+    if completion.content is None:
+        return fallback, completions
+    try:
+        response = ClarificationResponse.model_validate_json(completion.content)
+    except ValueError:
+        return fallback, completions
+    if not _clarification_message_supported(response.message, contract):
+        return fallback, completions
+    return response.message, completions
+
+
+def _clarification_contract(
+    *,
+    issue_codes: list[str],
+    request: MeetingRequest | None,
+    extra_facts: list[str] | None = None,
+) -> dict[str, object]:
+    explanations: list[str] = []
+    requested_inputs: list[str] = []
+    for code in issue_codes:
+        guidance = _CLARIFICATION_GUIDANCE.get(code)
+        if guidance is None:
+            lowered = code.lower()
+            guidance = next(
+                (value for marker, value in _CLARIFICATION_FIELD_GUIDANCE if marker in lowered),
+                (
+                    "这项会议需求还不能被可靠确认。",
+                    "请换一种说法补充相关信息。",
+                ),
+            )
+        explanation, requested = guidance
+        if explanation not in explanations:
+            explanations.append(explanation)
+        if requested not in requested_inputs:
+            requested_inputs.append(requested)
+    if not explanations:
+        explanations.append("这项会议需求还不能被可靠确认。")
+    if not requested_inputs:
+        requested_inputs.append("请换一种说法补充相关信息。")
+    facts = _verified_clarification_facts(request)
+    facts.extend(item for item in (extra_facts or []) if item not in facts)
+    fallback = "我还需要确认一点：" + "；".join(explanations[:3])
+    fallback += " " + "；".join(requested_inputs[:3])
+    return {
+        "verifiedFacts": facts[:6],
+        "explanations": explanations[:3],
+        "requestedInputs": requested_inputs[:3],
+        "fallbackMessage": fallback[:500],
+    }
+
+
+def _verified_clarification_facts(request: MeetingRequest | None) -> list[str]:
+    if request is None:
+        return []
+    facts = [f"会议时长为{request.duration_minutes}分钟"]
+    if request.time_window is not None:
+        facts.append(
+            "允许安排的时间范围为"
+            f"{request.time_window.start.isoformat()}至{request.time_window.end.isoformat()}"
+        )
+    names = [item.name for item in request.required_participants]
+    if names:
+        facts.append("必需参会者为" + "、".join(names))
+    if request.required_features:
+        labels = {
+            "WHITEBOARD": "白板",
+            "LARGE_SCREEN": "大屏",
+            "VIDEO_CONFERENCE": "视频会议设备",
+            "PROJECTOR": "投影仪",
+        }
+        facts.append(
+            "必需设备为"
+            + "、".join(labels.get(item, item) for item in request.required_features)
+        )
+    return facts[:6]
+
+
+def _clarification_message_supported(message: str, contract: dict[str, object]) -> bool:
+    """Reject numeric/time details that were not present in the verified contract."""
+
+    contract_text = json.dumps(contract, ensure_ascii=False)
+    numeric_tokens = re.findall(r"\d+(?::\d+)?", message)
+    if any(token not in contract_text for token in numeric_tokens):
+        return False
+    return len(message) <= 500
+
+
 def _apply_explicit_meeting_defaults(
     draft: RequirementDraft, source: str, *, request_time: datetime
 ) -> RequirementDraft:
@@ -830,29 +1267,780 @@ def _apply_explicit_meeting_defaults(
             if reference in source:
                 updates["target_meeting_reference"] = reference
                 break
-    if draft.time_window is None:
-        target_date = None
-        if "明天" in source:
-            target_date = (request_time + timedelta(days=1)).date()
-        elif "下周三" in source:
-            days_until = ((2 - request_time.weekday()) % 7) + 7
-            target_date = (request_time + timedelta(days=days_until)).date()
-        if target_date is not None:
-            start_hour, end_hour = (13, 18) if "下午" in source else (9, 12)
-            start = request_time.replace(
-                year=target_date.year,
-                month=target_date.month,
-                day=target_date.day,
-                hour=start_hour,
-                minute=0,
-                second=0,
-                microsecond=0,
+    if any(value in source for value in ("我的小组", "同组人员", "小组会议", "组内人员")):
+        updates["participant_scope"] = "MY_DEPARTMENT"
+    elif any(value in source for value in ("只有我", "我自己参加", "就我一个人")):
+        updates["participant_scope"] = "ORGANIZER_ONLY"
+
+    feature_aliases = {
+        "白板": "WHITEBOARD",
+        "大屏": "LARGE_SCREEN",
+        "投屏": "LARGE_SCREEN",
+        "视频会议": "VIDEO_CONFERENCE",
+        "投影仪": "PROJECTOR",
+    }
+    features = list(
+        dict.fromkeys(feature_aliases.get(item, item) for item in draft.required_features)
+    )
+    if "投屏" in source and "投影仪" not in source:
+        # DeepSeek sometimes expands “投屏” to both PROJECTOR and
+        # LARGE_SCREEN.  The frozen product vocabulary maps it to the latter;
+        # keep an explicitly requested 投影仪 distinct.
+        features = [item for item in features if item != "PROJECTOR"]
+        if "LARGE_SCREEN" not in features:
+            features.append("LARGE_SCREEN")
+    if features != draft.required_features:
+        updates["required_features"] = features
+
+    preferred = re.search(
+        r"(?:最好|尽量|优先)(?:是|在)?(?:下午|晚上|上午|早上|中午)?\s*(\d{1,2})(?::(\d{2})|点)(?:开始)?",
+        source,
+    )
+    if preferred is not None:
+        hour = int(preferred.group(1))
+        minute = int(preferred.group(2) or 0)
+        if any(value in preferred.group(0) for value in ("下午", "晚上")) and hour < 12:
+            hour += 12
+        soft = [item for item in draft.soft_constraints if item.type != "PREFER_START_AT"]
+        soft.append(Constraint(type="PREFER_START_AT", value=f"{hour:02d}:{minute:02d}", weight=20))
+        updates["soft_constraints"] = soft
+
+    target_date = _deterministic_target_date(source, request_time)
+    daypart = _daypart_window(source)
+    has_explicit_time_context = target_date is not None or daypart is not None
+    explicit_range = re.search(
+        r"(?:上午|早上|中午|下午|晚上)?\s*(\d{1,2})(?::(\d{2})|点)\s*"
+        r"(?:到|至|-)\s*(\d{1,2})(?::(\d{2})|点)",
+        source,
+    )
+    explicit_single = re.search(
+        r"(?:上午|早上|中午|下午|晚上)?\s*(\d{1,2})(?::(\d{2})|点)(?:开始)?",
+        source,
+    )
+    has_preferred_only = preferred is not None and not any(
+        marker in source for marker in ("必须", "固定", "就定", "只能")
+    )
+    if has_preferred_only and not has_explicit_time_context:
+        # A soft start preference must not become a new hard time window.  In
+        # continuation turns this also removes provider-invented time fields so
+        # the merge below retains the already confirmed/defaulted date window.
+        updates["time_window"] = None
+        updates["pending_start_at"] = None
+        updates["pending_start_ambiguous"] = False
+    if target_date is None and (
+        daypart is not None or explicit_range is not None or explicit_single is not None
+    ):
+        target_date = request_time.date()
+    try:
+        if (
+            target_date is not None
+            and explicit_single is not None
+            and _source_has_ambiguous_single_time(source)
+            and not has_preferred_only
+        ):
+            start = _at_local_date(
+                request_time,
+                target_date,
+                int(explicit_single.group(1)),
+                int(explicit_single.group(2) or 0),
             )
-            updates["time_window"] = TimeWindow(
-                start=start,
-                end=start.replace(hour=end_hour),
-            )
+            updates["pending_start_at"] = start
+            updates["pending_start_ambiguous"] = True
+        elif (
+            target_date is not None
+            and explicit_range is not None
+            and not _source_has_ambiguous_single_time(source)
+        ):
+            start_hour = int(explicit_range.group(1))
+            start_minute = int(explicit_range.group(2) or 0)
+            end_hour = int(explicit_range.group(3))
+            end_minute = int(explicit_range.group(4) or 0)
+            marker = explicit_range.group(0)
+            if any(value in marker for value in ("下午", "晚上")):
+                if start_hour < 12:
+                    start_hour += 12
+                if end_hour < 12:
+                    end_hour += 12
+            start = _at_local_date(request_time, target_date, start_hour, start_minute)
+            end = _at_local_date(request_time, target_date, end_hour, end_minute)
+            if end <= start and "晚上" in marker:
+                end += timedelta(days=1)
+            updates["time_window"] = TimeWindow(start=start, end=end)
+        elif (
+            target_date is not None
+            and explicit_single is not None
+            and not has_preferred_only
+            and not _source_has_ambiguous_single_time(source)
+        ):
+            hour = int(explicit_single.group(1))
+            minute = int(explicit_single.group(2) or 0)
+            marker = explicit_single.group(0)
+            if any(value in marker for value in ("下午", "晚上")) and hour < 12:
+                hour += 12
+            start = _at_local_date(request_time, target_date, hour, minute)
+            if draft.duration_minutes is None:
+                updates["pending_start_at"] = start
+                updates["pending_start_ambiguous"] = False
+            else:
+                updates["time_window"] = TimeWindow(
+                    start=start, end=start + timedelta(minutes=draft.duration_minutes)
+                )
+                updates["pending_start_at"] = None
+                updates["pending_start_ambiguous"] = False
+        elif target_date is not None and daypart is not None:
+            start_hour, end_hour, crosses_midnight = daypart
+            start = _at_local_date(request_time, target_date, start_hour, 0)
+            end = _at_local_date(request_time, target_date, end_hour, 0)
+            if crosses_midnight:
+                end += timedelta(days=1)
+            updates["time_window"] = TimeWindow(start=start, end=end)
+    except ValueError:
+        updates.pop("time_window", None)
     return draft.model_copy(update=updates) if updates else draft
+
+
+def _deterministic_target_date(source: str, request_time: datetime) -> Any:
+    try:
+        if "今天" in source or "今日" in source:
+            return request_time.date()
+        if "明天" in source:
+            return (request_time + timedelta(days=1)).date()
+        if "后天" in source:
+            return (request_time + timedelta(days=2)).date()
+        absolute = re.search(r"(\d{4})年(\d{1,2})月(\d{1,2})[日号]", source)
+        if absolute is not None:
+            return request_time.date().replace(
+                year=int(absolute.group(1)),
+                month=int(absolute.group(2)),
+                day=int(absolute.group(3)),
+            )
+        month_day = re.search(r"(\d{1,2})月(\d{1,2})[日号]", source)
+        if month_day is not None:
+            return request_time.date().replace(
+                month=int(month_day.group(1)), day=int(month_day.group(2))
+            )
+        day_only = re.search(r"(?<!月)(?<!\d)(\d{1,2})号", source)
+        if day_only is not None:
+            return request_time.date().replace(day=int(day_only.group(1)))
+    except ValueError:
+        return None
+    weekdays = {"一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5, "日": 6, "天": 6}
+    weekday = re.search(
+        r"(下周|下星期|本周|这周|本星期|这星期|周|星期)([一二三四五六日天])",
+        source,
+    )
+    if weekday is not None:
+        target = weekdays[weekday.group(2)]
+        week_start = request_time.date() - timedelta(days=request_time.weekday())
+        if weekday.group(1) in {"下周", "下星期"}:
+            week_start += timedelta(days=7)
+        return week_start + timedelta(days=target)
+    return None
+
+
+def _daypart_window(source: str) -> tuple[int, int, bool] | None:
+    if "晚上" in source:
+        return 18, 6, True
+    if "下午" in source:
+        return 12, 18, False
+    if "中午" in source:
+        return 11, 14, False
+    if "上午" in source or "早上" in source:
+        return 6, 12, False
+    return None
+
+
+def _at_local_date(request_time: datetime, target_date: Any, hour: int, minute: int) -> datetime:
+    return request_time.replace(
+        year=target_date.year,
+        month=target_date.month,
+        day=target_date.day,
+        hour=hour,
+        minute=minute,
+        second=0,
+        microsecond=0,
+    )
+
+
+def _resolve_ambiguous_pending_start(
+    previous: RequirementDraft | None,
+    current: RequirementDraft,
+    source: str,
+) -> RequirementDraft:
+    if (
+        previous is None
+        or previous.pending_start_at is None
+        or not previous.pending_start_ambiguous
+    ):
+        return current
+    daypart = _daypart_window(source)
+    if daypart is None:
+        return current
+    start = previous.pending_start_at
+    hour = start.hour
+    if any(marker in source for marker in ("下午", "晚上", "中午")) and hour < 12:
+        hour += 12
+    resolved_start = start.replace(hour=hour)
+    duration = current.duration_minutes or previous.duration_minutes
+    if duration is None:
+        return current.model_copy(
+            update={
+                "time_window": None,
+                "pending_start_at": resolved_start,
+                "pending_start_ambiguous": False,
+            }
+        )
+    return current.model_copy(
+        update={
+            "time_window": TimeWindow(
+                start=resolved_start,
+                end=resolved_start + timedelta(minutes=duration),
+            ),
+            "pending_start_at": None,
+            "pending_start_ambiguous": False,
+        }
+    )
+
+
+def _apply_participant_delta(
+    previous: RequirementDraft | None,
+    current: RequirementDraft,
+    source: str,
+) -> RequirementDraft:
+    """Apply explicit roster mutations to the last verified participant list.
+
+    The model extracts only the current utterance, so a removal can legitimately
+    contain no replacement list.  Matching removals against the previous names
+    keeps the operation deterministic and prevents a negative instruction from
+    being misread as a brand-new participant list.
+    """
+
+    if previous is None or not previous.required_participant_names:
+        return current
+    previous_names = list(dict.fromkeys(previous.required_participant_names))
+    mentioned_previous = [name for name in previous_names if name in source]
+    remove_requested = bool(
+        mentioned_previous
+        and any(
+            marker in source
+            for marker in (
+                "去掉",
+                "删除",
+                "移除",
+                "排除",
+                "不参加",
+                "不会来",
+                "不来",
+                "请假",
+            )
+        )
+    )
+    add_requested = any(
+        marker in source for marker in ("加上", "增加", "添加", "邀请", "再叫上", "再加")
+    )
+    replace_requested = any(
+        marker in source for marker in ("改成", "换成", "只有", "就这些人", "参会人是")
+    )
+
+    next_names: list[str] | None = None
+    if remove_requested:
+        removed = set(mentioned_previous)
+        next_names = [name for name in previous_names if name not in removed]
+    elif add_requested and current.required_participant_names:
+        next_names = list(
+            dict.fromkeys([*previous_names, *current.required_participant_names])
+        )
+    elif replace_requested and current.required_participant_names:
+        next_names = list(dict.fromkeys(current.required_participant_names))
+
+    if next_names is None:
+        return current
+    previous_capacity = previous.minimum_capacity
+    explicit_capacity = current.minimum_capacity
+    preserved_capacity = (
+        previous_capacity
+        if previous_capacity is not None and previous_capacity > len(previous_names)
+        else None
+    )
+    next_capacity = max(
+        len(next_names),
+        explicit_capacity or 0,
+        preserved_capacity or 0,
+        1,
+    )
+    return current.model_copy(
+        update={
+            "required_participant_names": next_names,
+            # A user-corrected directory roster is now an explicit list.  Do
+            # not resolve MY_DEPARTMENT again and silently re-add removals.
+            "participant_scope": previous.participant_scope,
+            "participant_list_modified": True,
+            "minimum_capacity": next_capacity,
+        }
+    )
+
+
+def _source_changes_intent(source: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:取消|撤销|改期|改到|调整到|重新安排|新建会议|预约会议|找个空的会议室)",
+            source,
+        )
+    )
+
+
+def _merge_requirement_drafts(
+    previous: RequirementDraft | None,
+    current: RequirementDraft,
+    *,
+    source: str,
+) -> RequirementDraft:
+    if previous is None:
+        return current
+    explicit_names = bool(current.required_participant_names)
+    participant_mutated = current.participant_list_modified
+    scope_changed = current.participant_scope is not None
+    if current.time_window is not None:
+        time_window = current.time_window
+        pending_start_at = None
+        pending_start_ambiguous = False
+    elif current.pending_start_at is not None:
+        time_window = None
+        pending_start_at = current.pending_start_at
+        pending_start_ambiguous = current.pending_start_ambiguous
+    else:
+        time_window = previous.time_window
+        pending_start_at = previous.pending_start_at
+        pending_start_ambiguous = previous.pending_start_ambiguous
+    soft_constraints = [*previous.soft_constraints]
+    for soft_item in current.soft_constraints:
+        soft_constraints = [
+            existing for existing in soft_constraints if existing.type != soft_item.type
+        ]
+        value = soft_item.value
+        if (
+            soft_item.type == "PREFER_START_AT"
+            and value.startswith("0")
+            and time_window is not None
+            and time_window.start.hour >= 12
+        ):
+            hour, minute = value.split(":", maxsplit=1)
+            value = f"{int(hour) + 12:02d}:{minute}"
+        soft_constraints.append(soft_item.model_copy(update={"value": value}))
+    hard_constraints = list(previous.hard_constraints)
+    for hard_item in current.hard_constraints:
+        hard_constraints = [
+            existing for existing in hard_constraints if existing.type != hard_item.type
+        ]
+        hard_constraints.append(hard_item)
+    evidence = [*previous.field_evidence]
+    for evidence_item in current.field_evidence:
+        if evidence_item not in evidence:
+            evidence.append(evidence_item)
+    return previous.model_copy(
+        update={
+            "intent": (
+                current.intent if _source_changes_intent(source) else previous.intent
+            ),
+            "title": current.title or previous.title,
+            "meeting_type": current.meeting_type or previous.meeting_type,
+            "duration_minutes": current.duration_minutes or previous.duration_minutes,
+            "time_window": time_window,
+            "pending_start_at": pending_start_at,
+            "pending_start_ambiguous": pending_start_ambiguous,
+            "required_participant_names": (
+                current.required_participant_names
+                if explicit_names or scope_changed or participant_mutated
+                else previous.required_participant_names
+            ),
+            "participant_scope": (
+                current.participant_scope or previous.participant_scope
+                if participant_mutated
+                else None
+                if explicit_names
+                else current.participant_scope or previous.participant_scope
+            ),
+            "participant_list_modified": (
+                participant_mutated or previous.participant_list_modified
+            ),
+            "optional_groups": list(
+                dict.fromkeys([*previous.optional_groups, *current.optional_groups])
+            ),
+            "required_features": list(
+                dict.fromkeys([*previous.required_features, *current.required_features])
+            ),
+            "minimum_capacity": current.minimum_capacity or previous.minimum_capacity,
+            "preferred_buildings": list(
+                dict.fromkeys([*previous.preferred_buildings, *current.preferred_buildings])
+            ),
+            "hard_constraints": hard_constraints,
+            "soft_constraints": soft_constraints,
+            "target_meeting_id": current.target_meeting_id or previous.target_meeting_id,
+            "target_meeting_reference": (
+                current.target_meeting_reference or previous.target_meeting_reference
+            ),
+            "field_evidence": evidence[-40:],
+            "needs_policy": current.needs_policy or previous.needs_policy,
+            "summary": current.summary,
+        }
+    )
+
+
+def _scope_members(outcome: ToolOutcome) -> list[Participant]:
+    raw = outcome.data.get("members")
+    if not isinstance(raw, list):
+        return []
+    members: list[Participant] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        employee_id = item.get("employeeId")
+        display_name = item.get("displayName")
+        status = item.get("status")
+        if isinstance(employee_id, int) and isinstance(display_name, str) and status == "ACTIVE":
+            members.append(Participant(name=display_name, employee_id=employee_id))
+    return members
+
+
+def _requirement_feedback(code: str, summary: str) -> RequirementFeedback:
+    return RequirementFeedback(codes=[code], summary=summary, repairable=False)
+
+
+def _source_has_ambiguous_single_time(source: str) -> bool:
+    match = re.search(
+        r"(?:上午|早上|中午|下午|晚上)?\s*(\d{1,2})(?::(\d{2})|点)(?:开始)?",
+        source,
+    )
+    if match is None or "点" not in match.group(0) or int(match.group(1)) > 12:
+        return False
+    return not any(
+        marker in match.group(0) for marker in ("上午", "早上", "中午", "下午", "晚上")
+    )
+
+
+def _source_describes_fixed_interval(source: str) -> bool:
+    match = SourceFidelityEvaluator._TIME_RANGE.search(source)
+    return match is not None and not SourceFidelityEvaluator.is_search_window(source, match)
+
+
+def _closes_optional_requirements(source: str) -> bool:
+    return any(
+        marker in source
+        for marker in ("没别的要求", "没有其他要求", "其他没有", "没其他要求", "无其他要求")
+    )
+
+
+def _previous_requirement_item(
+    items: list[RequirementItem], field_name: str
+) -> RequirementItem | None:
+    return next((item for item in items if item.field == field_name), None)
+
+
+def _has_requirement_issue(missing_fields: list[str], field_name: str) -> bool:
+    prefixes = {
+        "timeWindow": ("TIME_", "WINDOW_"),
+        "durationMinutes": ("DURATION_",),
+        "requiredParticipants": ("PARTICIPANT_", "REQUIRED_PARTICIPANT_"),
+    }.get(field_name, ())
+    return field_name in missing_fields or any(
+        code.startswith(prefixes) for code in missing_fields
+    )
+
+
+def _requirement_items(
+    *,
+    draft: RequirementDraft,
+    request: MeetingRequest,
+    missing_fields: list[str],
+    source: str,
+    previous_items: list[RequirementItem],
+    optional_closed: bool,
+) -> list[RequirementItem]:
+    items: list[RequirementItem] = []
+    previous_time = _previous_requirement_item(previous_items, "timeWindow")
+    time_issue = _has_requirement_issue(missing_fields, "timeWindow")
+    if draft.time_window is None and draft.pending_start_at is not None:
+        rule = _time_rule_id(source)
+        items.append(
+            RequirementItem(
+                field="timeWindow",
+                status=(
+                    RequirementSlotStatus.AMBIGUOUS
+                    if draft.pending_start_ambiguous
+                    else RequirementSlotStatus.DEFAULTED
+                    if rule is not None
+                    else RequirementSlotStatus.EXPLICIT
+                ),
+                summary=(
+                    f"{draft.pending_start_at.strftime('%Y-%m-%d')} 的"
+                    f" {draft.pending_start_at.strftime('%H:%M')}，请确认上午或下午"
+                    if draft.pending_start_ambiguous
+                    else f"{draft.pending_start_at.strftime('%Y-%m-%d %H:%M')} 开始"
+                ),
+                source=source,
+                rule_id=rule,
+                blocking=draft.pending_start_ambiguous,
+            )
+        )
+    elif draft.time_window is None:
+        ambiguous_time = _source_has_ambiguous_single_time(source)
+        items.append(
+            RequirementItem(
+                field="timeWindow",
+                status=(
+                    RequirementSlotStatus.AMBIGUOUS
+                    if ambiguous_time
+                    else RequirementSlotStatus.MISSING
+                ),
+                summary=(
+                    "请说明是上午还是下午，并确认允许安排的时间段"
+                    if ambiguous_time
+                    else "待补充日期和允许安排的时间段"
+                ),
+                blocking=True,
+            )
+        )
+    else:
+        soft_preference_only = _source_has_soft_start_preference_only(source)
+        rule = None if soft_preference_only else _time_rule_id(source)
+        status = (
+            RequirementSlotStatus.CONFLICT
+            if time_issue
+            else previous_time.status
+            if soft_preference_only and previous_time is not None
+            else RequirementSlotStatus.DEFAULTED
+            if rule is not None
+            else previous_time.status
+            if previous_time is not None
+            else RequirementSlotStatus.EXPLICIT
+        )
+        items.append(
+            RequirementItem(
+                field="timeWindow",
+                status=status,
+                summary=(
+                    f"{draft.time_window.start.strftime('%Y-%m-%d %H:%M')} 至 "
+                    f"{draft.time_window.end.strftime('%Y-%m-%d %H:%M')}"
+                ),
+                source=(
+                    source
+                    if rule is not None
+                    else previous_time.source
+                    if previous_time
+                    else source
+                ),
+                rule_id=rule or (previous_time.rule_id if previous_time else None),
+                blocking=time_issue,
+            )
+        )
+    previous_duration = _previous_requirement_item(previous_items, "durationMinutes")
+    duration_issue = _has_requirement_issue(missing_fields, "durationMinutes")
+    if draft.duration_minutes is None:
+        items.append(
+            RequirementItem(
+                field="durationMinutes",
+                status=RequirementSlotStatus.MISSING,
+                summary="待补充会议时长",
+                blocking=True,
+            )
+        )
+    else:
+        duration_is_current = bool(re.search(r"\d+\s*(?:分钟|个?小时)", source))
+        items.append(
+            RequirementItem(
+                field="durationMinutes",
+                status=(
+                    RequirementSlotStatus.CONFLICT
+                    if duration_issue
+                    else RequirementSlotStatus.EXPLICIT
+                    if duration_is_current
+                    else previous_duration.status
+                    if previous_duration
+                    else RequirementSlotStatus.EXPLICIT
+                ),
+                summary=f"{draft.duration_minutes}分钟",
+                source=(
+                    source
+                    if re.search(r"(?:分钟|小时)", source)
+                    else previous_duration.source
+                    if previous_duration
+                    else source
+                ),
+                blocking=duration_issue,
+            )
+        )
+    previous_participants = _previous_requirement_item(previous_items, "requiredParticipants")
+    if not draft.required_participant_names and draft.participant_scope != "ORGANIZER_ONLY":
+        items.append(
+            RequirementItem(
+                field="requiredParticipants",
+                status=RequirementSlotStatus.MISSING,
+                summary="待补充必需参会人员或人员范围",
+                blocking=True,
+            )
+        )
+    elif draft.participant_scope == "ORGANIZER_ONLY":
+        items.append(
+            RequirementItem(
+                field="requiredParticipants",
+                status=RequirementSlotStatus.EXPLICIT,
+                summary="仅当前发起人",
+                source=source,
+            )
+        )
+    else:
+        directory = (
+            draft.participant_scope == "MY_DEPARTMENT"
+            and not draft.participant_list_modified
+        )
+        participant_changed = _source_has_participant_mutation(source)
+        names = "、".join(draft.required_participant_names)
+        items.append(
+            RequirementItem(
+                field="requiredParticipants",
+                status=(
+                    RequirementSlotStatus.DIRECTORY_RESOLVED
+                    if directory
+                    else RequirementSlotStatus.EXPLICIT
+                    if participant_changed
+                    else previous_participants.status
+                    if previous_participants is not None
+                    else RequirementSlotStatus.EXPLICIT
+                ),
+                summary=f"{len(draft.required_participant_names)}人：{names}",
+                source=(
+                    "我的小组/同组人员"
+                    if directory
+                    else source
+                    if participant_changed
+                    else previous_participants.source
+                    if previous_participants is not None
+                    else source
+                ),
+                rule_id="CURRENT_USER_DEPARTMENT" if directory else None,
+            )
+        )
+    features = "、".join(draft.required_features)
+    items.append(
+        RequirementItem(
+            field="optionalRequirements",
+            status=(
+                RequirementSlotStatus.CLOSED
+                if optional_closed
+                else RequirementSlotStatus.EXPLICIT
+                if features
+                else RequirementSlotStatus.UNSPECIFIED
+            ),
+            summary=(
+                f"硬性设备：{features}；其他要求已结束"
+                if optional_closed and features
+                else "没有其他硬性要求"
+                if optional_closed
+                else f"硬性设备：{features}；可继续补充其他要求"
+                if features
+                else "可选：投屏、白板、视频会议设备、地点等硬性要求"
+            ),
+            source=source if features or optional_closed else None,
+        )
+    )
+    return items
+
+
+def _time_rule_id(source: str) -> str | None:
+    date_default = bool(re.search(r"(?<!月)(?<!\d)\d{1,2}号", source))
+    weekday_default = bool(
+        re.search(r"(?:本周|这周|本星期|这星期|周|星期)[一二三四五六日天]", source)
+    )
+    daypart = _daypart_window(source)
+    if date_default and daypart is not None:
+        return "CURRENT_MONTH_AND_DAYPART"
+    if weekday_default and daypart is not None:
+        return "CURRENT_WEEK_AND_DAYPART"
+    explicit_date = bool(
+        re.search(r"(?:今天|今日|明天|后天|\d{4}年|\d{1,2}月|\d{1,2}号)", source)
+        or re.search(r"(?:下周|下星期|本周|这周|周|星期)[一二三四五六日天]", source)
+    )
+    time_only = bool(re.search(r"(?:\d{1,2}:\d{2}|\d{1,2}点)", source))
+    if time_only and not explicit_date:
+        return "CURRENT_DAY_FROM_TIME_ONLY"
+    if daypart is not None:
+        return "CURRENT_DAY_AND_DAYPART"
+    return None
+
+
+def _source_has_soft_start_preference_only(source: str) -> bool:
+    pattern = (
+        r"(?:最好|尽量|优先)(?:是|在)?(?:下午|晚上|上午|早上|中午)?"
+        r"\s*\d{1,2}(?::\d{2}|点)"
+    )
+    if not re.search(pattern, source):
+        return False
+    if any(marker in source for marker in ("必须", "固定", "就定", "只能")):
+        return False
+    return not bool(
+        re.search(
+            r"(?:今天|今日|明天|后天|\d{1,2}月\d{1,2}[日号]|(?<!月)(?<!\d)\d{1,2}号|"
+            r"(?:下周|本周|这周|周|星期)[一二三四五六日天])",
+            source,
+        )
+    )
+
+
+def _source_has_participant_mutation(source: str) -> bool:
+    return any(
+        marker in source
+        for marker in (
+            "去掉",
+            "删除",
+            "移除",
+            "排除",
+            "不参加",
+            "不会来",
+            "不来",
+            "请假",
+            "加上",
+            "增加",
+            "添加",
+            "邀请",
+            "再叫上",
+            "再加",
+            "改成",
+            "换成",
+            "只有",
+            "就这些人",
+            "参会人是",
+        )
+    )
+
+
+def _format_requirement_clarification(items: list[RequirementItem]) -> str:
+    labels = {
+        "timeWindow": "时间",
+        "durationMinutes": "时长",
+        "requiredParticipants": "参会人",
+        "optionalRequirements": "其他条件",
+    }
+    status_labels = {
+        RequirementSlotStatus.DEFAULTED: "系统补全",
+        RequirementSlotStatus.DIRECTORY_RESOLVED: "通讯录推定",
+        RequirementSlotStatus.MISSING: "还需补充",
+        RequirementSlotStatus.EXPLICIT: "已明确",
+        RequirementSlotStatus.AMBIGUOUS: "需要确认",
+        RequirementSlotStatus.CONFLICT: "存在冲突",
+        RequirementSlotStatus.UNSPECIFIED: "未说明",
+        RequirementSlotStatus.CLOSED: "已结束",
+    }
+    lines = ["我先把需求整理如下，你可以一句话补充或纠正："]
+    for index, item in enumerate(items, start=1):
+        lines.append(
+            f"{index}. {labels[item.field]}（{status_labels[item.status]}）：{item.summary}。"
+        )
+    if any(item.status is RequirementSlotStatus.DIRECTORY_RESOLVED for item in items):
+        lines.append("“我的小组”暂按当前所属部门解释；如名单有误，请直接补充或删除人员。")
+    blocking = [labels[item.field] for item in items if item.blocking]
+    if blocking:
+        lines.append("开始查询前还需要：" + "、".join(blocking) + "。")
+    return "\n".join(lines)[:500]
 
 
 def _scheduling_system_prompt(*, state: AgentState, context: AgentContext) -> str:
@@ -895,6 +2083,38 @@ def _read_facts_ready(
     if request.intent is Intent.CANCEL_MEETING:
         return request.target_meeting_id is not None or recent_data is not None
     return True
+
+
+def _missing_read_tools(
+    *,
+    request: MeetingRequest,
+    resolved: list[Participant],
+    free_busy_data: dict[str, Any] | None,
+    rooms_data: dict[str, Any] | None,
+    recent_data: dict[str, Any] | None,
+) -> list[str]:
+    missing: list[str] = []
+    expected_names = {item.name for item in request.required_participants}
+    resolved_names = {item.name for item in resolved if item.employee_id is not None}
+    if expected_names and not expected_names.issubset(resolved_names):
+        missing.append("resolve_employees")
+    if (
+        request.intent in {Intent.MODIFY_MEETING, Intent.CANCEL_MEETING}
+        and request.target_meeting_id is None
+        and recent_data is None
+    ):
+        missing.append("get_recent_meeting")
+    if request.intent in {
+        Intent.CREATE_MEETING,
+        Intent.FIND_COMMON_TIME,
+        Intent.RECOMMEND_ROOM,
+        Intent.MODIFY_MEETING,
+    }:
+        if free_busy_data is None:
+            missing.append("get_employee_free_busy")
+        if rooms_data is None:
+            missing.append("search_available_rooms")
+    return missing
 
 
 def _recent_meeting_id(data: dict[str, Any] | None) -> int | None:
@@ -1159,6 +2379,7 @@ class WorkflowRun:
             self._route_from_start,
             {
                 "supervisor_route": "supervisor_route",
+                "requirement_agent": "requirement_agent",
                 "scheduling_agent": "scheduling_agent",
             },
         )
@@ -1240,19 +2461,22 @@ class WorkflowRun:
         )
 
     def _requirement_node(self, state: AgentState) -> dict[str, Any]:
-        self._ensure_limits(state, model_increment=1, tool_increment=0)
+        self._ensure_limits(state, model_increment=1, tool_increment=1)
         sequence_no = state.step_count + 1
         started = time.perf_counter()
         try:
-            updated, summary, model_calls = self.requirement.execute(state)
+            updated, summary, model_calls, outcomes = self.requirement.execute(state)
             if state.model_call_count + model_calls > self.settings.agent_max_model_calls:
                 raise WorkflowError("AGENT_STEP_LIMIT_EXCEEDED", "已达到模型调用上限")
             updated = updated.model_copy(
                 update={
                     "step_count": sequence_no,
                     "model_call_count": state.model_call_count + model_calls,
+                    "tool_call_count": state.tool_call_count + len(outcomes),
                 }
             )
+            for outcome in outcomes:
+                self._record_tool(state=updated, outcome=outcome)
             self._record_step(
                 state=updated,
                 sequence_no=sequence_no,
@@ -1263,6 +2487,19 @@ class WorkflowRun:
                 input_summary="Extract, evaluate, and at most once repair a meeting request.",
             )
             self.latest_state = updated
+            if updated.requirement_items:
+                self.sink.emit(
+                    "requirement.updated",
+                    {
+                        "runId": updated.run_id,
+                        "revision": updated.requirement_revision,
+                        "ready": not updated.missing_fields,
+                        "items": [
+                            item.model_dump(by_alias=True, mode="json")
+                            for item in updated.requirement_items
+                        ],
+                    },
+                )
             return self._dump(updated)
         except WorkflowError as exc:
             self._record_failed_step(state, "requirement", "requirement_agent", sequence_no, exc)
@@ -1572,7 +2809,12 @@ class WorkflowRun:
         self._ensure_limits(state, model_increment=0, tool_increment=0)
         sequence_no = state.step_count + 1
         if state.missing_fields:
-            answer = "请补充：" + "、".join(state.missing_fields)
+            answer = state.answer_summary or str(
+                _clarification_contract(
+                    issue_codes=state.missing_fields,
+                    request=state.meeting_request,
+                )["fallbackMessage"]
+            )
             run_status = RunStatus.WAITING_USER_INPUT
         elif state.policy_result is not None and state.intent is Intent.QUERY_POLICY:
             answer = state.policy_result.summary
@@ -1818,6 +3060,8 @@ class WorkflowRun:
             and state.conflict_repair_feedback is not None
         ):
             return "scheduling_agent"
+        if state.continuation_turn and state.requirement_draft is not None:
+            return "requirement_agent"
         return "supervisor_route"
 
     @staticmethod
@@ -2056,7 +3300,9 @@ def build_workflow_run(
         settings=settings,
         repository=repository,
         supervisor=SupervisorAgent(provider=provider, runner=runner),
-        requirement=RequirementAgent(provider=provider, runner=runner),
+        requirement=RequirementAgent(
+            provider=provider, runner=runner, tools=tools, context=context
+        ),
         policy=PolicyAgent(provider=provider, runner=runner, retriever=retriever),
         scheduling=SchedulingAgent(
             provider=provider,

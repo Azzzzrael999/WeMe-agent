@@ -39,6 +39,26 @@
       />
 
       <div v-if="!recoveryLoading || runId" class="composer-dock">
+        <section
+          v-if="(runStatus === 'WAITING_USER_INPUT' || (runStatus === 'FAILED' && requirementBaselineAvailable)) && requirementItems.length > 0"
+          class="requirement-progress"
+        >
+          <header>
+            <div>
+              <strong>已整理的会议需求</strong>
+              <small>{{ runStatus === 'FAILED' ? '上次运行失败，将从这版有效需求创建恢复任务' : '直接补充待确认项，Agent 会在当前任务中继续' }}</small>
+            </div>
+            <span>第 {{ requirementRevision }} 版</span>
+          </header>
+          <ul>
+            <li v-for="item in requirementItems" :key="item.field">
+              <span class="requirement-progress__status" :data-status="item.status">
+                {{ requirementStatusLabel(item.status) }}
+              </span>
+              <span><strong>{{ requirementFieldLabel(item.field) }}</strong><small>{{ item.summary }}</small></span>
+            </li>
+          </ul>
+        </section>
         <button
           v-if="hitlDraft && actionType && confirmationToken"
           class="composer-hitl-notice"
@@ -109,6 +129,7 @@ import type {
   AgentHitlDraft,
   AgentLoopEvent,
   AgentOperationType,
+  AgentRequirementItem,
   AgentResumeAction,
   AgentRunRecovery,
   AgentRunSummary,
@@ -155,6 +176,9 @@ const orchestrationOpen = ref(false)
 const orchestrationTab = ref<'requirements' | 'candidates' | 'policy' | 'execution'>('requirements')
 const submittedMessage = ref('')
 const runMetrics = ref<Partial<AgentRunSummary> | null>(null)
+const requirementRevision = ref(0)
+const requirementItems = ref<AgentRequirementItem[]>([])
+const requirementBaselineAvailable = ref(false)
 
 interface ConversationTurn {
   id: string
@@ -306,6 +330,54 @@ function readCitations(value: unknown): AgentCitation[] {
   })
 }
 
+function readRequirementItems(value: unknown): AgentRequirementItem[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value.flatMap((entry) => {
+    const item = record(entry)
+    if (item === null) {
+      return []
+    }
+    const field = stringValue(item, 'field')
+    const status = stringValue(item, 'status')
+    const summary = stringValue(item, 'summary')
+    if (field === undefined || status === undefined || summary === undefined) {
+      return []
+    }
+    return [{
+      field,
+      status,
+      summary,
+      source: typeof item.source === 'string' || item.source === null ? item.source : undefined,
+      ruleId: typeof item.ruleId === 'string' || item.ruleId === null ? item.ruleId : undefined,
+      blocking: typeof item.blocking === 'boolean' ? item.blocking : undefined,
+    }]
+  })
+}
+
+function requirementFieldLabel(field: string): string {
+  return {
+    timeWindow: '时间范围',
+    durationMinutes: '会议时长',
+    requiredParticipants: '参会人员',
+    optionalRequirements: '其他要求',
+  }[field] ?? field
+}
+
+function requirementStatusLabel(status: string): string {
+  return {
+    EXPLICIT: '已明确',
+    DEFAULTED: '已默认',
+    DIRECTORY_RESOLVED: '组织库补全',
+    MISSING: '待补充',
+    AMBIGUOUS: '待确认',
+    CONFLICT: '有冲突',
+    UNSPECIFIED: '未说明',
+    CLOSED: '已结束',
+  }[status] ?? status
+}
+
 function handleSseMessage(messageEvent: SseMessage): void {
   const payload = record(messageEvent.data)
   if (payload === null) {
@@ -326,6 +398,11 @@ function handleSseMessage(messageEvent: SseMessage): void {
       return
     case 'run.resumed':
       runStatus.value = stringValue(payload, 'status') ?? 'RUNNING'
+      return
+    case 'requirement.updated':
+      requirementRevision.value = numberValue(payload, 'revision') ?? requirementRevision.value
+      requirementItems.value = readRequirementItems(payload.items)
+      requirementBaselineAvailable.value = false
       return
     case 'agent.step': {
       const stepId = stringValue(payload, 'stepId')
@@ -444,6 +521,7 @@ function handleSseMessage(messageEvent: SseMessage): void {
       return
     case 'run.failed':
       runStatus.value = stringValue(payload, 'status') ?? 'FAILED'
+      requirementBaselineAvailable.value = requirementRevision.value > 0 && requirementItems.value.length > 0
       errorMessage.value = stringValue(payload, 'message') ?? '调度未能完成，请稍后重试。'
       confirmationToken.value = null
       candidates.value = []
@@ -509,15 +587,39 @@ async function startRun(): Promise<void> {
   if (submitted.length === 0 || streaming.value || decisionBusy.value) {
     return
   }
+  const continuingRequirement = runStatus.value === 'WAITING_USER_INPUT'
+    && runId.value !== null
+    && requirementRevision.value > 0
+  const continuingRunId = runId.value
+  const expectedRevision = requirementRevision.value
+  const failedBaselineRunId = runStatus.value === 'FAILED'
+    && runId.value !== null
+    && (requirementBaselineAvailable.value || requirementRevision.value > 0)
+    ? runId.value
+    : null
   archiveCurrentTurn()
-  clearRunState()
+  if (!continuingRequirement) {
+    clearRunState()
+  } else {
+    answerSummary.value = ''
+    errorMessage.value = ''
+  }
   threadId.value ??= `thread_${crypto.randomUUID().replaceAll('-', '')}`
   submittedMessage.value = submitted
   message.value = ''
+  if (continuingRequirement && continuingRunId !== null) {
+    await consumeStream(`/agent/runs/${continuingRunId}/input`, {
+      message: submitted,
+      clientRequestId: createClientRequestId(),
+      expectedRevision,
+    })
+    return
+  }
   await consumeStream('/agent/runs/stream', {
     threadId: threadId.value,
     message: submitted,
     clientRequestId: createClientRequestId(),
+    ...(failedBaselineRunId === null ? {} : { baseRunId: failedBaselineRunId }),
   })
 }
 
@@ -554,7 +656,9 @@ function currentConversationTurn(): ConversationTurn | null {
   }
   const answer = answerSummary.value || errorMessage.value || (streaming.value ? '正在处理…' : '已保存当前 Run，可继续查看结构化编排结果。')
   return {
-    id: runId.value ?? `pending-${submittedMessage.value}`,
+    id: runId.value === null
+      ? `pending-${submittedMessage.value}`
+      : `${runId.value}:${requirementRevision.value}:${submittedMessage.value}`,
     runId: runId.value,
     question: submittedMessage.value,
     answer,
@@ -605,7 +709,13 @@ function restoreConversation(thread: string, currentRunId: string): void {
   if (stored === undefined || !Array.isArray(stored.history)) {
     return
   }
-  conversationHistory.value = stored.history.filter((turn) => turn.runId !== currentRunId)
+  const currentQuestion = stored.current?.runId === currentRunId
+    ? stored.current.question
+    : submittedMessage.value
+  conversationHistory.value = stored.history.filter((turn) => (
+    turn.id !== stored.current?.id
+    && !(turn.runId === currentRunId && turn.question === currentQuestion)
+  ))
   if (stored.current?.runId === currentRunId) {
     submittedMessage.value = stored.current.question
     runStatus.value = stored.current.status || 'RUNNING'
@@ -713,6 +823,9 @@ function clearRunState(): void {
   hitlFeedback.value = ''
   bookingRequest.value = null
   runMetrics.value = null
+  requirementRevision.value = 0
+  requirementItems.value = []
+  requirementBaselineAvailable.value = false
   orchestrationOpen.value = false
   orchestrationTab.value = 'requirements'
 }
@@ -739,6 +852,9 @@ function applyRecovery(recovery: AgentRunRecovery): void {
   runStatus.value = recovery.status
   answerSummary.value = recovery.answerSummary ?? ''
   runMetrics.value = recovery
+  requirementRevision.value = recovery.requirementRevision ?? 0
+  requirementItems.value = recovery.requirementItems ?? []
+  requirementBaselineAvailable.value = recovery.requirementBaselineAvailable ?? false
   const nextDraft = recovery.draft === undefined
     ? null
     : readHitlDraft(recovery.draft, recovery.actionType ?? recovery.operationType)

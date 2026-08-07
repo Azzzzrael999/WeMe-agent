@@ -7,6 +7,7 @@ an unexpected field cannot quietly change a business decision.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Annotated, Any, Literal
@@ -80,6 +81,17 @@ class OperationType(StrEnum):
 class EvidenceProvenance(StrEnum):
     USER_EXPLICIT = "USER_EXPLICIT"
     USER_DERIVED = "USER_DERIVED"
+
+
+class RequirementSlotStatus(StrEnum):
+    EXPLICIT = "EXPLICIT"
+    DEFAULTED = "DEFAULTED"
+    DIRECTORY_RESOLVED = "DIRECTORY_RESOLVED"
+    MISSING = "MISSING"
+    AMBIGUOUS = "AMBIGUOUS"
+    CONFLICT = "CONFLICT"
+    UNSPECIFIED = "UNSPECIFIED"
+    CLOSED = "CLOSED"
 
 
 class Participant(AgentSchema):
@@ -156,6 +168,29 @@ class SupervisorDecision(AgentSchema):
     summary: str = Field(min_length=1, max_length=240)
 
 
+class ClarificationResponse(AgentSchema):
+    """User-facing wording only; business facts stay in deterministic state."""
+
+    message: str = Field(min_length=1, max_length=500)
+
+    @field_validator("message")
+    @classmethod
+    def reject_internal_or_effect_claims(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("clarification message must not be blank")
+        if re.search(r"\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b", normalized) or any(
+            marker in normalized for marker in ("EVALUATOR_FEEDBACK", "内部错误码")
+        ):
+            raise ValueError("clarification message exposed internal validation details")
+        if any(
+            claim in normalized
+            for claim in ("已创建会议", "已确认会议", "已取消会议", "已完成预约")
+        ):
+            raise ValueError("clarification message claimed an unverified business effect")
+        return normalized
+
+
 class FieldEvidence(AgentSchema):
     field: str = Field(min_length=1, max_length=64)
     source: str = Field(min_length=1, max_length=500)
@@ -168,7 +203,11 @@ class RequirementDraft(AgentSchema):
     meeting_type: str | None = Field(default=None, max_length=32)
     duration_minutes: int | None = Field(default=None, ge=30, le=480, multiple_of=30)
     time_window: TimeWindow | None = None
+    pending_start_at: datetime | None = None
+    pending_start_ambiguous: bool = False
     required_participant_names: list[str] = Field(default_factory=list, max_length=50)
+    participant_scope: Literal["MY_DEPARTMENT", "ORGANIZER_ONLY"] | None = None
+    participant_list_modified: bool = False
     optional_groups: list[str] = Field(default_factory=list, max_length=20)
     required_features: list[str] = Field(default_factory=list, max_length=20)
     minimum_capacity: int | None = Field(default=None, ge=1, le=10_000)
@@ -207,7 +246,9 @@ class RequirementExtraction(AgentSchema):
             required_features=draft.required_features,
             minimum_capacity=max(
                 draft.minimum_capacity or 1,
-                1 + len(set(draft.required_participant_names)),
+                len(set(draft.required_participant_names))
+                if draft.participant_scope == "MY_DEPARTMENT"
+                else 1 + len(set(draft.required_participant_names)),
             ),
             preferred_buildings=draft.preferred_buildings,
             hard_constraints=draft.hard_constraints,
@@ -215,6 +256,20 @@ class RequirementExtraction(AgentSchema):
             target_meeting_id=draft.target_meeting_id,
             target_meeting_reference=draft.target_meeting_reference,
         )
+
+
+class RequirementItem(AgentSchema):
+    field: Literal["timeWindow", "durationMinutes", "requiredParticipants", "optionalRequirements"]
+    status: RequirementSlotStatus
+    summary: str = Field(min_length=1, max_length=500)
+    source: str | None = Field(default=None, max_length=500)
+    rule_id: str | None = Field(default=None, max_length=64)
+    blocking: bool = False
+
+
+class ProcessedRequirementInput(AgentSchema):
+    client_request_id: str = Field(min_length=1, max_length=80)
+    content_hash: str = Field(min_length=64, max_length=64)
 
 
 class NormalizationReport(AgentSchema):
@@ -619,6 +674,15 @@ class AgentState(AgentSchema):
     request_time: datetime
     intent: Intent | None = None
     meeting_request: MeetingRequest | None = None
+    requirement_draft: RequirementDraft | None = None
+    requirement_items: list[RequirementItem] = Field(default_factory=list, max_length=8)
+    requirement_revision: int = Field(default=0, ge=0, le=100)
+    continuation_turn: bool = False
+    continued_from_run_id: str | None = Field(default=None, max_length=64)
+    optional_requirements_closed: bool = False
+    processed_requirement_inputs: list[ProcessedRequirementInput] = Field(
+        default_factory=list, max_length=20
+    )
     missing_fields: list[str] = Field(default_factory=list)
     policy_result: PolicyResult | None = None
     resolved_employees: list[Participant] = Field(default_factory=list)
@@ -656,8 +720,8 @@ class AgentState(AgentSchema):
     model_provider: str | None = Field(default=None, max_length=32)
     configured_model: str | None = Field(default=None, max_length=128)
     response_models: list[str] = Field(default_factory=list, max_length=12)
-    prompt_version: str = Field(default="meeting-agent-prompts-v3", max_length=64)
-    schema_version: str = Field(default="meeting-agent-state-v3", max_length=64)
+    prompt_version: str = Field(default="meeting-agent-prompts-v6", max_length=64)
+    schema_version: str = Field(default="meeting-agent-state-v5", max_length=64)
     input_tokens: int = Field(default=0, ge=0)
     output_tokens: int = Field(default=0, ge=0)
     cache_hit_tokens: int = Field(default=0, ge=0)
@@ -670,6 +734,13 @@ class AgentStreamRequest(AgentSchema):
     thread_id: str | None = Field(default=None, max_length=64)
     message: str = Field(min_length=1, max_length=4000)
     client_request_id: str = Field(min_length=1, max_length=80)
+    base_run_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+class AgentInputRequest(AgentSchema):
+    message: str = Field(min_length=1, max_length=4000)
+    client_request_id: str = Field(min_length=1, max_length=80)
+    expected_revision: int = Field(ge=1, le=100)
 
 
 class ToolCallEvent(AgentSchema):

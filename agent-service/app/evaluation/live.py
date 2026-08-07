@@ -300,7 +300,7 @@ def run_live_evaluation(
                     )
                     tool_match = not case.expected_tools
                 else:
-                    state, _, _ = requirement.execute(state)
+                    state, _, _, _ = requirement.execute(state)
                     intent_match = state.intent is case.expected_intent
                     observed = _observed_constraints(state)
                     case_tp, case_fp, case_fn = _constraint_scores(

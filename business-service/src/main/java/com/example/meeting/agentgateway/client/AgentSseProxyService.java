@@ -1,5 +1,6 @@
 package com.example.meeting.agentgateway.client;
 
+import com.example.meeting.agentgateway.api.AgentRunInputRequest;
 import com.example.meeting.agentgateway.api.AgentRunResumeRequest;
 import com.example.meeting.agentgateway.api.AgentRunStreamRequest;
 import com.example.meeting.common.error.BusinessException;
@@ -77,6 +78,11 @@ public class AgentSseProxyService {
     return open("/internal/v1/agent-runs/" + runId + "/resume", runId, body, actor, traceId);
   }
 
+  public UpstreamStream input(
+      String runId, AgentRunInputRequest body, AuthenticatedUser actor, String traceId) {
+    return open("/internal/v1/agent-runs/" + runId + "/input", runId, body, actor, traceId);
+  }
+
   public JsonNode getRun(String runId, AuthenticatedUser actor, String traceId) {
     return get("/internal/v1/agent-runs/" + runId, runId, actor, traceId, false);
   }
@@ -103,6 +109,10 @@ public class AgentSseProxyService {
               .build();
       HttpResponse<InputStream> response =
           httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+      if (response.statusCode() == 409) {
+        closeQuietly(response.body());
+        throw new BusinessException(ErrorCode.AGENT_RUN_STATE_CONFLICT);
+      }
       MediaType contentType = sseContentType(response);
       if (response.statusCode() < 200 || response.statusCode() >= 300 || contentType == null) {
         closeQuietly(response.body());

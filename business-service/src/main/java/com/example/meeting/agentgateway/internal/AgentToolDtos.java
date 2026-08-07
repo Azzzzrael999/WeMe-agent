@@ -30,6 +30,12 @@ public final class AgentToolDtos {
   public record ResolveEmployeesResponse(
       List<ResolvedEmployeeView> employees, List<String> unresolvedNames) {}
 
+  public record ResolveParticipantScopeRequest(
+      @NotBlank @jakarta.validation.constraints.Pattern(regexp = "MY_DEPARTMENT") String scope) {}
+
+  public record ResolveParticipantScopeResponse(
+      String scope, String scopeName, List<ResolvedEmployeeView> members) {}
+
   public record FreeBusyRequest(
       @NotNull @Size(min = 1, max = 50) List<@Positive Long> employeeIds,
       @NotNull OffsetDateTime from,

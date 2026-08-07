@@ -23,6 +23,10 @@ class FixtureModelProvider:
     def complete(self, request: ModelRequest) -> ModelCompletion:
         message = request.user_prompt
         if request.agent_name == "supervisor":
+            if request.schema_name == "ClarificationResponse":
+                return ModelCompletion(
+                    content=self._json(self._clarification(message)), model="fixture"
+                )
             return ModelCompletion(content=self._json(self._supervisor(message)), model="fixture")
         if request.agent_name == "requirement":
             return ModelCompletion(content=self._json(self._requirement(message)), model="fixture")
@@ -183,7 +187,25 @@ class FixtureModelProvider:
             "summary": "已路由到需求解析。",
         }
 
+    @staticmethod
+    def _clarification(message: str) -> dict[str, object]:
+        prefix = "CLARIFICATION_CONTRACT="
+        raw = message.removeprefix(prefix)
+        try:
+            contract = json.loads(raw)
+        except json.JSONDecodeError:
+            return {"message": "我还需要你补充一些会议信息后才能继续。"}
+        fallback = contract.get("fallbackMessage") if isinstance(contract, dict) else None
+        return {
+            "message": fallback
+            if isinstance(fallback, str) and fallback
+            else "我还需要你补充一些会议信息后才能继续。"
+        }
+
     def _requirement(self, message: str) -> dict[str, object]:
+        runtime_message = "USER_MESSAGE=" in message
+        if runtime_message:
+            message = message.rsplit("USER_MESSAGE=", maxsplit=1)[1]
         intent = "CREATE_MEETING"
         if "取消" in message:
             intent = "CANCEL_MEETING"
@@ -201,6 +223,8 @@ class FixtureModelProvider:
             else None
         )
         duration = self._duration_minutes(message)
+        if duration is None and not runtime_message:
+            duration = 60
         participants = [
             {"name": name, "employeeId": None}
             for name in ("张三", "李四", "王经理")
@@ -209,11 +233,18 @@ class FixtureModelProvider:
         features = []
         if "大屏" in message or "大屏幕" in message:
             features.append("LARGE_SCREEN")
+        if "投屏" in message and "LARGE_SCREEN" not in features:
+            features.append("LARGE_SCREEN")
         if "白板" in message:
             features.append("WHITEBOARD")
         if "视频会议设备" in message or "视频会议" in message:
             features.append("VIDEO_CONFERENCE")
-        window_start, window_end = self._time_window(message)
+        window = self._time_window(message)
+        if window is None and not runtime_message:
+            window = (
+                self.now.replace(hour=9, minute=0, second=0, microsecond=0),
+                self.now.replace(hour=18, minute=0, second=0, microsecond=0),
+            )
         title = "架构评审" if "架构评审" in message else "会议安排"
         evidence: list[dict[str, str]] = []
         for name in ("张三", "李四", "王经理"):
@@ -249,17 +280,33 @@ class FixtureModelProvider:
                 "title": title if "架构评审" in message else None,
                 "meetingType": "ARCHITECTURE_REVIEW" if title == "架构评审" else None,
                 "durationMinutes": duration,
-                "timeWindow": {
-                    "start": window_start.isoformat(),
-                    "end": window_end.isoformat(),
-                },
+                "timeWindow": (
+                    {"start": window[0].isoformat(), "end": window[1].isoformat()}
+                    if window is not None
+                    else None
+                ),
                 "requiredParticipantNames": [item["name"] for item in participants],
+                "participantScope": (
+                    "MY_DEPARTMENT"
+                    if any(
+                        value in message
+                        for value in ("我的小组", "同组人员", "小组会议", "组内人员")
+                    )
+                    else "ORGANIZER_ONLY"
+                    if any(value in message for value in ("只有我", "我自己参加", "就我一个人"))
+                    else None
+                ),
                 "optionalGroups": [],
                 "requiredFeatures": features,
-                "minimumCapacity": self._minimum_capacity(message, len(participants)),
+                "minimumCapacity": (
+                    self._minimum_capacity(message, len(participants))
+                    if runtime_message
+                    else self._minimum_capacity(message, len(participants))
+                    or max(1, len(participants))
+                ),
                 "preferredBuildings": [],
                 "hardConstraints": [],
-                "softConstraints": [],
+                "softConstraints": self._soft_constraints(message),
                 "targetMeetingId": target_meeting_id,
                 "targetMeetingReference": (
                     next((term for term in ("刚才", "最近", "那个会议") if term in message), None)
@@ -274,20 +321,20 @@ class FixtureModelProvider:
         }
 
     @staticmethod
-    def _duration_minutes(message: str) -> int:
+    def _duration_minutes(message: str) -> int | None:
         minutes = re.search(r"(30|60|90|120)\s*分钟", message)
         if minutes:
             return int(minutes.group(1))
         hours = re.search(r"([1-4])\s*(?:个)?小时", message)
         if hours:
             return int(hours.group(1)) * 60
-        return 60
+        return None
 
     @staticmethod
-    def _minimum_capacity(message: str, participant_count: int) -> int:
+    def _minimum_capacity(message: str, participant_count: int) -> int | None:
         explicit = re.search(r"(\d{1,4})\s*人", message)
         if explicit is None:
-            return max(1, participant_count)
+            return participant_count or None
         return max(1, participant_count, int(explicit.group(1)))
 
     @staticmethod
@@ -295,28 +342,91 @@ class FixtureModelProvider:
         target = re.search(r"(?:会议\s*(?:ID)?\s*|#)(\d{1,9})", message, re.IGNORECASE)
         return int(target.group(1)) if target is not None else None
 
-    def _time_window(self, message: str) -> tuple[datetime, datetime]:
+    def _time_window(self, message: str) -> tuple[datetime, datetime] | None:
         base = self.now
-        if "下周三" in message:
+        absolute_date = re.search(r"(\d{4})年(\d{1,2})月(\d{1,2})日", message)
+        if absolute_date:
+            date = datetime(
+                int(absolute_date.group(1)),
+                int(absolute_date.group(2)),
+                int(absolute_date.group(3)),
+            ).date()
+        elif "下周三" in message:
             days_until = ((2 - base.weekday()) % 7) + 7
             date = (base + timedelta(days=days_until)).date()
         elif "明天" in message:
             date = (base + timedelta(days=1)).date()
+        elif day_only := re.search(r"(?<!月)(?<!\d)(\d{1,2})号", message):
+            date = base.date().replace(day=int(day_only.group(1)))
         else:
             date = base.date()
-        start_hour, end_hour = (13, 18) if "下午" in message else (9, 18)
-        explicit = re.search(r"(?:下午)?\s*(1[0-8]|[1-9])点", message)
-        if explicit:
-            start_hour = int(explicit.group(1))
+        has_time_expression = any(
+            value in message
+            for value in ("上午", "早上", "中午", "下午", "晚上", "点", ":")
+        )
+        if not has_time_expression:
+            return None
+        start_hour, start_minute, end_hour, end_minute = (9, 0, 18, 0)
+        crosses_midnight = False
+        if "下午" in message:
+            start_hour, end_hour = 12, 18
+        elif "上午" in message or "早上" in message:
+            start_hour, end_hour = 6, 12
+        elif "中午" in message:
+            start_hour, end_hour = 11, 14
+        elif "晚上" in message:
+            start_hour, end_hour, crosses_midnight = 18, 6, True
+        explicit_range = re.search(
+            r"(?:下午)?\s*(\d{1,2})(?::(\d{2})|点)\s*(?:到|至|-)\s*"
+            r"(\d{1,2})(?::(\d{2})|点)",
+            message,
+        )
+        if explicit_range:
+            start_hour = int(explicit_range.group(1))
+            start_minute = int(explicit_range.group(2) or 0)
+            end_hour = int(explicit_range.group(3))
+            end_minute = int(explicit_range.group(4) or 0)
             if "下午" in message and start_hour < 12:
                 start_hour += 12
-            end_hour = min(start_hour + 5, 18)
-        return (
-            datetime.combine(date, datetime.min.time(), tzinfo=base.tzinfo).replace(
-                hour=start_hour
-            ),
-            datetime.combine(date, datetime.min.time(), tzinfo=base.tzinfo).replace(hour=end_hour),
+            if "下午" in message and end_hour < 12:
+                end_hour += 12
+        else:
+            if any(value in message for value in ("最好", "尽量", "优先")):
+                return None
+            explicit = re.search(r"(?:下午)?\s*(1[0-8]|[1-9])点", message)
+            if explicit:
+                start_hour = int(explicit.group(1))
+                if "下午" in message and start_hour < 12:
+                    start_hour += 12
+                end_hour = min(start_hour + 5, 18)
+        start = datetime.combine(date, datetime.min.time(), tzinfo=base.tzinfo).replace(
+                hour=start_hour, minute=start_minute
+            )
+        end = datetime.combine(date, datetime.min.time(), tzinfo=base.tzinfo).replace(
+                hour=end_hour, minute=end_minute
+            )
+        if crosses_midnight:
+            end += timedelta(days=1)
+        return start, end
+
+    @staticmethod
+    def _soft_constraints(message: str) -> list[dict[str, object]]:
+        preferred = re.search(
+            r"(?:最好|尽量|优先)(?:是|在)?(?:下午)?\s*(\d{1,2})(?::(\d{2})|点)",
+            message,
         )
+        if preferred is None:
+            return []
+        hour = int(preferred.group(1))
+        if "下午" in preferred.group(0) and hour < 12:
+            hour += 12
+        return [
+            {
+                "type": "PREFER_START_AT",
+                "value": f"{hour:02d}:{int(preferred.group(2) or 0):02d}",
+                "weight": 20,
+            }
+        ]
 
     @staticmethod
     def _policy(message: str) -> dict[str, object]:

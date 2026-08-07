@@ -157,6 +157,21 @@ class AgentToolGatewayIntegrationTest {
   }
 
   @Test
+  void resolvesCurrentUsersDepartmentScopeWithoutTrustingCallerIdentity() throws Exception {
+    performTool(
+            "/internal/v1/tools/resolve-participant-scope",
+            "{\"scope\":\"MY_DEPARTMENT\"}",
+            identity("run_scope_demo", "tool_scope_demo"),
+            SERVICE_TOKEN,
+            true)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.scope").value("MY_DEPARTMENT"))
+        .andExpect(jsonPath("$.data.scopeName").value("研发中心"))
+        .andExpect(jsonPath("$.data.members.length()").value(4))
+        .andExpect(jsonPath("$.data.members[0].status").value("ACTIVE"));
+  }
+
+  @Test
   void recentMeetingToolExcludesCancelledMeetings() throws Exception {
     long confirmedMeetingId =
         createManualMeeting(101, "2026-09-01T09:00:00+08:00", "2026-09-01T10:00:00+08:00");

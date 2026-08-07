@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import time
@@ -29,12 +30,15 @@ from app.providers import ModelProvider, build_model_provider
 from app.rag import PolicyRetriever, build_policy_retriever
 from app.run_locks import run_execution_locks
 from app.schemas.agent import (
+    AgentInputRequest,
     AgentResumeRequest,
     AgentState,
     AgentStreamRequest,
     BookingResultStatus,
     BusinessResultCallback,
     ConflictRepairFeedbackState,
+    Participant,
+    ProcessedRequirementInput,
     Route,
     RunStatus,
 )
@@ -164,12 +168,44 @@ def stream_agent_run(
     checkpoint_saver: Annotated[BaseCheckpointSaver[Any], Depends(get_checkpoint_saver)],
 ) -> StreamingResponse:
     thread_id = body.thread_id or f"thread_{uuid.uuid4().hex}"
+    workflow = _workflow(
+        settings=settings,
+        repository=repository,
+        provider=provider,
+        retriever=retriever,
+        tools=tools,
+        context=context,
+        checkpoint_saver=checkpoint_saver,
+    )
+    baseline: AgentState | None = None
     try:
         repository.ensure_thread(
             thread_id=thread_id,
             user_id=context.user_id,
             title="会议智能调度会话",
         )
+        if body.base_run_id is not None:
+            base_run = repository.get_run(body.base_run_id)
+            if (
+                base_run is None
+                or base_run.user_id != context.user_id
+                or base_run.thread_id != thread_id
+                or base_run.status != RunStatus.FAILED.value
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="REQUIREMENT_BASELINE_NOT_RECOVERABLE",
+                )
+            baseline = _load_checkpoint_or_503(
+                workflow=workflow,
+                thread_id=base_run.thread_id,
+                run_id=base_run.run_id,
+            )
+            if baseline is None or baseline.requirement_draft is None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="REQUIREMENT_BASELINE_NOT_RECOVERABLE",
+                )
         repository.create_run(
             run_id=context.run_id,
             thread_id=thread_id,
@@ -177,6 +213,8 @@ def stream_agent_run(
             user_id=context.user_id,
             question_summary=question_summary(body.message),
         )
+    except HTTPException:
+        raise
     except PermissionError as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="THREAD_FORBIDDEN"
@@ -197,15 +235,24 @@ def stream_agent_run(
         request_time=datetime.now(ZoneInfo(settings.app_timezone)),
         model_provider=settings.agent_model_provider,
         configured_model=settings.deepseek_model or "fixture",
-    )
-    workflow = _workflow(
-        settings=settings,
-        repository=repository,
-        provider=provider,
-        retriever=retriever,
-        tools=tools,
-        context=context,
-        checkpoint_saver=checkpoint_saver,
+        intent=baseline.intent if baseline is not None else None,
+        requirement_draft=(
+            baseline.requirement_draft if baseline is not None else None
+        ),
+        requirement_items=(
+            list(baseline.requirement_items) if baseline is not None else []
+        ),
+        requirement_revision=(
+            baseline.requirement_revision if baseline is not None else 0
+        ),
+        continuation_turn=baseline is not None,
+        continued_from_run_id=body.base_run_id if baseline is not None else None,
+        optional_requirements_closed=(
+            baseline.optional_requirements_closed if baseline is not None else False
+        ),
+        resolved_employees=(
+            _baseline_resolved_employees(baseline) if baseline is not None else []
+        ),
     )
 
     def produce(frames: Queue[object]) -> None:
@@ -223,6 +270,11 @@ def stream_agent_run(
                         "threadId": thread_id,
                         "traceId": context.trace_id,
                         "status": RunStatus.RUNNING.value,
+                        **(
+                            {"continuedFromRunId": body.base_run_id}
+                            if baseline is not None
+                            else {}
+                        ),
                     },
                 )
             )
@@ -321,6 +373,134 @@ def resume_agent_run(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="AGENT_RESUME_UNAVAILABLE",
+        ) from exc
+    if startup_result is not None:
+        raise startup_result
+    return _streaming_response(stream)
+
+
+@router.post("/agent-runs/{run_id}/input")
+def continue_agent_run_input(
+    run_id: Annotated[str, Path(min_length=1, max_length=64)],
+    body: AgentInputRequest,
+    context: Annotated[AgentContext, Depends(get_agent_context)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    repository: Annotated[MetadataRepository, Depends(get_repository)],
+    provider: Annotated[ModelProvider, Depends(get_model_provider)],
+    retriever: Annotated[PolicyRetriever, Depends(get_policy_retriever)],
+    tools: Annotated[JavaReadToolClient, Depends(get_java_tools)],
+    checkpoint_saver: Annotated[BaseCheckpointSaver[Any], Depends(get_checkpoint_saver)],
+) -> StreamingResponse:
+    startup: Queue[HTTPException | None] = Queue(maxsize=1)
+
+    def produce(frames: Queue[object]) -> None:
+        with run_execution_locks.lock(run_id):
+            try:
+                run = _owned_run(repository=repository, run_id=run_id, context=context)
+                _require_context_run(context=context, run_id=run_id)
+                if run.status != RunStatus.WAITING_USER_INPUT.value:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="RUN_NOT_WAITING_USER_INPUT",
+                    )
+                workflow = _workflow(
+                    settings=settings,
+                    repository=repository,
+                    provider=provider,
+                    retriever=retriever,
+                    tools=tools,
+                    context=context,
+                    checkpoint_saver=checkpoint_saver,
+                )
+                state = _load_checkpoint_or_503(
+                    workflow=workflow, thread_id=run.thread_id, run_id=run_id
+                )
+                if state is None or state.status is not RunStatus.WAITING_USER_INPUT:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="CHECKPOINT_NOT_WAITING_USER_INPUT",
+                    )
+                if body.expected_revision != state.requirement_revision:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="REQUIREMENT_REVISION_CONFLICT",
+                    )
+                content_hash = hashlib.sha256(body.message.strip().encode("utf-8")).hexdigest()
+                processed = next(
+                    (
+                        item
+                        for item in state.processed_requirement_inputs
+                        if item.client_request_id == body.client_request_id
+                    ),
+                    None,
+                )
+                if processed is not None:
+                    detail = (
+                        "REQUIREMENT_INPUT_ALREADY_PROCESSED"
+                        if processed.content_hash == content_hash
+                        else "REQUIREMENT_INPUT_ID_REUSED"
+                    )
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+                continuation_state = state.model_copy(
+                    update={
+                        "message": body.message.strip(),
+                        "request_time": datetime.now(ZoneInfo(settings.app_timezone)),
+                        "continuation_turn": True,
+                        "status": RunStatus.RUNNING,
+                        "next_route": Route.REQUIREMENT,
+                        "missing_fields": [],
+                        "answer_summary": None,
+                        "error": None,
+                        "processed_requirement_inputs": [
+                            *state.processed_requirement_inputs,
+                            ProcessedRequirementInput(
+                                client_request_id=body.client_request_id,
+                                content_hash=content_hash,
+                            ),
+                        ][-20:],
+                    }
+                )
+            except HTTPException as exc:
+                startup.put(exc)
+                return
+            except Exception:
+                logger.exception("Unable to initialise input continuation for run %s", run_id)
+                startup.put(
+                    HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail="AGENT_INPUT_UNAVAILABLE",
+                    )
+                )
+                return
+
+            startup.put(None)
+            started = time.perf_counter()
+            frames.put(
+                _sse(
+                    "run.resumed",
+                    {
+                        "runId": run_id,
+                        "status": RunStatus.RUNNING.value,
+                        "revision": state.requirement_revision,
+                    },
+                )
+            )
+            _emit_workflow_sse_frames(
+                frames=frames,
+                repository=repository,
+                workflow=workflow,
+                fallback_state=continuation_state,
+                started_at=started,
+                operation=lambda: workflow.stream(continuation_state),
+            )
+
+    stream = _start_sse_producer(produce)
+    try:
+        startup_result = startup.get(timeout=_SSE_PRODUCER_START_TIMEOUT_SECONDS)
+    except Empty as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AGENT_INPUT_UNAVAILABLE",
         ) from exc
     if startup_result is not None:
         raise startup_result
@@ -593,6 +773,21 @@ def get_agent_run(
                 "expiresAt": state.draft_expires_at.isoformat(),
             }
         )
+    elif (
+        state is not None
+        and state.requirement_draft is not None
+        and run.status in {RunStatus.WAITING_USER_INPUT.value, RunStatus.FAILED.value}
+    ):
+        view.update(
+            {
+                "requirementRevision": state.requirement_revision,
+                "requirementItems": [
+                    item.model_dump(by_alias=True, mode="json")
+                    for item in state.requirement_items
+                ],
+                "requirementBaselineAvailable": run.status == RunStatus.FAILED.value,
+            }
+        )
     return JSONResponse(view, headers={"Cache-Control": "no-store"})
 
 
@@ -735,6 +930,14 @@ def _runtime_stats(state: AgentState) -> dict[str, object]:
         "cacheHitTokens": state.cache_hit_tokens,
         "cacheMissTokens": state.cache_miss_tokens,
     }
+def _baseline_resolved_employees(state: AgentState) -> list[Participant]:
+    draft = state.requirement_draft
+    if draft is None:
+        return []
+    names = set(draft.required_participant_names)
+    return [item for item in state.resolved_employees if item.name in names]
+
+
 def _owned_run(*, repository: MetadataRepository, run_id: str, context: AgentContext) -> AgentRun:
     run = repository.get_run(run_id)
     if run is None or (run.user_id != context.user_id and not context.is_admin):

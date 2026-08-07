@@ -9,10 +9,13 @@ import com.example.meeting.agentgateway.internal.AgentToolDtos.RecentMeetingRequ
 import com.example.meeting.agentgateway.internal.AgentToolDtos.RecentMeetingResponse;
 import com.example.meeting.agentgateway.internal.AgentToolDtos.ResolveEmployeesRequest;
 import com.example.meeting.agentgateway.internal.AgentToolDtos.ResolveEmployeesResponse;
+import com.example.meeting.agentgateway.internal.AgentToolDtos.ResolveParticipantScopeRequest;
+import com.example.meeting.agentgateway.internal.AgentToolDtos.ResolveParticipantScopeResponse;
 import com.example.meeting.agentgateway.internal.AgentToolDtos.ResolvedEmployeeView;
 import com.example.meeting.agentgateway.internal.AgentToolDtos.SearchRoomsRequest;
 import com.example.meeting.agentgateway.internal.AgentToolDtos.SearchRoomsResponse;
 import com.example.meeting.auth.infrastructure.UserMapper;
+import com.example.meeting.auth.infrastructure.UserProfileRow;
 import com.example.meeting.booking.infrastructure.EmployeeBusySlotMapper;
 import com.example.meeting.booking.infrastructure.MeetingRoomSlotMapper;
 import com.example.meeting.common.error.BusinessException;
@@ -20,6 +23,8 @@ import com.example.meeting.common.error.ErrorCode;
 import com.example.meeting.common.security.AgentToolContext;
 import com.example.meeting.common.web.ApiErrorDetail;
 import com.example.meeting.meeting.application.MeetingQueryService;
+import com.example.meeting.organization.domain.Department;
+import com.example.meeting.organization.infrastructure.DepartmentMapper;
 import com.example.meeting.room.api.RoomItemView;
 import com.example.meeting.room.application.RoomQueryService;
 import java.time.LocalDateTime;
@@ -39,6 +44,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class AgentToolQueryService {
 
   private final UserMapper userMapper;
+  private final DepartmentMapper departmentMapper;
   private final EmployeeBusySlotMapper busySlotMapper;
   private final MeetingRoomSlotMapper roomSlotMapper;
   private final RoomQueryService roomQueryService;
@@ -48,6 +54,7 @@ public class AgentToolQueryService {
 
   public AgentToolQueryService(
       UserMapper userMapper,
+      DepartmentMapper departmentMapper,
       EmployeeBusySlotMapper busySlotMapper,
       MeetingRoomSlotMapper roomSlotMapper,
       RoomQueryService roomQueryService,
@@ -55,6 +62,7 @@ public class AgentToolQueryService {
       ToolTimeWindowValidator timeWindowValidator,
       @Value("${app.timezone}") String timezone) {
     this.userMapper = userMapper;
+    this.departmentMapper = departmentMapper;
     this.busySlotMapper = busySlotMapper;
     this.roomSlotMapper = roomSlotMapper;
     this.roomQueryService = roomQueryService;
@@ -87,6 +95,48 @@ public class AgentToolQueryService {
     }
     List<String> unresolved = names.stream().filter(name -> !resolvedNames.contains(name)).toList();
     return new ResolveEmployeesResponse(employees, unresolved);
+  }
+
+  @Transactional(readOnly = true)
+  public ResolveParticipantScopeResponse resolveParticipantScope(
+      ResolveParticipantScopeRequest request, AgentToolContext context) {
+    if (!"MY_DEPARTMENT".equals(request.scope())) {
+      throw validation("scope", "PARTICIPANT_SCOPE_UNSUPPORTED");
+    }
+    UserProfileRow current =
+        userMapper
+            .findProfileById(context.userId())
+            .filter(profile -> "ACTIVE".equals(profile.getStatus()))
+            .orElseThrow(() -> validation("scope", "CURRENT_USER_NOT_ACTIVE"));
+    if (current.getDepartmentId() == null || current.getDepartmentName() == null) {
+      throw validation("scope", "CURRENT_USER_DEPARTMENT_MISSING");
+    }
+    Department department = departmentMapper.selectById(current.getDepartmentId());
+    if (department == null || !"ACTIVE".equals(department.getStatus())) {
+      throw validation("scope", "CURRENT_USER_DEPARTMENT_INACTIVE");
+    }
+    List<ResolvedEmployeeRow> rows =
+        userMapper.resolveEmployees(List.of(), List.of(current.getDepartmentName()), 51);
+    if (rows.isEmpty()) {
+      throw validation("scope", "PARTICIPANT_SCOPE_EMPTY");
+    }
+    if (rows.size() > 50) {
+      throw validation("scope", "PARTICIPANT_SCOPE_TOO_LARGE");
+    }
+    List<ResolvedEmployeeView> members =
+        rows.stream()
+            .map(
+                row ->
+                    new ResolvedEmployeeView(
+                        row.getEmployeeId(),
+                        row.getUsername(),
+                        row.getDisplayName(),
+                        row.getDepartmentId(),
+                        row.getDepartmentName(),
+                        row.getStatus()))
+            .toList();
+    return new ResolveParticipantScopeResponse(
+        request.scope(), current.getDepartmentName(), members);
   }
 
   @Transactional(readOnly = true)

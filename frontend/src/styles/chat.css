@@ -55,6 +55,7 @@
 .conversation-context__ready { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
 .conversation-context__ready > span { width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
 .conversation-canvas__scroll { min-height: 320px; flex: 1; overflow-y: auto; padding: 24px 4px 208px; scrollbar-gutter: stable; }
+.chat-workspace:has(.requirement-progress) .conversation-canvas__scroll { padding-bottom: 360px; }
 
 .conversation-empty { display: grid; max-width: 720px; justify-items: center; margin: 8vh auto 0; text-align: center; }
 .conversation-empty__mark { width: 48px; height: 48px; margin-bottom: 16px; border-radius: 14px; }
@@ -103,6 +104,30 @@
   padding: 20px 2px 8px;
   background: linear-gradient(to bottom, rgb(247 247 245 / 0%), var(--background) 18%);
 }
+.requirement-progress {
+  margin: 0 8px 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--surface) 94%, var(--primary) 6%);
+  box-shadow: 0 8px 24px rgb(24 24 27 / 6%);
+}
+.requirement-progress header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.requirement-progress header > div { display: grid; gap: 2px; }
+.requirement-progress header strong { font-size: 12px; }
+.requirement-progress header small { color: var(--muted); font-size: 10px; }
+.requirement-progress header > span { color: var(--muted); font-size: 10px; white-space: nowrap; }
+.requirement-progress ul { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 9px 0 0; padding: 0; list-style: none; }
+.requirement-progress li { display: flex; min-width: 0; align-items: center; gap: 8px; border-radius: 8px; padding: 6px 8px; background: var(--surface); }
+.requirement-progress li > span:last-child { display: grid; min-width: 0; gap: 1px; }
+.requirement-progress li strong { font-size: 10px; }
+.requirement-progress li small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.requirement-progress__status { flex: 0 0 auto; border-radius: 999px; padding: 2px 6px; color: var(--primary); background: var(--primary-soft); font-size: 9px; font-weight: 700; }
+.requirement-progress__status[data-status='MISSING'],
+.requirement-progress__status[data-status='AMBIGUOUS'],
+.requirement-progress__status[data-status='CONFLICT'] { color: var(--warning); background: var(--warning-bg); }
+.requirement-progress__status[data-status='UNSPECIFIED'] { color: var(--muted); background: var(--accent); }
+.requirement-progress__status[data-status='CLOSED'] { color: var(--success); background: var(--success-bg); }
 .composer-hitl-notice {
   display: flex;
   width: calc(100% - 16px);
@@ -275,6 +300,7 @@
   .conversation-empty { margin-top: 5vh; }
   .quick-task-grid { grid-template-columns: 1fr; }
   .conversation-canvas__scroll { padding-bottom: 224px; }
+  .chat-workspace:has(.requirement-progress) .conversation-canvas__scroll { padding-bottom: 380px; }
 }
 
 @media (max-width: 520px) {
@@ -285,10 +311,12 @@
   .chat-workspace__actions .ui-button { min-width: 0; padding-inline: 9px; }
   .conversation-context__identity small, .conversation-context__run > span:last-child { display: none; }
   .conversation-canvas__scroll { padding: 18px 0 238px; }
+  .chat-workspace:has(.requirement-progress) .conversation-canvas__scroll { padding-bottom: 440px; }
   .conversation-empty { margin-top: 24px; }
   .conversation-empty > p { margin-bottom: 16px; }
   .conversation-message > div, .conversation-message--user > div { max-width: 88%; }
   .composer-dock { margin-top: -214px; }
+  .requirement-progress ul { grid-template-columns: 1fr; }
   .agent-composer__footer > span { max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .composer-hitl-notice small { max-width: 250px; }
   .orchestration-sheet { width: 100%; }

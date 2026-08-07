@@ -27,6 +27,7 @@ from app.config import Settings, get_settings
 from app.database.base import Base
 from app.main import app
 from app.persistence import MetadataRepository
+from app.providers.base import ModelCompletion
 from app.providers.fixture import FixtureModelProvider
 from app.rag.policies import InMemoryPolicyRetriever
 from app.schemas.agent import AgentState, BookingDraft, DraftParticipant, RunStatus
@@ -89,6 +90,7 @@ ROOM_102 = {
 @dataclass
 class FakeJavaTools:
     draft_failures_remaining: int = 0
+    unresolved_names: list[str] = field(default_factory=list)
     confirm_results: list[str] = field(default_factory=lambda: ["SUCCESS"])
     confirm_conflict_details: dict[str, str] = field(default_factory=dict)
     room_sequences: list[list[dict[str, object]]] = field(
@@ -96,6 +98,8 @@ class FakeJavaTools:
     )
     calls: list[str] = field(default_factory=list)
     draft_payloads: list[CreateBookingDraftInput] = field(default_factory=list)
+    room_search_features: list[list[str]] = field(default_factory=list)
+    room_search_capacities: list[int] = field(default_factory=list)
     confirm_calls: list[tuple[str, str | None, str | None]] = field(default_factory=list)
     _draft_count: int = 0
 
@@ -109,14 +113,63 @@ class FakeJavaTools:
     ) -> ToolOutcome:
         del context, department_names
         self.calls.append("resolve_employees")
+        identities = {
+            "张三": 1001,
+            "李四": 1002,
+            "王五": 1010,
+            "赵六": 1011,
+        }
         employees = [
-            {"employeeId": 1001, "displayName": "张三"},
-            {"employeeId": 1002, "displayName": "李四"},
+            {"employeeId": identities.get(name, 1100 + index), "displayName": name}
+            for index, name in enumerate(names)
         ]
         return _outcome(
             "resolve_employees",
             "READ",
-            {"employees": employees[: len(names)], "unresolvedNames": []},
+            {
+                "employees": employees,
+                "unresolvedNames": self.unresolved_names,
+            },
+            tool_call_id=tool_call_id,
+        )
+
+    def resolve_participant_scope(
+        self,
+        *,
+        context: object,
+        tool_call_id: str | None = None,
+    ) -> ToolOutcome:
+        del context
+        self.calls.append("resolve_participant_scope")
+        return _outcome(
+            "resolve_participant_scope",
+            "READ",
+            {
+                "scope": "MY_DEPARTMENT",
+                "scopeName": "研发中心",
+                "members": [
+                    {
+                        "employeeId": 1001,
+                        "displayName": "张三",
+                        "status": "ACTIVE",
+                    },
+                    {
+                        "employeeId": 1002,
+                        "displayName": "李四",
+                        "status": "ACTIVE",
+                    },
+                    {
+                        "employeeId": 1010,
+                        "displayName": "王五",
+                        "status": "ACTIVE",
+                    },
+                    {
+                        "employeeId": 1011,
+                        "displayName": "赵六",
+                        "status": "ACTIVE",
+                    },
+                ],
+            },
             tool_call_id=tool_call_id,
         )
 
@@ -148,8 +201,10 @@ class FakeJavaTools:
         required_features: list[str],
         tool_call_id: str | None = None,
     ) -> ToolOutcome:
-        del context, from_, to, minimum_capacity, required_features
+        del context, from_, to
         self.calls.append("search_available_rooms")
+        self.room_search_features.append(required_features)
+        self.room_search_capacities.append(minimum_capacity)
         index = min(self.calls.count("search_available_rooms") - 1, len(self.room_sequences) - 1)
         return _outcome(
             "search_available_rooms",
@@ -351,6 +406,22 @@ def _start(client: TestClient, run_id: str, trace_id: str) -> list[tuple[str, di
     return _events(response.text)
 
 
+def _start_with_message(
+    client: TestClient, run_id: str, trace_id: str, message: str
+) -> list[tuple[str, dict[str, object]]]:
+    response = client.post(
+        "/internal/v1/agent-runs/stream",
+        headers=_headers(run_id=run_id, trace_id=trace_id),
+        json={
+            "threadId": None,
+            "message": message,
+            "clientRequestId": f"fixture-request-{run_id}",
+        },
+    )
+    assert response.status_code == 200
+    return _events(response.text)
+
+
 def _hitl_token(events: list[tuple[str, dict[str, object]]]) -> str:
     event = next(payload for name, payload in events if name == "hitl.required")
     token = event["confirmationToken"]
@@ -391,6 +462,196 @@ def test_initial_hitl_persists_candidates_without_leaking_token_to_trace(
     assert "cfm_fixture" not in trace_json
     assert "confirmationToken" not in trace_json
     assert trace["toolCalls"][-1]["riskLevel"] == "DRAFT"  # type: ignore[index]
+
+
+def test_exact_demo_request_reaches_candidates_without_false_clarification(
+    configured_app: None,
+    metadata_repository: MetadataRepository,
+    fixture_tools: FakeJavaTools,
+) -> None:
+    fixture_tools.room_sequences = [
+        [
+            {
+                **ROOM_103,
+                "features": ["WHITEBOARD", "LARGE_SCREEN", "VIDEO_CONFERENCE"],
+            }
+        ]
+    ]
+    run_id = f"run_{uuid.uuid4().hex}"
+    trace_id = f"trc_{uuid.uuid4().hex}"
+    message = (
+        "请在2026年8月25日13:00到18:00之间，为张三和李四安排一场60分钟架构评审，"
+        "需要白板和大屏。先给出最多3个候选方案，不要替我确认。"
+    )
+    with TestClient(app) as client:
+        events = _start_with_message(client, run_id, trace_id, message)
+
+    assert events[-1][0] == "hitl.required"
+    candidates = next(
+        payload["candidates"] for name, payload in events if name == "plan.candidates"
+    )
+    assert 1 <= len(candidates) <= 3
+    trace = metadata_repository.get_trace(run_id)
+    assert trace is not None
+    assert trace["run"]["status"] == "WAITING_CONFIRMATION"  # type: ignore[index]
+    trace_text = json.dumps(trace, ensure_ascii=False)
+    assert "DURATION_INTERVAL_MISMATCH" not in trace_text
+    assert "EVIDENCE_NOT_IN_SOURCE" not in trace_text
+
+
+def test_missing_information_is_explained_without_internal_field_name(
+    configured_app: None,
+    metadata_repository: MetadataRepository,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class MissingParticipantProvider(FixtureModelProvider):
+        def complete(self, request: object) -> ModelCompletion:
+            if getattr(request, "agent_name", None) == "requirement":
+                return ModelCompletion(
+                    content=json.dumps(
+                        {
+                            "requirementDraft": {
+                                "intent": "CREATE_MEETING",
+                                "durationMinutes": 60,
+                                "timeWindow": None,
+                                "requiredParticipantNames": [],
+                                "requiredFeatures": [],
+                                "fieldEvidence": [],
+                                "summary": "缺少时间范围",
+                            },
+                            "missingFields": ["timeWindow"],
+                        },
+                        ensure_ascii=False,
+                    ),
+                    model="fixture",
+                )
+            return super().complete(request)
+
+    settings = Settings()
+    monkeypatch.setitem(
+        app.dependency_overrides,
+        get_model_provider,
+        lambda: MissingParticipantProvider(datetime.fromisoformat(settings.fixture_now)),
+    )
+    run_id = f"run_{uuid.uuid4().hex}"
+    trace_id = f"trc_{uuid.uuid4().hex}"
+    with TestClient(app) as client:
+        events = _start_with_message(
+            client,
+            run_id,
+            trace_id,
+            "请帮我安排一场60分钟会议。",
+        )
+
+    completed = next(payload for name, payload in events if name == "run.completed")
+    assert completed["status"] == "WAITING_USER_INPUT"
+    trace = metadata_repository.get_trace(run_id)
+    assert trace is not None
+    answer = trace["run"]["answerSummary"]  # type: ignore[index]
+    assert "时间" in answer
+    assert "timeWindow" not in answer
+    assert "_" not in answer
+
+
+def test_unresolved_employee_is_explained_as_user_action_not_workflow_failure(
+    configured_app: None,
+    metadata_repository: MetadataRepository,
+    fixture_tools: FakeJavaTools,
+) -> None:
+    fixture_tools.unresolved_names = ["李四"]
+    run_id = f"run_{uuid.uuid4().hex}"
+    trace_id = f"trc_{uuid.uuid4().hex}"
+    with TestClient(app) as client:
+        events = _start(client, run_id, trace_id)
+
+    completed = next(payload for name, payload in events if name == "run.completed")
+    assert completed["status"] == "WAITING_USER_INPUT"
+    assert "通讯录" in completed["answerSummary"] or "姓名" in completed["answerSummary"]
+    assert "EMPLOYEE_UNRESOLVED" not in completed["answerSummary"]
+    assert not any(name == "run.failed" for name, _ in events)
+    trace = metadata_repository.get_trace(run_id)
+    assert trace is not None
+    assert trace["run"]["status"] == "WAITING_USER_INPUT"  # type: ignore[index]
+
+
+def test_two_turn_requirement_completion_resumes_same_run_and_reaches_hitl(
+    configured_app: None,
+    metadata_repository: MetadataRepository,
+    fixture_tools: FakeJavaTools,
+) -> None:
+    run_id = f"run_{uuid.uuid4().hex}"
+    first_trace = f"trc_{uuid.uuid4().hex}"
+    with TestClient(app) as client:
+        first_events = _start_with_message(
+            client,
+            run_id,
+            first_trace,
+            "我要在25号下午安排一场小组会议，给我找个空的会议室。",
+        )
+
+        first_completed = next(
+            payload for name, payload in first_events if name == "run.completed"
+        )
+        assert first_completed["status"] == "WAITING_USER_INPUT"
+        assert "时长" in first_completed["answerSummary"]
+        requirement = next(
+            payload for name, payload in first_events if name == "requirement.updated"
+        )
+        assert requirement["revision"] == 1
+        by_field = {item["field"]: item for item in requirement["items"]}  # type: ignore[index]
+        assert by_field["timeWindow"]["status"] == "DEFAULTED"
+        assert "2026-08-25 12:00" in by_field["timeWindow"]["summary"]
+        assert by_field["durationMinutes"]["status"] == "MISSING"
+        assert by_field["requiredParticipants"]["status"] == "DIRECTORY_RESOLVED"
+        assert by_field["optionalRequirements"]["status"] == "UNSPECIFIED"
+        assert fixture_tools.calls == ["resolve_participant_scope"]
+
+        second_trace = f"trc_{uuid.uuid4().hex}"
+        response = client.post(
+            f"/internal/v1/agent-runs/{run_id}/input",
+            headers=_headers(run_id=run_id, trace_id=second_trace),
+            json={
+                "message": "赵六请假不会来，会开2个小时，要有投屏，没别的要求，最好是2点开始。",
+                "clientRequestId": "input-two-turn-1",
+                "expectedRevision": 1,
+            },
+        )
+
+    assert response.status_code == 200
+    second_events = _events(response.text)
+    assert second_events[0][0] == "run.resumed"
+    assert second_events[-1][0] == "hitl.required"
+    updated = next(
+        payload for name, payload in second_events if name == "requirement.updated"
+    )
+    assert updated["revision"] == 2
+    assert updated["ready"] is True
+    updated_by_field = {item["field"]: item for item in updated["items"]}  # type: ignore[index]
+    assert updated_by_field["requiredParticipants"]["status"] == "EXPLICIT"
+    assert updated_by_field["requiredParticipants"]["summary"] == "3人：张三、李四、王五"
+    assert updated_by_field["optionalRequirements"]["status"] == "CLOSED"
+    candidates = next(
+        payload["candidates"] for name, payload in second_events if name == "plan.candidates"
+    )
+    assert candidates[0]["startAt"].startswith("2026-08-25T14:00:00")
+    assert fixture_tools.calls == [
+        "resolve_participant_scope",
+        "resolve_employees",
+        "get_employee_free_busy",
+        "search_available_rooms",
+        "create_booking_draft",
+    ]
+    assert fixture_tools.room_search_features[-1] == ["LARGE_SCREEN"]
+    assert fixture_tools.room_search_capacities[-1] == 3
+    assert fixture_tools.draft_payloads[-1].required_participant_ids == [1001, 1002, 1010]
+    assert (
+        fixture_tools.draft_payloads[-1].end_at
+        - fixture_tools.draft_payloads[-1].start_at
+        == timedelta(hours=2)
+    )
+    trace = metadata_repository.get_trace(run_id)
+    assert trace is not None
+    assert trace["run"]["status"] == "WAITING_CONFIRMATION"  # type: ignore[index]
 
 
 def test_trajectory_integration_exposes_bounded_native_tool_loop(
@@ -882,3 +1143,127 @@ def test_graph_limit_emits_one_failed_terminal_event(
     assert [name for name, _ in events].count("run.failed") == 1
     assert [name for name, _ in events].count("run.completed") == 0
     assert events[-1][1]["errorCode"] == "BUDGET_EXHAUSTED"
+
+
+def test_failed_run_seeds_a_new_run_without_carrying_exhausted_budget(
+    configured_app: None,
+    monkeypatch: pytest.MonkeyPatch,
+    fixture_tools: FakeJavaTools,
+) -> None:
+    thread_id = f"thread_{uuid.uuid4().hex}"
+    failed_run_id = f"run_{uuid.uuid4().hex}"
+    failed_trace_id = f"trc_{uuid.uuid4().hex}"
+    monkeypatch.setenv("AGENT_MAX_GRAPH_NODES", "2")
+    get_settings.cache_clear()
+    try:
+        with TestClient(app) as client:
+            failed_response = client.post(
+                "/internal/v1/agent-runs/stream",
+                headers=_headers(run_id=failed_run_id, trace_id=failed_trace_id),
+                json={
+                    "threadId": thread_id,
+                    "message": "25号下午帮张三和李四安排一个90分钟会议",
+                    "clientRequestId": "failed-baseline-source",
+                },
+            )
+            failed_events = _events(failed_response.text)
+            assert failed_events[-1][0] == "run.failed"
+            assert failed_events[-1][1]["errorCode"] == "BUDGET_EXHAUSTED"
+
+            recovery = client.get(
+                f"/internal/v1/agent-runs/{failed_run_id}",
+                headers=_headers(
+                    run_id=failed_run_id,
+                    trace_id=f"trc_{uuid.uuid4().hex}",
+                ),
+            )
+            assert recovery.status_code == 200
+            assert recovery.json()["requirementBaselineAvailable"] is True
+            assert recovery.json()["requirementRevision"] == 1
+
+        monkeypatch.delenv("AGENT_MAX_GRAPH_NODES", raising=False)
+        get_settings.cache_clear()
+        recovered_run_id = f"run_{uuid.uuid4().hex}"
+        recovered_trace_id = f"trc_{uuid.uuid4().hex}"
+        with TestClient(app) as client:
+            recovered_response = client.post(
+                "/internal/v1/agent-runs/stream",
+                headers=_headers(
+                    run_id=recovered_run_id,
+                    trace_id=recovered_trace_id,
+                ),
+                json={
+                    "threadId": thread_id,
+                    "message": "参会人去掉李四，没别的要求。",
+                    "clientRequestId": "recover-failed-baseline",
+                    "baseRunId": failed_run_id,
+                },
+            )
+    finally:
+        monkeypatch.delenv("AGENT_MAX_GRAPH_NODES", raising=False)
+        get_settings.cache_clear()
+
+    assert recovered_response.status_code == 200
+    recovered_events = _events(recovered_response.text)
+    assert recovered_events[0] == (
+        "run.started",
+        {
+            "runId": recovered_run_id,
+            "threadId": thread_id,
+            "traceId": recovered_trace_id,
+            "status": "RUNNING",
+            "continuedFromRunId": failed_run_id,
+        },
+    )
+    updated = next(
+        payload for name, payload in recovered_events if name == "requirement.updated"
+    )
+    by_field = {item["field"]: item for item in updated["items"]}  # type: ignore[index]
+    assert updated["revision"] == 2
+    assert by_field["timeWindow"]["summary"].startswith("2026-08-25 12:00")
+    assert by_field["durationMinutes"]["summary"] == "90分钟"
+    assert by_field["requiredParticipants"]["summary"] == "1人：张三"
+    assert by_field["optionalRequirements"]["status"] == "CLOSED"
+    assert recovered_events[-1][0] == "hitl.required"
+    assert fixture_tools.draft_payloads[-1].required_participant_ids == [1001]
+
+
+def test_new_run_rejects_a_non_failed_requirement_baseline(
+    configured_app: None,
+    metadata_repository: MetadataRepository,
+) -> None:
+    thread_id = f"thread_{uuid.uuid4().hex}"
+    base_run_id = f"run_{uuid.uuid4().hex}"
+    with TestClient(app) as client:
+        base_response = client.post(
+            "/internal/v1/agent-runs/stream",
+            headers=_headers(
+                run_id=base_run_id,
+                trace_id=f"trc_{uuid.uuid4().hex}",
+            ),
+            json={
+                "threadId": thread_id,
+                "message": "25号下午安排一场小组会议。",
+                "clientRequestId": "waiting-baseline-source",
+            },
+        )
+        assert _events(base_response.text)[-1][1]["status"] == "WAITING_USER_INPUT"
+
+        new_run_id = f"run_{uuid.uuid4().hex}"
+        rejected = client.post(
+            "/internal/v1/agent-runs/stream",
+            headers=_headers(
+                run_id=new_run_id,
+                trace_id=f"trc_{uuid.uuid4().hex}",
+            ),
+            json={
+                "threadId": thread_id,
+                "message": "继续",
+                "clientRequestId": "invalid-baseline-source",
+                "baseRunId": base_run_id,
+            },
+        )
+
+    assert rejected.status_code == 409
+    assert rejected.json()["detail"] == "REQUIREMENT_BASELINE_NOT_RECOVERABLE"
+    assert metadata_repository.get_run(new_run_id) is None

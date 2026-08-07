@@ -30,6 +30,10 @@ class ResolveEmployeesInput(ToolInput):
     department_names: list[str] = Field(default_factory=list, serialization_alias="departmentNames")
 
 
+class ResolveParticipantScopeInput(ToolInput):
+    scope: Literal["MY_DEPARTMENT"] = "MY_DEPARTMENT"
+
+
 class FreeBusyInput(ToolInput):
     employee_ids: list[int] = Field(min_length=1, max_length=50, serialization_alias="employeeIds")
     from_: datetime = Field(serialization_alias="from")
@@ -183,6 +187,25 @@ class JavaReadToolClient:
         )
         employee_count = len(outcome.data.get("employees", []))
         return _with_summary(outcome, f"已解析 {employee_count} 名员工")
+
+    def resolve_participant_scope(
+        self,
+        *,
+        context: AgentContext,
+        tool_call_id: str | None = None,
+    ) -> ToolOutcome:
+        outcome = self._invoke(
+            context=context,
+            tool_name="resolve_participant_scope",
+            path="/internal/v1/tools/resolve-participant-scope",
+            payload=ResolveParticipantScopeInput(),
+            risk_level="READ",
+            tool_call_id=tool_call_id,
+        )
+        scope_name = outcome.data.get("scopeName")
+        member_count = len(outcome.data.get("members", []))
+        label = scope_name if isinstance(scope_name, str) else "当前小组"
+        return _with_summary(outcome, f"已解析 {label} 的 {member_count} 名在职成员")
 
     def get_employee_free_busy(
         self,

@@ -19,6 +19,7 @@ public enum ErrorCode {
   DRAFT_EXPIRED(HttpStatus.CONFLICT, "草案已过期"),
   DRAFT_ALREADY_USED(HttpStatus.CONFLICT, "草案已被处理"),
   TOOL_NOT_ALLOWED(HttpStatus.FORBIDDEN, "Agent 工具不允许执行"),
+  AGENT_RUN_STATE_CONFLICT(HttpStatus.CONFLICT, "Agent 任务状态已变化，请刷新后重试"),
   AGENT_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Agent 服务暂时不可用"),
   DEPENDENCY_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "依赖服务暂时不可用"),
   INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "系统暂时不可用");

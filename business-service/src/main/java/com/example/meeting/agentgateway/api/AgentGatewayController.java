@@ -85,6 +85,25 @@ public class AgentGatewayController {
     return relay(upstream, response);
   }
 
+  @PostMapping("/{runId}/input")
+  public StreamingResponseBody input(
+      @PathVariable @jakarta.validation.constraints.Pattern(regexp = "[A-Za-z0-9_-]{1,64}") String runId,
+      @Valid @RequestBody AgentRunInputRequest body,
+      @AuthenticationPrincipal AuthenticatedUser actor,
+      HttpServletRequest request,
+      HttpServletResponse response)
+      throws IOException {
+    String traceId = TraceIds.from(request);
+    UpstreamStream upstream;
+    try {
+      upstream = proxyService.input(runId, body, actor, traceId);
+    } catch (BusinessException exception) {
+      writeError(response, exception, traceId);
+      return null;
+    }
+    return relay(upstream, response);
+  }
+
   @GetMapping("/{runId}")
   public ResponseEntity<ApiSuccess<JsonNode>> getRun(
       @PathVariable @jakarta.validation.constraints.Pattern(regexp = "[A-Za-z0-9_-]{1,64}") String runId,
