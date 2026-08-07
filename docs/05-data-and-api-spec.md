@@ -651,7 +651,7 @@ data: {"runId":"run_uuid","revision":1,"ready":false,"items":[{"field":"timeWind
 
 事件只包含用户可见摘要，不包含组织查询参数、隐藏推理、内部错误码或令牌。为兼容现有客户端，待补充流仍以 `run.completed(status=WAITING_USER_INPUT)` 结束。
 
-`RequirementItem.status` 的可选项语义为：未说明时 `UNSPECIFIED`，明确设备/地点时 `EXPLICIT`，明确“没有其他要求”时 `CLOSED`；三者均不阻塞。必需槽位继续使用 `EXPLICIT|DEFAULTED|DIRECTORY_RESOLVED|MISSING|AMBIGUOUS|CONFLICT`。
+`RequirementItem.status` 的可选项语义为：未说明时 `UNSPECIFIED`，明确设备/地点时 `EXPLICIT`，明确“没有其他要求”时 `CLOSED`；三者均不阻塞。必需槽位使用 `EXPLICIT|DEFAULTED|DIRECTORY_RESOLVED|INHERITED|MISSING|AMBIGUOUS|CONFLICT`；`INHERITED` 表示改期/取消目标唯一命中后，从 Java 原会议事实补全。目标事实补全后可在同一 revision 再发送一次 `requirement.updated`，覆盖解析阶段的临时缺失状态。
 
 Day 3 只实现 Java SSE 代理边界骨架：校验用户 JWT、把请求转发到 Python 最终内部路径并透传标准 SSE 事件；Python 端点不存在或不可用时返回稳定 `AGENT_UNAVAILABLE`，不得由 Java 伪造 Agent 输出。实际 Multi-Agent 流留到 Day 4。
 
@@ -688,6 +688,9 @@ data: {"runId":"run_uuid","status":"RUNNING"}
 event: plan.candidates
 data: {"runId":"run_uuid","candidates":[{"candidateId":"cand_uuid","roomId":101,"roomName":"研发楼301","building":"研发楼","startAt":"2026-08-19T15:00:00+08:00","endAt":"2026-08-19T16:30:00+08:00","totalCost":24,"costBreakdown":{"optionalParticipantConflict":0,"preferredTimeDeviation":0,"buildingDistance":0,"capacityWaste":24,"preferenceViolation":0,"roomChange":0}}]}
 
+event: plan.unsat
+data: {"runId":"run_uuid","unsatAnalysis":{"category":"REQUIRED_AVAILABILITY","summary":"2026-08-27 14:00-16:00 无法安排：李四在 14:00-15:30 已有会议（meetingId=123）。","requestedWindow":{"start":"2026-08-27T14:00:00+08:00","end":"2026-08-27T16:00:00+08:00"},"durationMinutes":120,"blockingIntervals":[{"resourceType":"EMPLOYEE","resourceId":1003,"resourceName":"李四","meetingId":123,"startAt":"2026-08-27T14:00:00+08:00","endAt":"2026-08-27T15:30:00+08:00","reason":"必需参会者已有会议"}],"relaxationSuggestions":["延长时间窗口","调整开始时间"]}}
+
 event: hitl.required
 data: {"runId":"run_uuid","status":"WAITING_CONFIRMATION","actionType":"CREATE","confirmationToken":"cfm_uuid","expiresAt":"2026-08-12T10:10:00+08:00","draft":{"title":"架构评审","roomId":101,"roomName":"研发楼301","startAt":"2026-08-19T15:00:00+08:00","endAt":"2026-08-19T16:30:00+08:00","requiredParticipants":[],"optionalParticipants":[]}}
 
@@ -698,7 +701,8 @@ event: booking.completed
 data: {"runId":"run_uuid","status":"SUCCESS","meetingId":9001}
 ```
 
-- `plan.candidates` 最多包含 3 个成本升序且候选 ID 不重复的方案；每个候选都必须先通过 Python 独立硬约束验证器。无解不发送空候选事件，而应以 `run.completed` 返回可解释的无解摘要。
+- `plan.candidates` 最多包含 3 个成本升序且候选 ID 不重复的方案；每个候选都必须先通过 Python 独立硬约束验证器。无解不发送空候选事件，而应先发送结构化 `plan.unsat`，再以 `run.completed(status=WAITING_USER_INPUT)` 返回同一分析的可读摘要；用户接受建议后通过需求补充接口在同一 Run 重新校验，不得跳过工具查询直接生成草案。
+- `plan.unsat.unsatAnalysis` 必须包含请求窗口、会议时长、无解类别和有限建议；必需参会者冲突还必须包含最多 10 条 `blockingIntervals`。恢复视图使用同一结构，禁止只返回固定泛化文案。
 - `hitl.required.actionType` 固定为 `CREATE|RESCHEDULE|CANCEL`。CREATE 的 `draft` 保持上述扁平业务字段；RESCHEDULE 的 `draft` 为 `{"originalMeeting":MeetingView,"proposedMeeting":BookingDraftView}`；CANCEL 的 `draft` 为 `{"meeting":MeetingView}`。`GET /api/v1/agent/runs/{runId}` 的可恢复视图使用同一可辨别结构。
 - Scheduling 为成本最低候选调用一次 `create_booking_draft`，再发送 `hitl.required`；Java 创建草案不占用正式会议或槽位。`confirmationToken` 仅可在当前已鉴权用户的 HTTPS/SSE 会话中短暂传递，绝不写入 Trace、日志或持久化摘要。
 - `POST /api/v1/agent/runs/{runId}/resume` 的成功响应也是 `text/event-stream`。它只接受 `WAITING_CONFIRMATION` 状态和归属用户（或 ADMIN）；`ACCEPT` 才可调用 `confirm_booking`，`REJECT` 结束且不得调用 WRITE Tool，`EDIT` 仅接受 `roomId` 和/或 `startAt` 后重新进入 Requirement/Scheduling，不得直接确认编辑参数。
@@ -815,9 +819,12 @@ POST /internal/v1/tools/get-employee-free-busy
 {
   "employeeIds": [1001, 1002],
   "from": "2026-08-19T13:00:00+08:00",
-  "to": "2026-08-19T18:00:00+08:00"
+  "to": "2026-08-19T18:00:00+08:00",
+  "excludeMeetingId": 9001
 }
 ```
+
+`excludeMeetingId` 可省略，只允许用于改期读取。Java 必须验证当前 AgentContext 用户是该 `CONFIRMED` 会议的发起人或 ADMIN，验证成功后仅过滤该 meetingId 的人员槽位；不可见目标返回稳定的 `MEETING_NOT_FOUND/FORBIDDEN`，不得按调用方输入任意排除占用。
 
 响应数据按员工分组，只返回正式 REQUIRED 忙碌槽位：
 
@@ -850,11 +857,14 @@ POST /internal/v1/tools/search-available-rooms
   "to": "2026-08-19T18:00:00+08:00",
   "minimumCapacity": 10,
   "requiredFeatures": ["LARGE_SCREEN"],
-  "limit": 50
+  "limit": 50,
+  "excludeMeetingId": 9001
 }
 ```
 
-响应数据为整个请求区间均可用且满足容量/设备的会议室数组：
+会议室查询的 `excludeMeetingId` 与忙闲查询使用同一鉴权语义，只过滤目标会议自身的房间槽位。其他会议即使与目标会议人员、房间或时段相同也必须继续视为占用。
+
+响应数据为满足容量/设备的会议室及与请求窗口相交的正式会议完整起止区间。Java 不因窗口中存在局部占用就删除整间房，也不把相交会议裁剪成查询窗口或单个 30 分钟槽位；Python 根据会议时长在 `busySlots` 之外寻找连续 30 分钟槽位，并由独立验证器复核：
 
 ```json
 {
@@ -868,7 +878,14 @@ POST /internal/v1/tools/search-available-rooms
       "capacity": 16,
       "roomType": "STANDARD",
       "isHot": false,
-      "features": ["WHITEBOARD", "LARGE_SCREEN", "PROJECTOR"]
+      "features": ["WHITEBOARD", "LARGE_SCREEN", "PROJECTOR"],
+      "busySlots": [
+        {
+          "meetingId": 9002,
+          "startAt": "2026-08-19T13:00:00+08:00",
+          "endAt": "2026-08-19T14:00:00+08:00"
+        }
+      ]
     }
   ]
 }
@@ -884,7 +901,7 @@ POST /internal/v1/tools/get-recent-meeting
 {"limit": 5}
 ```
 
-响应数据为 `{"meetings":[MeetingView...]}`，包含当前 Token 用户可见、按 `startAt` 倒序的最多 5 条 MeetingView；服务端不接受调用方伪造 `userId`。
+响应数据为 `{"meetings":[MeetingView...],"roomFeaturesByMeetingId":{"9001":["LARGE_SCREEN","WHITEBOARD"]}}`，包含当前 Token 用户可见、按 `updatedAt` 倒序的最多 5 条 MeetingView，以及用于“设备/其他要求不变”的原房间设备快照；服务端不接受调用方伪造 `userId`。只有“刚才/最近一场”等明确相对指代可以使用第一条，其他表达仍必须唯一匹配，不能因为列表有序就默认选择。
 
 ### 6.5 草案工具
 

@@ -451,6 +451,12 @@ def continue_agent_run_input(
                         "missing_fields": [],
                         "answer_summary": None,
                         "error": None,
+                        "availability_snapshot": None,
+                        "schedule_candidates": [],
+                        "selected_candidate_id": None,
+                        "draft": None,
+                        "loop_iteration": 0,
+                        "executed_tool_fingerprints": [],
                         "processed_requirement_inputs": [
                             *state.processed_requirement_inputs,
                             ProcessedRequirementInput(
@@ -754,6 +760,8 @@ def get_agent_run(
         checkpoint_saver=checkpoint_saver,
     )
     state = _load_checkpoint_or_503(workflow=workflow, thread_id=run.thread_id, run_id=run_id)
+    if state is not None and state.unsat_analysis is not None:
+        view["unsatAnalysis"] = state.unsat_analysis.model_dump(by_alias=True, mode="json")
     if (
         state is not None
         and state.status is RunStatus.WAITING_CONFIRMATION

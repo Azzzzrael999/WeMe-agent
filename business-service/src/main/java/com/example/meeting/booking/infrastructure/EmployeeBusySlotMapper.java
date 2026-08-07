@@ -34,19 +34,24 @@ public interface EmployeeBusySlotMapper {
   @Select(
       """
       <script>
-      SELECT employee_id, meeting_id, start_at, end_at
-      FROM employee_busy_slot
-      WHERE employee_id IN
+      SELECT DISTINCT e.employee_id, e.meeting_id, m.start_at, m.end_at
+      FROM employee_busy_slot e
+      JOIN meeting m ON m.id = e.meeting_id
+      WHERE e.employee_id IN
       <foreach collection="employeeIds" item="employeeId" open="(" separator="," close=")">
         #{employeeId}
       </foreach>
-        AND start_at &lt; #{to}
-        AND end_at &gt; #{from}
-      ORDER BY employee_id, start_at, meeting_id
+        AND e.start_at &lt; #{to}
+        AND e.end_at &gt; #{from}
+        <if test="excludeMeetingId != null">
+          AND e.meeting_id != #{excludeMeetingId}
+        </if>
+      ORDER BY e.employee_id, m.start_at, e.meeting_id
       </script>
       """)
   List<EmployeeBusySlotViewRow> findBusySlots(
       @Param("employeeIds") List<Long> employeeIds,
       @Param("from") LocalDateTime from,
-      @Param("to") LocalDateTime to);
+      @Param("to") LocalDateTime to,
+      @Param("excludeMeetingId") Long excludeMeetingId);
 }

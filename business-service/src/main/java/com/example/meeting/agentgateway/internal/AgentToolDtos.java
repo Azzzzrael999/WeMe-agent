@@ -10,6 +10,7 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 
 public final class AgentToolDtos {
 
@@ -39,7 +40,8 @@ public final class AgentToolDtos {
   public record FreeBusyRequest(
       @NotNull @Size(min = 1, max = 50) List<@Positive Long> employeeIds,
       @NotNull OffsetDateTime from,
-      @NotNull OffsetDateTime to) {}
+      @NotNull OffsetDateTime to,
+      @Positive Long excludeMeetingId) {}
 
   public record BusySlotView(long meetingId, OffsetDateTime startAt, OffsetDateTime endAt) {}
 
@@ -52,7 +54,8 @@ public final class AgentToolDtos {
       @NotNull OffsetDateTime to,
       @NotNull @Min(1) @Max(10000) Integer minimumCapacity,
       @NotNull @Size(max = 50) List<@NotBlank @Size(max = 64) String> requiredFeatures,
-      @NotNull @Min(1) @Max(50) Integer limit) {}
+      @NotNull @Min(1) @Max(50) Integer limit,
+      @Positive Long excludeMeetingId) {}
 
   public record AvailableRoomView(
       long roomId,
@@ -63,13 +66,15 @@ public final class AgentToolDtos {
       int capacity,
       String roomType,
       boolean isHot,
-      List<String> features) {}
+      List<String> features,
+      List<BusySlotView> busySlots) {}
 
   public record SearchRoomsResponse(List<AvailableRoomView> rooms) {}
 
   public record RecentMeetingRequest(@NotNull @Min(1) @Max(5) Integer limit) {}
 
-  public record RecentMeetingResponse(List<MeetingView> meetings) {}
+  public record RecentMeetingResponse(
+      List<MeetingView> meetings, Map<Long, List<String>> roomFeaturesByMeetingId) {}
 
   public record DraftParticipantView(long employeeId, String displayName) {}
 

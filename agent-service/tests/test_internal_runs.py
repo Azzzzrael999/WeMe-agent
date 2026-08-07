@@ -30,12 +30,15 @@ from app.persistence import MetadataRepository
 from app.providers.base import ModelCompletion
 from app.providers.fixture import FixtureModelProvider
 from app.rag.policies import InMemoryPolicyRetriever
-from app.schemas.agent import AgentState, BookingDraft, DraftParticipant, RunStatus
+from app.schemas.agent import AgentState, BookingDraft, DraftParticipant, MeetingView, RunStatus
 from app.tools.java import (
     ConfirmBookingResponse,
     CreateBookingDraftInput,
     CreateBookingDraftResponse,
+    CreateCancellationPreviewResponse,
+    CreateRescheduleDraftResponse,
     JavaToolError,
+    RescheduleDraftInput,
     ToolOutcome,
 )
 
@@ -86,6 +89,49 @@ ROOM_102 = {
     "features": ["LARGE_SCREEN", "VIDEO_CONFERENCE"],
 }
 
+MEETING_121 = {
+    "id": 121,
+    "meetingNo": "MTG202608250001",
+    "title": "周会",
+    "meetingType": "GENERAL",
+    "organizerId": 1001,
+    "organizerName": "张三",
+    "roomId": 102,
+    "roomCode": "RD-402",
+    "roomName": "研发楼402",
+    "startAt": "2026-08-25T13:00:00+08:00",
+    "endAt": "2026-08-25T14:00:00+08:00",
+    "status": "CONFIRMED",
+    "source": "AGENT",
+    "participants": [
+        {"employeeId": 1001, "displayName": "张三", "participantType": "REQUIRED"},
+        {"employeeId": 1002, "displayName": "李四", "participantType": "REQUIRED"},
+    ],
+    "version": 0,
+    "createdAt": "2026-08-14T10:00:00+08:00",
+    "updatedAt": "2026-08-14T10:00:00+08:00",
+    "cancelledAt": None,
+}
+MEETING_122 = {
+    **MEETING_121,
+    "id": 122,
+    "meetingNo": "MTG202608250002",
+    "title": "支付网关 V2 上线架构评审",
+    "meetingType": "ARCHITECTURE_REVIEW",
+    "roomId": 103,
+    "roomCode": "RD-403",
+    "roomName": "研发楼403",
+    "startAt": "2026-08-25T14:00:00+08:00",
+    "endAt": "2026-08-25T15:30:00+08:00",
+    "participants": [
+        {"employeeId": 1001, "displayName": "张三", "participantType": "REQUIRED"},
+        {"employeeId": 1002, "displayName": "李四", "participantType": "REQUIRED"},
+        {"employeeId": 1010, "displayName": "王五", "participantType": "REQUIRED"},
+        {"employeeId": 1011, "displayName": "赵六", "participantType": "OPTIONAL"},
+    ],
+    "version": 3,
+}
+
 
 @dataclass
 class FakeJavaTools:
@@ -100,7 +146,16 @@ class FakeJavaTools:
     draft_payloads: list[CreateBookingDraftInput] = field(default_factory=list)
     room_search_features: list[list[str]] = field(default_factory=list)
     room_search_capacities: list[int] = field(default_factory=list)
+    free_busy_exclusions: list[int | None] = field(default_factory=list)
+    room_search_exclusions: list[int | None] = field(default_factory=list)
+    free_busy_windows: list[tuple[datetime, datetime]] = field(default_factory=list)
+    room_search_windows: list[tuple[datetime, datetime]] = field(default_factory=list)
     confirm_calls: list[tuple[str, str | None, str | None]] = field(default_factory=list)
+    recent_meetings: list[dict[str, object]] = field(
+        default_factory=lambda: [MEETING_122, MEETING_121]
+    )
+    busy_slots_by_employee: dict[int, list[dict[str, object]]] = field(default_factory=dict)
+    reschedule_payloads: list[RescheduleDraftInput] = field(default_factory=list)
     _draft_count: int = 0
 
     def resolve_employees(
@@ -180,14 +235,29 @@ class FakeJavaTools:
         employee_ids: list[int],
         from_: datetime,
         to: datetime,
+        exclude_meeting_id: int | None = None,
         tool_call_id: str | None = None,
     ) -> ToolOutcome:
-        del context, from_, to
+        del context
         self.calls.append("get_employee_free_busy")
+        self.free_busy_exclusions.append(exclude_meeting_id)
+        self.free_busy_windows.append((from_, to))
         return _outcome(
             "get_employee_free_busy",
             "READ",
-            {"employees": [{"employeeId": value, "busySlots": []} for value in employee_ids]},
+            {
+                "employees": [
+                    {
+                        "employeeId": value,
+                        "busySlots": [
+                            slot
+                            for slot in self.busy_slots_by_employee.get(value, [])
+                            if slot.get("meetingId") != exclude_meeting_id
+                        ],
+                    }
+                    for value in employee_ids
+                ]
+            },
             tool_call_id=tool_call_id,
         )
 
@@ -199,17 +269,42 @@ class FakeJavaTools:
         to: datetime,
         minimum_capacity: int,
         required_features: list[str],
+        exclude_meeting_id: int | None = None,
         tool_call_id: str | None = None,
     ) -> ToolOutcome:
-        del context, from_, to
+        del context
         self.calls.append("search_available_rooms")
         self.room_search_features.append(required_features)
         self.room_search_capacities.append(minimum_capacity)
+        self.room_search_exclusions.append(exclude_meeting_id)
+        self.room_search_windows.append((from_, to))
         index = min(self.calls.count("search_available_rooms") - 1, len(self.room_sequences) - 1)
         return _outcome(
             "search_available_rooms",
             "READ",
             {"rooms": self.room_sequences[index]},
+            tool_call_id=tool_call_id,
+        )
+
+    def get_recent_meeting(
+        self,
+        *,
+        context: object,
+        limit: int = 5,
+        tool_call_id: str | None = None,
+    ) -> ToolOutcome:
+        del context
+        self.calls.append("get_recent_meeting")
+        return _outcome(
+            "get_recent_meeting",
+            "READ",
+            {
+                "meetings": self.recent_meetings[:limit],
+                "roomFeaturesByMeetingId": {
+                    "121": ["LARGE_SCREEN"],
+                    "122": ["LARGE_SCREEN", "WHITEBOARD", "VIDEO_CONFERENCE"],
+                },
+            },
             tool_call_id=tool_call_id,
         )
 
@@ -253,6 +348,136 @@ class FakeJavaTools:
                 duration_ms=1,
             ),
             response,
+        )
+
+    def create_reschedule_draft(
+        self,
+        *,
+        context: object,
+        payload: RescheduleDraftInput,
+        tool_call_id: str | None = None,
+    ) -> tuple[ToolOutcome, CreateRescheduleDraftResponse]:
+        del context
+        self.calls.append("create_reschedule_draft")
+        self._draft_count += 1
+        self.reschedule_payloads.append(payload)
+        before_raw = next(item for item in self.recent_meetings if item["id"] == payload.meeting_id)
+        before = MeetingView.model_validate(before_raw)
+        after = BookingDraft(
+            title=payload.title,
+            room_id=payload.room_id,
+            room_name=f"会议室{payload.room_id}",
+            start_at=payload.start_at,
+            end_at=payload.end_at,
+            required_participants=[
+                DraftParticipant(employee_id=value, display_name=f"员工{value}")
+                for value in payload.required_participant_ids
+            ],
+            optional_participants=[
+                DraftParticipant(employee_id=value, display_name=f"员工{value}")
+                for value in payload.optional_participant_ids
+            ],
+        )
+        response = CreateRescheduleDraftResponse(
+            confirmation_token=f"cfm_reschedule_{self._draft_count}",
+            expires_at=payload.start_at - timedelta(hours=1),
+            before=before,
+            after=after,
+        )
+        return (
+            _outcome(
+                "create_reschedule_draft",
+                "DRAFT",
+                {},
+                tool_call_id=tool_call_id,
+            ),
+            response,
+        )
+
+    def create_cancellation_preview(
+        self,
+        *,
+        context: object,
+        meeting_id: int,
+        tool_call_id: str | None = None,
+    ) -> tuple[ToolOutcome, CreateCancellationPreviewResponse]:
+        del context
+        self.calls.append("create_cancellation_preview")
+        meeting = MeetingView.model_validate(
+            next(item for item in self.recent_meetings if item["id"] == meeting_id)
+        )
+        return (
+            _outcome(
+                "create_cancellation_preview",
+                "DRAFT",
+                {},
+                tool_call_id=tool_call_id,
+            ),
+            CreateCancellationPreviewResponse(
+                confirmation_token=f"cfm_cancel_{meeting_id}",
+                expires_at=meeting.start_at - timedelta(hours=1),
+                meeting=meeting,
+            ),
+        )
+
+    def confirm_reschedule(
+        self,
+        *,
+        context: object,
+        confirmation_token: str,
+        tool_call_id: str,
+        idempotency_key: str,
+    ) -> tuple[ToolOutcome, ConfirmBookingResponse]:
+        return self._confirm_mutation(
+            context=context,
+            operation="confirm_reschedule",
+            confirmation_token=confirmation_token,
+            tool_call_id=tool_call_id,
+            idempotency_key=idempotency_key,
+        )
+
+    def confirm_cancellation(
+        self,
+        *,
+        context: object,
+        confirmation_token: str,
+        tool_call_id: str,
+        idempotency_key: str,
+    ) -> tuple[ToolOutcome, ConfirmBookingResponse]:
+        return self._confirm_mutation(
+            context=context,
+            operation="confirm_cancellation",
+            confirmation_token=confirmation_token,
+            tool_call_id=tool_call_id,
+            idempotency_key=idempotency_key,
+        )
+
+    def _confirm_mutation(
+        self,
+        *,
+        context: object,
+        operation: str,
+        confirmation_token: str,
+        tool_call_id: str,
+        idempotency_key: str,
+    ) -> tuple[ToolOutcome, ConfirmBookingResponse]:
+        del context
+        self.calls.append(operation)
+        self.confirm_calls.append((confirmation_token, tool_call_id, idempotency_key))
+        result = self.confirm_results.pop(0) if self.confirm_results else "SUCCESS"
+        if result == "CONFLICT":
+            raise JavaToolError("TOOL_CONFLICT", details=self.confirm_conflict_details)
+        return (
+            ToolOutcome(
+                tool_call_id=tool_call_id,
+                tool_name=operation,
+                risk_level="WRITE",
+                data={},
+                summary="会议变更确认已完成",
+                duration_ms=1,
+                idempotency_key=idempotency_key,
+            ),
+            ConfirmBookingResponse(status="SUCCESS", meeting_id=122),
         )
 
     def confirm_booking(
@@ -652,6 +877,309 @@ def test_two_turn_requirement_completion_resumes_same_run_and_reaches_hitl(
     trace = metadata_repository.get_trace(run_id)
     assert trace is not None
     assert trace["run"]["status"] == "WAITING_CONFIRMATION"  # type: ignore[index]
+
+
+def test_reschedule_separates_target_selector_and_destination_and_inherits_facts(
+    configured_app: None,
+    fixture_tools: FakeJavaTools,
+) -> None:
+    fixture_tools.room_sequences = [[{
+        **ROOM_103,
+        "features": ["LARGE_SCREEN", "WHITEBOARD", "VIDEO_CONFERENCE"],
+    }]]
+    run_id = f"run_{uuid.uuid4().hex}"
+    trace_id = f"trc_{uuid.uuid4().hex}"
+    message = (
+        "帮我把25号下午两点的支付网关 V2 上线架构评审改到27号同一时间，"
+        "其他都不变。"
+    )
+
+    with TestClient(app) as client:
+        events = _start_with_message(client, run_id, trace_id, message)
+
+    assert events[-1][0] == "hitl.required"
+    assert fixture_tools.calls.index("get_recent_meeting") < fixture_tools.calls.index(
+        "get_employee_free_busy"
+    )
+    assert fixture_tools.free_busy_windows == [
+        (
+            datetime.fromisoformat("2026-08-27T14:00:00+08:00"),
+            datetime.fromisoformat("2026-08-27T15:30:00+08:00"),
+        )
+    ]
+    assert fixture_tools.room_search_windows == fixture_tools.free_busy_windows
+    assert fixture_tools.free_busy_exclusions == [122]
+    assert fixture_tools.room_search_exclusions == [122]
+    assert fixture_tools.room_search_features == [
+        ["LARGE_SCREEN", "WHITEBOARD", "VIDEO_CONFERENCE"]
+    ]
+    assert len(fixture_tools.reschedule_payloads) == 1
+    payload = fixture_tools.reschedule_payloads[0]
+    assert payload.meeting_id == 122
+    assert payload.title == "支付网关 V2 上线架构评审"
+    assert payload.meeting_type == "ARCHITECTURE_REVIEW"
+    assert payload.start_at == datetime.fromisoformat("2026-08-27T14:00:00+08:00")
+    assert payload.end_at == datetime.fromisoformat("2026-08-27T15:30:00+08:00")
+    assert payload.required_participant_ids == [1001, 1002, 1010]
+    assert payload.optional_participant_ids == [1011]
+    assert payload.expected_version == 3
+    hydrated_requirement = [
+        payload for name, payload in events if name == "requirement.updated"
+    ][-1]
+    hydrated_by_field = {
+        item["field"]: item for item in hydrated_requirement["items"]
+    }
+    assert hydrated_by_field["durationMinutes"]["status"] == "INHERITED"
+    assert hydrated_by_field["durationMinutes"]["summary"] == "90分钟"
+    assert hydrated_by_field["requiredParticipants"]["status"] == "INHERITED"
+    assert hydrated_by_field["requiredParticipants"]["summary"] == "3人：张三、李四、王五"
+
+
+def test_reschedule_and_cancel_each_require_hitl_before_their_write_tool(
+    configured_app: None,
+    fixture_tools: FakeJavaTools,
+) -> None:
+    fixture_tools.room_sequences = [[{
+        **ROOM_103,
+        "features": ["LARGE_SCREEN", "WHITEBOARD", "VIDEO_CONFERENCE"],
+    }]]
+    reschedule_run = f"run_{uuid.uuid4().hex}"
+    with TestClient(app) as client:
+        reschedule_events = _start_with_message(
+            client,
+            reschedule_run,
+            f"trc_{uuid.uuid4().hex}",
+            "把25号下午两点的会议改到27号同一时间，其他都不变。",
+        )
+        assert "confirm_reschedule" not in fixture_tools.calls
+        reschedule_token = _hitl_token(reschedule_events)
+        reschedule_response = client.post(
+            f"/internal/v1/agent-runs/{reschedule_run}/resume",
+            headers=_headers(
+                run_id=reschedule_run,
+                trace_id=f"trc_{uuid.uuid4().hex}",
+            ),
+            json={
+                "action": "ACCEPT",
+                "confirmationToken": reschedule_token,
+                "feedback": None,
+            },
+        )
+
+        cancel_run = f"run_{uuid.uuid4().hex}"
+        cancel_events = _start_with_message(
+            client,
+            cancel_run,
+            f"trc_{uuid.uuid4().hex}",
+            "取消刚才改期的支付网关 V2 上线架构评审。",
+        )
+        assert "confirm_cancellation" not in fixture_tools.calls
+        cancel_required = next(
+            payload for name, payload in cancel_events if name == "hitl.required"
+        )
+        assert cancel_required["actionType"] == "CANCEL"
+        assert cancel_required["draft"]["meeting"]["id"] == 122
+        cancel_response = client.post(
+            f"/internal/v1/agent-runs/{cancel_run}/resume",
+            headers=_headers(run_id=cancel_run, trace_id=f"trc_{uuid.uuid4().hex}"),
+            json={
+                "action": "ACCEPT",
+                "confirmationToken": cancel_required["confirmationToken"],
+                "feedback": None,
+            },
+        )
+
+    assert reschedule_response.status_code == 200
+    assert any(name == "booking.completed" for name, _ in _events(reschedule_response.text))
+    assert fixture_tools.calls.count("confirm_reschedule") == 1
+    assert cancel_response.status_code == 200
+    assert any(name == "booking.completed" for name, _ in _events(cancel_response.text))
+    assert fixture_tools.calls.count("confirm_cancellation") == 1
+
+
+def test_reschedule_write_conflict_refreshes_facts_and_requires_new_hitl(
+    configured_app: None,
+    fixture_tools: FakeJavaTools,
+) -> None:
+    fixture_tools.confirm_results = ["CONFLICT"]
+    fixture_tools.confirm_conflict_details = {
+        "conflict.type": "BOOKING_CONFLICT",
+        "conflict.roomId": "103",
+        "conflict.slots": "28,29,30",
+    }
+    alternate_room = {
+        **ROOM_102,
+        "features": ["LARGE_SCREEN", "WHITEBOARD", "VIDEO_CONFERENCE"],
+    }
+    fixture_tools.room_sequences = [
+        [{**ROOM_103, "features": alternate_room["features"]}, alternate_room],
+        [alternate_room],
+    ]
+    run_id = f"run_{uuid.uuid4().hex}"
+    with TestClient(app) as client:
+        initial_events = _start_with_message(
+            client,
+            run_id,
+            f"trc_{uuid.uuid4().hex}",
+            "把25号下午两点的会议改到27号同一时间，其他都不变。",
+        )
+        response = client.post(
+            f"/internal/v1/agent-runs/{run_id}/resume",
+            headers=_headers(run_id=run_id, trace_id=f"trc_{uuid.uuid4().hex}"),
+            json={
+                "action": "ACCEPT",
+                "confirmationToken": _hitl_token(initial_events),
+            },
+        )
+
+    events = _events(response.text)
+    assert response.status_code == 200
+    assert any(
+        name == "agent.step" and payload["nodeName"] == "conflict_repair"
+        for name, payload in events
+    )
+    assert events[-1][0] == "hitl.required"
+    assert fixture_tools.calls.count("confirm_reschedule") == 1
+    assert fixture_tools.calls.count("get_recent_meeting") == 2
+    assert fixture_tools.calls.count("get_employee_free_busy") == 2
+    assert fixture_tools.free_busy_exclusions == [122, 122]
+    assert len(fixture_tools.reschedule_payloads) == 2
+    assert fixture_tools.reschedule_payloads[-1].meeting_id == 122
+    assert fixture_tools.reschedule_payloads[-1].room_id == 102
+
+
+def test_reschedule_unsat_emits_and_recovers_named_blocking_evidence(
+    configured_app: None,
+    fixture_tools: FakeJavaTools,
+) -> None:
+    fixture_tools.room_sequences = [[{
+        **ROOM_103,
+        "features": ["LARGE_SCREEN", "WHITEBOARD", "VIDEO_CONFERENCE"],
+    }]]
+    fixture_tools.busy_slots_by_employee = {
+        1002: [
+            {
+                "meetingId": 500,
+                "startAt": "2026-08-27T14:00:00+08:00",
+                "endAt": "2026-08-27T15:30:00+08:00",
+            }
+        ]
+    }
+    run_id = f"run_{uuid.uuid4().hex}"
+    trace_id = f"trc_{uuid.uuid4().hex}"
+    message = "帮我把25号下午两点的会议改到27号同一时间，其他都不变。"
+
+    with TestClient(app) as client:
+        events = _start_with_message(client, run_id, trace_id, message)
+        recovery = client.get(
+            f"/internal/v1/agent-runs/{run_id}",
+            headers=_headers(run_id=run_id, trace_id=f"trc_{uuid.uuid4().hex}"),
+        )
+
+    event = next(payload for name, payload in events if name == "plan.unsat")
+    analysis = event["unsatAnalysis"]
+    assert analysis["category"] == "REQUIRED_AVAILABILITY"
+    assert analysis["requestedWindow"] == {
+        "start": "2026-08-27T14:00:00+08:00",
+        "end": "2026-08-27T15:30:00+08:00",
+    }
+    assert analysis["durationMinutes"] == 90
+    assert analysis["blockingIntervals"] == [
+        {
+            "resourceType": "EMPLOYEE",
+            "resourceId": 1002,
+            "resourceName": "李四",
+            "meetingId": 500,
+            "startAt": "2026-08-27T14:00:00+08:00",
+            "endAt": "2026-08-27T15:30:00+08:00",
+            "reason": "必需参会者已有会议",
+        }
+    ]
+    assert "李四" in analysis["summary"]
+    assert "会议 500" in analysis["summary"]
+    assert analysis["relaxationSuggestions"][0].startswith("可尝试 2026-08-27 15:30")
+    assert events[-1][0] == "run.completed"
+    assert events[-1][1]["status"] == "WAITING_USER_INPUT"
+    assert fixture_tools.reschedule_payloads == []
+    assert recovery.status_code == 200
+    assert recovery.json()["unsatAnalysis"] == analysis
+
+
+def test_reschedule_unsat_can_continue_with_the_recommended_time(
+    configured_app: None,
+    fixture_tools: FakeJavaTools,
+) -> None:
+    fixture_tools.room_sequences = [[{
+        **ROOM_103,
+        "features": ["LARGE_SCREEN", "WHITEBOARD", "VIDEO_CONFERENCE"],
+    }]]
+    fixture_tools.busy_slots_by_employee = {
+        1002: [
+            {
+                "meetingId": 500,
+                "startAt": "2026-08-27T14:00:00+08:00",
+                "endAt": "2026-08-27T15:30:00+08:00",
+            }
+        ]
+    }
+    run_id = f"run_{uuid.uuid4().hex}"
+    with TestClient(app) as client:
+        first_events = _start_with_message(
+            client,
+            run_id,
+            f"trc_{uuid.uuid4().hex}",
+            "帮我把25号下午两点的会议改到27号同一时间，其他都不变。",
+        )
+        assert first_events[-1][1]["status"] == "WAITING_USER_INPUT"
+        response = client.post(
+            f"/internal/v1/agent-runs/{run_id}/input",
+            headers=_headers(run_id=run_id, trace_id=f"trc_{uuid.uuid4().hex}"),
+            json={
+                "message": "那就按你推荐的最近可行时间。",
+                "clientRequestId": "accept-unsat-recommendation",
+                "expectedRevision": 1,
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    resumed_events = _events(response.text)
+    assert resumed_events[-1][0] == "hitl.required"
+    assert fixture_tools.free_busy_windows[-1] == (
+        datetime.fromisoformat("2026-08-27T15:30:00+08:00"),
+        datetime.fromisoformat("2026-08-27T17:00:00+08:00"),
+    )
+    assert fixture_tools.free_busy_exclusions[-1] == 122
+    assert fixture_tools.reschedule_payloads[-1].meeting_id == 122
+
+
+def test_reschedule_ambiguous_target_asks_user_before_availability_reads(
+    configured_app: None,
+    fixture_tools: FakeJavaTools,
+) -> None:
+    fixture_tools.recent_meetings = [
+        MEETING_122,
+        {
+            **MEETING_122,
+            "id": 123,
+            "meetingNo": "MTG202608250003",
+            "title": "另一个架构评审",
+        },
+    ]
+    run_id = f"run_{uuid.uuid4().hex}"
+
+    with TestClient(app) as client:
+        events = _start_with_message(
+            client,
+            run_id,
+            f"trc_{uuid.uuid4().hex}",
+            "帮我把25号下午两点的会议改到27号同一时间。",
+        )
+
+    completed = next(payload for name, payload in events if name == "run.completed")
+    assert completed["status"] == "WAITING_USER_INPUT"
+    assert "会议 122" in completed["answerSummary"]
+    assert "会议 123" in completed["answerSummary"]
+    assert fixture_tools.calls == ["get_recent_meeting"]
 
 
 def test_trajectory_integration_exposes_bounded_native_tool_loop(

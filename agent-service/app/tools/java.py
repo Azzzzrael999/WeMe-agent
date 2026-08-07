@@ -38,6 +38,9 @@ class FreeBusyInput(ToolInput):
     employee_ids: list[int] = Field(min_length=1, max_length=50, serialization_alias="employeeIds")
     from_: datetime = Field(serialization_alias="from")
     to: datetime
+    exclude_meeting_id: int | None = Field(
+        default=None, ge=1, serialization_alias="excludeMeetingId"
+    )
 
     @model_validator(mode="after")
     def validate_window(self) -> FreeBusyInput:
@@ -54,6 +57,9 @@ class SearchRoomsInput(ToolInput):
         default_factory=list, max_length=50, serialization_alias="requiredFeatures"
     )
     limit: int = Field(default=50, ge=1, le=50)
+    exclude_meeting_id: int | None = Field(
+        default=None, ge=1, serialization_alias="excludeMeetingId"
+    )
 
     @model_validator(mode="after")
     def validate_window(self) -> SearchRoomsInput:
@@ -214,13 +220,19 @@ class JavaReadToolClient:
         employee_ids: list[int],
         from_: datetime,
         to: datetime,
+        exclude_meeting_id: int | None = None,
         tool_call_id: str | None = None,
     ) -> ToolOutcome:
         outcome = self._invoke(
             context=context,
             tool_name="get_employee_free_busy",
             path="/internal/v1/tools/get-employee-free-busy",
-            payload=FreeBusyInput(employee_ids=employee_ids, from_=from_, to=to),
+            payload=FreeBusyInput(
+                employee_ids=employee_ids,
+                from_=from_,
+                to=to,
+                exclude_meeting_id=exclude_meeting_id,
+            ),
             risk_level="READ",
             tool_call_id=tool_call_id,
         )
@@ -237,6 +249,7 @@ class JavaReadToolClient:
         to: datetime,
         minimum_capacity: int,
         required_features: list[str],
+        exclude_meeting_id: int | None = None,
         tool_call_id: str | None = None,
     ) -> ToolOutcome:
         outcome = self._invoke(
@@ -248,6 +261,7 @@ class JavaReadToolClient:
                 to=to,
                 minimum_capacity=minimum_capacity,
                 required_features=required_features,
+                exclude_meeting_id=exclude_meeting_id,
             ),
             risk_level="READ",
             tool_call_id=tool_call_id,

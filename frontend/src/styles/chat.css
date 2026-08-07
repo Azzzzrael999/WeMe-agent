@@ -94,6 +94,24 @@
 .conversation-message footer a { display: inline-flex; align-items: center; gap: 3px; color: var(--primary); font-weight: 650; text-decoration: none; }
 .streaming-copy { display: flex; align-items: center; gap: 7px; color: var(--muted); }
 .streaming-copy svg, .composer-spinner { animation: spin .8s linear infinite; }
+.unsat-card { display: grid; gap: 12px; margin-top: 12px; border: 1px solid #fecaca; border-radius: 12px; padding: 13px; background: #fff7f7; }
+.unsat-card header { display: flex; align-items: flex-start; gap: 9px; }
+.unsat-card header > span { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border-radius: 8px; color: var(--danger); background: var(--danger-bg); }
+.unsat-card header > div { display: grid; gap: 1px; }
+.unsat-card header strong, .unsat-card__blockers > strong, .unsat-card__suggestions > strong { font-size: 11px; }
+.unsat-card header small { color: var(--danger); font-size: 9px; }
+.unsat-card__request { display: grid; grid-template-columns: 2fr 1fr; gap: 1px; overflow: hidden; margin: 0; border: 1px solid #fee2e2; border-radius: 8px; background: #fee2e2; }
+.unsat-card__request div { display: grid; gap: 2px; padding: 8px 9px; background: #fff; }
+.unsat-card__request dt { color: var(--muted); font-size: 9px; }
+.unsat-card__request dd { margin: 0; font-size: 10px; font-weight: 650; }
+.unsat-card__blockers, .unsat-card__suggestions { display: grid; gap: 7px; }
+.unsat-card__blockers ul, .unsat-card__suggestions ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.unsat-card__blockers li { display: flex; align-items: flex-start; gap: 7px; border-radius: 8px; padding: 8px 9px; background: #fff; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.unsat-card__blockers li > svg { margin-top: 1px; flex: 0 0 auto; color: var(--danger); }
+.unsat-card__blockers b { color: var(--foreground); }
+.unsat-card__blockers code { margin-left: 4px; border-radius: 4px; padding: 1px 4px; color: var(--muted); background: var(--accent); font-size: 9px; }
+.unsat-card__suggestions li { position: relative; padding-left: 12px; color: var(--muted); font-size: 10px; }
+.unsat-card__suggestions li::before { position: absolute; top: 6px; left: 1px; width: 4px; height: 4px; border-radius: 50%; background: var(--primary); content: ''; }
 
 .composer-dock {
   position: sticky;
@@ -127,6 +145,7 @@
 .requirement-progress__status[data-status='AMBIGUOUS'],
 .requirement-progress__status[data-status='CONFLICT'] { color: var(--warning); background: var(--warning-bg); }
 .requirement-progress__status[data-status='UNSPECIFIED'] { color: var(--muted); background: var(--accent); }
+.requirement-progress__status[data-status='INHERITED'] { color: var(--info); background: var(--info-bg); }
 .requirement-progress__status[data-status='CLOSED'] { color: var(--success); background: var(--success-bg); }
 .composer-hitl-notice {
   display: flex;

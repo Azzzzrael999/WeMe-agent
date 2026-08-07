@@ -38,6 +38,7 @@ def room(
     capacity: int = 4,
     features: list[str] | None = None,
     room_type: str = "STANDARD",
+    busy_intervals: list[BusyInterval] | None = None,
     available_slot_starts: list[datetime] | None = None,
 ) -> RoomAvailability:
     return RoomAvailability(
@@ -47,6 +48,7 @@ def room(
         capacity=capacity,
         room_type=room_type,
         features=features if features is not None else ["LARGE_SCREEN"],
+        busy_intervals=busy_intervals or [],
         available_slot_starts=available_slot_starts,
     )
 
@@ -222,13 +224,19 @@ def test_unsat_categories_follow_stable_diagnostic_order() -> None:
             busy_slots=[
                 EmployeeBusySlots(
                     employee_id=1002,
-                    busy_intervals=[BusyInterval(start_at=at(13), end_at=at(15))],
+                    busy_intervals=[
+                        BusyInterval(meeting_id=9002, start_at=at(13), end_at=at(15))
+                    ],
                 )
             ]
         )
     )
     assert required_result.unsat is not None
     assert required_result.unsat.category is UnsatCategory.REQUIRED_AVAILABILITY
+    assert required_result.unsat.requested_window == TimeWindow(start=at(13), end=at(15))
+    assert required_result.unsat.duration_minutes == 60
+    assert required_result.unsat.blocking_intervals[0].resource_id == 1002
+    assert required_result.unsat.blocking_intervals[0].meeting_id == 9002
 
     short_window_result = ScheduleSolver().solve(
         problem=problem(duration_minutes=90, window_end=at(14))
@@ -249,6 +257,50 @@ def test_unsat_categories_follow_stable_diagnostic_order() -> None:
     )
     assert policy_result.unsat is not None
     assert policy_result.unsat.category is UnsatCategory.POLICY
+
+
+def test_room_partial_occupancy_keeps_later_continuous_candidates() -> None:
+    result = ScheduleSolver().solve(
+        problem=problem(
+            rooms=[
+                room(
+                    busy_intervals=[
+                        BusyInterval(meeting_id=9100, start_at=at(13), end_at=at(14))
+                    ]
+                )
+            ],
+            window_end=at(16),
+        )
+    )
+
+    assert result.unsat is None
+    assert result.candidates
+    assert result.candidates[0].start_at == at(14)
+
+
+def test_room_occupancy_unsat_contains_room_time_and_meeting_evidence() -> None:
+    result = ScheduleSolver().solve(
+        problem=problem(
+            rooms=[
+                room(
+                    room_id=109,
+                    busy_intervals=[
+                        BusyInterval(meeting_id=9101, start_at=at(13), end_at=at(15))
+                    ],
+                )
+            ]
+        )
+    )
+
+    assert result.unsat is not None
+    assert result.unsat.category is UnsatCategory.TIME_WINDOW_DURATION
+    blocker = result.unsat.blocking_intervals[0]
+    assert blocker.resource_type == "ROOM"
+    assert blocker.resource_id == 109
+    assert blocker.resource_name == "研发楼 109"
+    assert blocker.meeting_id == 9101
+    assert blocker.start_at == at(13)
+    assert blocker.end_at == at(15)
 
 
 def test_machine_executable_hard_constraints_are_enforced_twice() -> None:

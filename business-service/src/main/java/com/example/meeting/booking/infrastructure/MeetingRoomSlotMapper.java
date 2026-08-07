@@ -1,5 +1,6 @@
 package com.example.meeting.booking.infrastructure;
 
+import com.example.meeting.agentgateway.internal.MeetingRoomBusySlotViewRow;
 import com.example.meeting.booking.domain.MeetingRoomSlotRecord;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -33,18 +34,24 @@ public interface MeetingRoomSlotMapper {
   @Select(
       """
       <script>
-      SELECT DISTINCT room_id
-      FROM meeting_room_slot
-      WHERE room_id IN
+      SELECT DISTINCT r.room_id, r.meeting_id, m.start_at, m.end_at
+      FROM meeting_room_slot r
+      JOIN meeting m ON m.id = r.meeting_id
+      WHERE r.room_id IN
       <foreach collection="roomIds" item="roomId" open="(" separator="," close=")">
         #{roomId}
       </foreach>
-        AND start_at &lt; #{to}
-        AND end_at &gt; #{from}
+        AND r.start_at &lt; #{to}
+        AND r.end_at &gt; #{from}
+        <if test="excludeMeetingId != null">
+          AND r.meeting_id != #{excludeMeetingId}
+        </if>
+      ORDER BY r.room_id, m.start_at, r.meeting_id
       </script>
       """)
-  List<Long> findBusyRoomIds(
+  List<MeetingRoomBusySlotViewRow> findBusyRoomSlots(
       @Param("roomIds") List<Long> roomIds,
       @Param("from") LocalDateTime from,
-      @Param("to") LocalDateTime to);
+      @Param("to") LocalDateTime to,
+      @Param("excludeMeetingId") Long excludeMeetingId);
 }

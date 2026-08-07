@@ -392,7 +392,7 @@ POST /internal/v1/agent-runs/{runId}/business-result
 Java先返回指定窗口内：
 
 - 房间基本信息。
-- 房间可用槽位。
+- 房间正式忙碌槽位（带可公开的 meetingId）；Python 据此计算连续可用槽位。
 - REQUIRED和OPTIONAL参与者忙碌槽位。
 
 Python生成候选 `(room, startSlot)`，会议持续槽位数：
@@ -458,6 +458,52 @@ totalCost =
 3. 检查时间窗口和持续时长。
 4. 检查政策硬约束。
 5. 生成有限的松弛建议，不自动应用。
+
+`UnsatAnalysis` 不是固定文案，而是前后端共同使用的结构化结果：
+
+```json
+{
+  "category": "REQUIRED_AVAILABILITY",
+  "summary": "2026-08-27 14:00-16:00 无法安排：李四在 14:00-15:30 已有会议（meetingId=123）。",
+  "requestedWindow": {
+    "start": "2026-08-27T14:00:00+08:00",
+    "end": "2026-08-27T16:00:00+08:00"
+  },
+  "durationMinutes": 120,
+  "blockingIntervals": [
+    {
+      "resourceType": "EMPLOYEE",
+      "resourceId": 1003,
+      "resourceName": "李四",
+      "meetingId": 123,
+      "start": "2026-08-27T14:00:00+08:00",
+      "end": "2026-08-27T15:30:00+08:00",
+      "reason": "必需参会者已有会议"
+    }
+  ],
+  "relaxationSuggestions": ["延长时间窗口", "调整开始时间"]
+}
+```
+
+- `blockingIntervals` 最多 10 条，仅披露当前用户有权看到的员工显示名、时间与会议 ID，不披露其他会议标题或参会名单。
+- `requestedWindow` 和 `durationMinutes` 必须来自本次已验证请求，不能引用用于选择目标会议的旧时间。
+- 无解时发送 `plan.unsat`，并以 `WAITING_USER_INPUT` 保留当前 checkpoint；恢复接口保留同一 `unsatAnalysis`，`run.completed.answerSummary` 使用该分析的可读摘要。用户明确接受分析中的建议时间后，从同一 Run 重新校验忙闲、会议室和全部硬约束，不能把“建议”直接当作已验证候选。
+
+### 10.7 改期目标解析与字段继承
+
+改期与取消先调用 `get_recent_meeting` 读取当前用户可管理的候选会议，再执行任何忙闲、房间、草案或写 Tool。确定性解析器按以下优先级唯一选择目标：
+
+1. 已有 `targetMeetingId`；
+2. 用户明确给出的目标日期与开始时刻；
+3. 用户明确给出的标题片段；
+4. “刚才/最近一场”等相对指代。
+
+零个或多个匹配均进入 `WAITING_USER_INPUT` 并展示有界候选摘要，不得默认取列表第一项。唯一命中后，以 Java `MeetingView` 作为原会议事实：
+
+- `pendingStartAt` 或明确的新时间只生成目标窗口，不能复用旧目标选择窗口；
+- 未明确修改时，时长由原会议 `endAt-startAt` 推导，人员、标题、类型保持不变；
+- “设备不变”保留原房间设备要求，其他字段只接受用户明确增量；
+- `get_free_busy` 与 `search_available_rooms` 由 Tool Gate 注入同一 `excludeMeetingId`；Java 验证当前用户确实可管理该会议后，只排除该会议产生的占用。
 
 ## 11. 简化RAG
 

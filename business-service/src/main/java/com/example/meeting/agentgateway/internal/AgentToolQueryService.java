@@ -140,7 +140,8 @@ public class AgentToolQueryService {
   }
 
   @Transactional(readOnly = true)
-  public FreeBusyResponse getFreeBusy(FreeBusyRequest request) {
+  public FreeBusyResponse getFreeBusy(FreeBusyRequest request, AgentToolContext context) {
+    Long excludeMeetingId = validateExcludedMeeting(request.excludeMeetingId(), context);
     List<Long> employeeIds = new ArrayList<>(new LinkedHashSet<>(request.employeeIds()));
     if (userMapper.findActiveIds(employeeIds).size() != employeeIds.size()) {
       throw validation("employeeIds", "EMPLOYEE_NOT_ACTIVE");
@@ -150,7 +151,7 @@ public class AgentToolQueryService {
     Map<Long, List<BusySlotView>> grouped = new LinkedHashMap<>();
     employeeIds.forEach(id -> grouped.put(id, new ArrayList<>()));
     for (EmployeeBusySlotViewRow row :
-        busySlotMapper.findBusySlots(employeeIds, window.from(), window.to())) {
+        busySlotMapper.findBusySlots(employeeIds, window.from(), window.to(), excludeMeetingId)) {
       grouped
           .get(row.getEmployeeId())
           .add(
@@ -165,7 +166,9 @@ public class AgentToolQueryService {
   }
 
   @Transactional(readOnly = true)
-  public SearchRoomsResponse searchAvailableRooms(SearchRoomsRequest request) {
+  public SearchRoomsResponse searchAvailableRooms(
+      SearchRoomsRequest request, AgentToolContext context) {
+    Long excludeMeetingId = validateExcludedMeeting(request.excludeMeetingId(), context);
     ToolTimeWindowValidator.Window window =
         timeWindowValidator.validate(request.from(), request.to());
     Set<String> requiredFeatures = new LinkedHashSet<>(normalizeText(request.requiredFeatures()));
@@ -183,13 +186,20 @@ public class AgentToolQueryService {
       return new SearchRoomsResponse(List.of());
     }
     List<Long> roomIds = candidates.stream().map(RoomItemView::id).toList();
-    Set<Long> busyRooms =
-        new LinkedHashSet<>(roomSlotMapper.findBusyRoomIds(roomIds, window.from(), window.to()));
+    Map<Long, List<BusySlotView>> busySlotsByRoom = new LinkedHashMap<>();
+    roomIds.forEach(id -> busySlotsByRoom.put(id, new ArrayList<>()));
+    for (MeetingRoomBusySlotViewRow row :
+        roomSlotMapper.findBusyRoomSlots(roomIds, window.from(), window.to(), excludeMeetingId)) {
+      busySlotsByRoom
+          .get(row.getRoomId())
+          .add(
+              new BusySlotView(
+                  row.getMeetingId(), offset(row.getStartAt()), offset(row.getEndAt())));
+    }
     List<AvailableRoomView> rooms =
         candidates.stream()
-            .filter(room -> !busyRooms.contains(room.id()))
             .limit(request.limit())
-            .map(this::toAvailableRoom)
+            .map(room -> toAvailableRoom(room, busySlotsByRoom.get(room.id())))
             .toList();
     return new SearchRoomsResponse(rooms);
   }
@@ -197,13 +207,34 @@ public class AgentToolQueryService {
   @Transactional(readOnly = true)
   public RecentMeetingResponse recentMeetings(
       RecentMeetingRequest request, AgentToolContext context) {
-    return new RecentMeetingResponse(
+    List<com.example.meeting.meeting.api.MeetingView> meetings =
         meetingQueryService
-            .list(context.authenticatedUser(), null, null, "CONFIRMED", 1, request.limit())
-            .items());
+            .list(context.authenticatedUser(), null, null, "CONFIRMED", 1, 100)
+            .items()
+            .stream()
+            .sorted(
+                java.util.Comparator.comparing(
+                        com.example.meeting.meeting.api.MeetingView::updatedAt)
+                    .reversed()
+                    .thenComparing(
+                        com.example.meeting.meeting.api.MeetingView::id,
+                        java.util.Comparator.reverseOrder()))
+            .limit(request.limit())
+            .toList();
+    Map<Long, List<String>> featuresByRoom =
+        roomQueryService.findActiveRooms().items().stream()
+            .collect(
+                java.util.stream.Collectors.toMap(
+                    RoomItemView::id,
+                    room -> room.features().stream().map(feature -> feature.code()).toList()));
+    Map<Long, List<String>> featuresByMeeting = new LinkedHashMap<>();
+    for (var meeting : meetings) {
+      featuresByMeeting.put(meeting.id(), featuresByRoom.getOrDefault(meeting.roomId(), List.of()));
+    }
+    return new RecentMeetingResponse(meetings, featuresByMeeting);
   }
 
-  private AvailableRoomView toAvailableRoom(RoomItemView room) {
+  private AvailableRoomView toAvailableRoom(RoomItemView room, List<BusySlotView> busySlots) {
     return new AvailableRoomView(
         room.id(),
         room.code(),
@@ -213,7 +244,8 @@ public class AgentToolQueryService {
         room.capacity(),
         room.roomType(),
         room.hot(),
-        room.features().stream().map(feature -> feature.code()).toList());
+        room.features().stream().map(feature -> feature.code()).toList(),
+        busySlots);
   }
 
   private List<String> normalizeText(List<String> values) {
@@ -222,6 +254,18 @@ public class AgentToolQueryService {
 
   private OffsetDateTime offset(LocalDateTime value) {
     return value.atZone(zoneId).toOffsetDateTime();
+  }
+
+  private Long validateExcludedMeeting(Long meetingId, AgentToolContext context) {
+    if (meetingId == null) {
+      return null;
+    }
+    var meeting =
+        meetingQueryService.findManageableSnapshot(meetingId, context.authenticatedUser());
+    if (!"CONFIRMED".equals(meeting.getStatus())) {
+      throw validation("excludeMeetingId", "MEETING_NOT_CONFIRMED");
+    }
+    return meetingId;
   }
 
   private BusinessException validation(String field, String reason) {

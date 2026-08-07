@@ -22,6 +22,7 @@ from app.scheduling.models import (
     ScheduleSolveResult,
 )
 from app.schemas.agent import (
+    BlockingInterval,
     BusyInterval,
     CandidateCostBreakdown,
     DailyTimeRange,
@@ -234,10 +235,14 @@ def _attendee_count(problem: SchedulingProblem) -> int:
 def _room_has_continuous_slots(
     room: RoomAvailability, problem: SchedulingProblem, start: datetime
 ) -> bool:
+    end = _candidate_end(problem, start)
+    if any(
+        _intervals_overlap(start, end, interval.start_at, interval.end_at)
+        for interval in room.busy_intervals
+    ):
+        return False
     available_slots = room.available_slot_starts
     if available_slots is None:
-        # The current Java Tool only returns rooms available through the entire
-        # requested window, which is exactly this semantic guarantee.
         return True
     available = set(available_slots)
     return all(slot in available for slot in _candidate_slots(problem, start))
@@ -417,10 +422,18 @@ def _visible_candidate(seed: CandidateSeed, cost: CandidateCostBreakdown) -> Sch
 def _analyze_unsat(problem: SchedulingProblem, built: CandidateSetBuildResult) -> UnsatAnalysis:
     """Classify infeasibility in the prescribed stable diagnostic order."""
 
+    window = problem.meeting_request.time_window
+    assert window is not None
     if built.facility_room_count == 0:
         return UnsatAnalysis(
             category=UnsatCategory.FACILITY_CAPACITY,
-            summary="没有同时满足容量和必需设备的会议室。",
+            summary=(
+                f"{_visible_window(window.start, window.end)}、"
+                f"连续 {problem.meeting_request.duration_minutes} 分钟的请求无可用方案："
+                "没有同时满足容量和必需设备的会议室。"
+            ),
+            requested_window=window,
+            duration_minutes=problem.meeting_request.duration_minutes,
             relaxation_suggestions=["降低最小容量或移除部分必需设备后重新查询。"],
         )
     # A window which cannot fit the requested duration has no meaningful
@@ -428,32 +441,116 @@ def _analyze_unsat(problem: SchedulingProblem, built: CandidateSetBuildResult) -
     if built.window_start_count == 0:
         return UnsatAnalysis(
             category=UnsatCategory.TIME_WINDOW_DURATION,
-            summary="当前时间窗口无法容纳所需的连续会议时长。",
+            summary=(
+                f"{_visible_window(window.start, window.end)} 无法容纳连续 "
+                f"{problem.meeting_request.duration_minutes} 分钟的会议。"
+            ),
+            requested_window=window,
+            duration_minutes=problem.meeting_request.duration_minutes,
             relaxation_suggestions=["延长时间窗口或缩短会议时长后重新查询。"],
         )
     if built.required_common_start_count == 0:
+        blockers = _required_availability_blockers(problem)
+        evidence = "；".join(
+            f"员工 {item.resource_id} 在 {item.start_at:%H:%M}-{item.end_at:%H:%M}"
+            + (f" 有会议 {item.meeting_id}" if item.meeting_id is not None else "已有安排")
+            for item in blockers[:3]
+        )
         return UnsatAnalysis(
             category=UnsatCategory.REQUIRED_AVAILABILITY,
-            summary="必需参会者在请求窗口内没有共同空闲时间。",
+            summary=(
+                f"{_visible_window(window.start, window.end)}、连续 "
+                f"{problem.meeting_request.duration_minutes} 分钟的请求无共同空闲时间"
+                + (f"：{evidence}。" if evidence else "。")
+            ),
+            requested_window=window,
+            duration_minutes=problem.meeting_request.duration_minutes,
+            blocking_intervals=blockers,
             relaxation_suggestions=["调整时间窗口或将非关键参会者改为可选。"],
         )
     if built.room_available_candidate_count == 0 or built.required_candidate_count == 0:
+        blockers = _room_availability_blockers(problem)
         return UnsatAnalysis(
             category=UnsatCategory.TIME_WINDOW_DURATION,
-            summary="满足条件的会议室在该窗口内没有连续可用槽位。",
+            summary=(
+                f"{_visible_window(window.start, window.end)}、连续 "
+                f"{problem.meeting_request.duration_minutes} 分钟的请求无可用会议室槽位。"
+            ),
+            requested_window=window,
+            duration_minutes=problem.meeting_request.duration_minutes,
+            blocking_intervals=blockers,
             relaxation_suggestions=["延长时间窗口或缩短会议时长后重新查询。"],
         )
     return UnsatAnalysis(
         category=UnsatCategory.POLICY,
-        summary="可执行的会议制度约束排除了全部候选方案。",
+        summary=(
+            f"{_visible_window(window.start, window.end)}、连续 "
+            f"{problem.meeting_request.duration_minutes} 分钟的请求被会议制度硬约束排除。"
+        ),
+        requested_window=window,
+        duration_minutes=problem.meeting_request.duration_minutes,
         relaxation_suggestions=["调整会议类型或政策约束后重新确认。"],
     )
+
+
+def _required_availability_blockers(problem: SchedulingProblem) -> list[BlockingInterval]:
+    required_ids = set(problem.required_participant_ids)
+    blockers: list[BlockingInterval] = []
+    for employee in problem.availability_snapshot.employee_busy_slots:
+        if employee.employee_id not in required_ids:
+            continue
+        for busy in employee.busy_intervals:
+            blockers.append(
+                BlockingInterval(
+                    resource_type="EMPLOYEE",
+                    resource_id=employee.employee_id,
+                    meeting_id=busy.meeting_id,
+                    start_at=busy.start_at,
+                    end_at=busy.end_at,
+                    reason="必需参会者已有会议",
+                )
+            )
+    return sorted(
+        blockers,
+        key=lambda item: (item.start_at, item.end_at, item.resource_id or 0, item.meeting_id or 0),
+    )[:10]
+
+
+def _room_availability_blockers(problem: SchedulingProblem) -> list[BlockingInterval]:
+    blockers = [
+        BlockingInterval(
+            resource_type="ROOM",
+            resource_id=room.room_id,
+            resource_name=room.room_name,
+            meeting_id=busy.meeting_id,
+            start_at=busy.start_at,
+            end_at=busy.end_at,
+            reason="已有其他会议占用",
+        )
+        for room in problem.availability_snapshot.rooms
+        for busy in room.busy_intervals
+    ]
+    return sorted(
+        blockers,
+        key=lambda item: (item.start_at, item.end_at, item.resource_id or 0, item.meeting_id or 0),
+    )[:10]
+
+
+def _visible_window(start: datetime, end: datetime) -> str:
+    if start.date() == end.date():
+        return f"{start:%Y-%m-%d %H:%M}-{end:%H:%M}"
+    return f"{start:%Y-%m-%d %H:%M}-{end:%Y-%m-%d %H:%M}"
 
 
 def _validator_room_slots(
     room: RoomAvailability, problem: SchedulingProblem, start: datetime
 ) -> bool:
-    # Kept deliberately separate from the builder's predicate.
+    end = _candidate_end(problem, start)
+    if any(
+        _intervals_overlap(start, end, interval.start_at, interval.end_at)
+        for interval in room.busy_intervals
+    ):
+        return False
     if room.available_slot_starts is None:
         return True
     available_slots = set(room.available_slot_starts)

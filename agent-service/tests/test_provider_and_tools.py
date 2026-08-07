@@ -836,6 +836,63 @@ def test_requirement_asks_for_meridiem_when_single_hour_is_ambiguous() -> None:
     assert resolved.missing_fields == []
 
 
+@pytest.mark.parametrize(
+    ("message", "expected_destination"),
+    [
+        (
+            "把25号下午1点的架构评审改到25号下午2点，其他都不变。",
+            "2026-08-25T14:00:00+08:00",
+        ),
+        (
+            "把25号下午两点的架构评审改到27号同一时间，其他都不变。",
+            "2026-08-27T14:00:00+08:00",
+        ),
+    ],
+)
+def test_requirement_deterministically_separates_mutation_selector_and_destination(
+    message: str,
+    expected_destination: str,
+) -> None:
+    extraction = json.dumps(
+        {
+            "requirementDraft": {
+                "intent": "MODIFY_MEETING",
+                # Simulate the live model incorrectly returning the selector as
+                # the destination. The deterministic normalizer must override it.
+                "timeWindow": {
+                    "start": "2026-08-25T13:00:00+08:00",
+                    "end": "2026-08-25T14:00:00+08:00",
+                },
+                "targetMeetingReference": "架构评审",
+                "fieldEvidence": [],
+                "summary": "改期架构评审",
+            },
+            "missingFields": [],
+        },
+        ensure_ascii=False,
+    )
+    state = AgentState(
+        thread_id="thread_mutation_destination",
+        run_id="run_mutation_destination",
+        trace_id="trc_mutation_destination",
+        user_id=1001,
+        roles=["EMPLOYEE"],
+        message=message,
+        request_time=datetime.fromisoformat("2026-08-14T09:00:00+08:00"),
+    )
+
+    updated, _, _, _ = RequirementAgent(
+        provider=QueueProvider([extraction]),
+        runner=StructuredModelRunner(),
+    ).execute(state)
+
+    assert updated.requirement_draft is not None
+    assert updated.requirement_draft.time_window is None
+    assert updated.requirement_draft.pending_start_at is not None
+    assert updated.requirement_draft.pending_start_at.isoformat() == expected_destination
+    assert "25号" in (updated.requirement_draft.target_meeting_reference or "")
+
+
 def test_time_only_start_survives_until_duration_arrives_on_next_turn() -> None:
     first_extraction = json.dumps(
         {

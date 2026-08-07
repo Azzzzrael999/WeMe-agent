@@ -87,6 +87,7 @@ class RequirementSlotStatus(StrEnum):
     EXPLICIT = "EXPLICIT"
     DEFAULTED = "DEFAULTED"
     DIRECTORY_RESOLVED = "DIRECTORY_RESOLVED"
+    INHERITED = "INHERITED"
     MISSING = "MISSING"
     AMBIGUOUS = "AMBIGUOUS"
     CONFLICT = "CONFLICT"
@@ -344,13 +345,35 @@ class UnsatCategory(StrEnum):
     POLICY = "POLICY"
 
 
+class BlockingInterval(AgentSchema):
+    resource_type: Literal["EMPLOYEE", "ROOM", "POLICY"]
+    resource_id: int | None = Field(default=None, ge=1)
+    resource_name: str | None = Field(default=None, min_length=1, max_length=64)
+    meeting_id: int | None = Field(default=None, ge=1)
+    start_at: datetime
+    end_at: datetime
+    reason: str = Field(min_length=1, max_length=160)
+
+    @model_validator(mode="after")
+    def validate_blocking_interval(self) -> BlockingInterval:
+        if self.end_at <= self.start_at:
+            raise ValueError("blocking interval endAt must be after startAt")
+        if not _is_shanghai_slot(self.start_at) or not _is_shanghai_slot(self.end_at):
+            raise ValueError("blocking intervals must use Asia/Shanghai 30-minute slots")
+        return self
+
+
 class UnsatAnalysis(AgentSchema):
     category: UnsatCategory
-    summary: str = Field(min_length=1, max_length=240)
+    summary: str = Field(min_length=1, max_length=500)
+    requested_window: TimeWindow
+    duration_minutes: int = Field(ge=30, le=480, multiple_of=30)
+    blocking_intervals: list[BlockingInterval] = Field(default_factory=list, max_length=10)
     relaxation_suggestions: list[str] = Field(default_factory=list, max_length=3)
 
 
 class BusyInterval(AgentSchema):
+    meeting_id: int | None = Field(default=None, ge=1)
     start_at: datetime
     end_at: datetime
 
@@ -383,6 +406,7 @@ class RoomAvailability(AgentSchema):
     capacity: int = Field(ge=1, le=10000)
     room_type: str = Field(min_length=1, max_length=32)
     features: list[str] = Field(default_factory=list, max_length=50)
+    busy_intervals: list[BusyInterval] = Field(default_factory=list, max_length=672)
     available_slot_starts: list[datetime] | None = Field(default=None, max_length=672)
 
     @field_validator("available_slot_starts")
@@ -720,8 +744,8 @@ class AgentState(AgentSchema):
     model_provider: str | None = Field(default=None, max_length=32)
     configured_model: str | None = Field(default=None, max_length=128)
     response_models: list[str] = Field(default_factory=list, max_length=12)
-    prompt_version: str = Field(default="meeting-agent-prompts-v6", max_length=64)
-    schema_version: str = Field(default="meeting-agent-state-v5", max_length=64)
+    prompt_version: str = Field(default="meeting-agent-prompts-v7", max_length=64)
+    schema_version: str = Field(default="meeting-agent-state-v6", max_length=64)
     input_tokens: int = Field(default=0, ge=0)
     output_tokens: int = Field(default=0, ge=0)
     cache_hit_tokens: int = Field(default=0, ge=0)

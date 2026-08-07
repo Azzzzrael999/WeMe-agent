@@ -111,7 +111,7 @@ public class AgentToolController {
             "READ",
             body,
             FreeBusyResponse.class,
-            () -> queryService.getFreeBusy(body));
+            () -> queryService.getFreeBusy(body, context));
     return responseFactory.success(result, request);
   }
 
@@ -127,7 +127,7 @@ public class AgentToolController {
             "READ",
             body,
             SearchRoomsResponse.class,
-            () -> queryService.searchAvailableRooms(body));
+            () -> queryService.searchAvailableRooms(body, context));
     return responseFactory.success(result, request);
   }
 

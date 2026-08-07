@@ -26,6 +26,7 @@
             <div>
               <span>MeetOps</span>
               <p>{{ turn.answer }}</p>
+              <UnsatAnalysisCard v-if="turn.unsatAnalysis" :analysis="turn.unsatAnalysis" />
               <footer v-if="turn.runId">
                 <StatusBadge :status="turn.status || 'SUCCEEDED'" />
                 <RouterLink :to="{ name: 'agent-run', params: { runId: turn.runId } }">查看这次运行 <ArrowUpRight :size="13" aria-hidden="true" /></RouterLink>
@@ -44,6 +45,7 @@
             <p v-if="answerSummary">{{ answerSummary }}</p>
             <p v-else-if="streaming" class="streaming-copy"><LoaderCircle :size="15" aria-hidden="true" />正在理解需求并查询可验证的业务事实…</p>
             <p v-else>已保存当前 Run，可继续查看结构化编排结果。</p>
+            <UnsatAnalysisCard v-if="unsatAnalysis" :analysis="unsatAnalysis" />
             <footer v-if="bookingRequest">
               <StatusBadge :status="bookingRequest.status" />
               <span>请求号 {{ bookingRequest.requestNo }}</span>
@@ -63,11 +65,12 @@ import { ArrowUpRight, Ban, Building2, CalendarPlus, LoaderCircle, RefreshCw, Sc
 import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 
-import type { BookingRequest } from '@/api/types'
+import type { AgentUnsatAnalysis, BookingRequest } from '@/api/types'
 import ErrorState from './ErrorState.vue'
 import LoadingState from './LoadingState.vue'
 import StatusBadge from './StatusBadge.vue'
 import ConversationSidebar from './ConversationSidebar.vue'
+import UnsatAnalysisCard from './UnsatAnalysisCard.vue'
 
 export interface ConversationCanvasTurn {
   id: string
@@ -75,12 +78,14 @@ export interface ConversationCanvasTurn {
   question: string
   answer: string
   status: string
+  unsatAnalysis?: AgentUnsatAnalysis | null
 }
 
 const props = defineProps<{
   history: readonly ConversationCanvasTurn[]
   submittedMessage: string
   answerSummary: string
+  unsatAnalysis: AgentUnsatAnalysis | null
   runId: string | null
   runStatus: string
   bookingRequest: BookingRequest | null

@@ -85,6 +85,7 @@ from app.schemas.agent import (
     SchedulingProblem,
     SupervisorDecision,
     TimeWindow,
+    UnsatAnalysis,
 )
 from app.security import AgentContext
 from app.tools.java import (
@@ -99,8 +100,8 @@ from app.tools.java import (
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "meeting-agent-prompts-v6"
-SCHEMA_VERSION = "meeting-agent-state-v5"
+PROMPT_VERSION = "meeting-agent-prompts-v7"
+SCHEMA_VERSION = "meeting-agent-state-v6"
 
 SUPERVISOR_PROMPT = """You are the Supervisor Agent for an enterprise meeting scheduler.
 Only classify the current objective. Initial routes are POLICY, REQUIREMENT, or CLARIFICATION.
@@ -123,6 +124,10 @@ contain invented member names. title and meetingType may be null because determi
 safe defaults. On a continuation turn, extract only facts present in the current USER_MESSAGE; do
 not copy the previous roster. Expressions such as 去掉、不参加、请假不会来 are participant removal
 instructions that deterministic code applies to the verified previous roster.
+For MODIFY_MEETING, targetMeetingReference identifies the existing meeting (for example the old
+date/time/title before 改到), while pendingStartAt/timeWindow describe the destination. Never put
+the old target selector into the destination. “27号同一时间” means the destination date is the
+27th and its clock is inherited from the explicit old target clock; set pendingStartAt accordingly.
 Every populated user-derived field needs fieldEvidence whose source is a continuous verbatim
 substring of USER_MESSAGE. Do not call tools, create drafts, confirm, or expose reasoning."""
 
@@ -301,6 +306,12 @@ class RequirementAgent:
         previous_draft = state.requirement_draft if state.continuation_turn else None
         draft = _resolve_ambiguous_pending_start(previous_draft, draft, state.message)
         draft = _apply_participant_delta(previous_draft, draft, state.message)
+        draft = _apply_unsat_recommended_time(
+            previous_draft,
+            draft,
+            source=state.message,
+            analysis=state.unsat_analysis,
+        )
         merged = _merge_requirement_drafts(previous_draft, draft, source=state.message)
         if (
             merged.time_window is None
@@ -637,7 +648,19 @@ class SchedulingAgent:
                     )
                 )
                 continue
-            for call in tool_response.tool_calls:
+            mutation_intent = request.intent in {
+                Intent.MODIFY_MEETING,
+                Intent.CANCEL_MEETING,
+            }
+            ordered_calls = sorted(
+                tool_response.tool_calls,
+                key=lambda call: (
+                    0
+                    if mutation_intent and call.name == "get_recent_meeting"
+                    else 1
+                ),
+            )
+            for call in ordered_calls:
                 if state.tool_call_count + len(outcomes) + 1 > self.max_tool_calls:
                     raise WorkflowError("AGENT_STEP_LIMIT_EXCEEDED", "调度工具调用预算已耗尽")
                 try:
@@ -718,31 +741,49 @@ class SchedulingAgent:
                     rooms_data = gated_result.outcome.data
                 elif call.name == "get_recent_meeting":
                     recent_data = gated_result.outcome.data
-                    recent = _recent_meeting(recent_data, request.target_meeting_id)
-                    if request.intent is Intent.MODIFY_MEETING and recent is not None:
-                        if request.time_window is None:
-                            start_at = recent.start_at
-                            request = request.model_copy(
+                    matches, visible_meetings = _resolve_target_meeting(
+                        recent_data,
+                        request=request,
+                        message=state.message,
+                        request_time=state.request_time,
+                    )
+                    if len(matches) != 1:
+                        answer = _target_meeting_clarification(
+                            matches=matches,
+                            visible_meetings=visible_meetings,
+                        )
+                        return (
+                            _apply_completions(state, tool_usage).model_copy(
                                 update={
-                                    "time_window": TimeWindow(
-                                        start=start_at,
-                                        end=start_at
-                                        + timedelta(minutes=request.duration_minutes),
-                                    )
+                                    "missing_fields": ["uniqueTargetMeeting"],
+                                    "answer_summary": answer,
+                                    "status": RunStatus.WAITING_USER_INPUT,
+                                    "next_route": Route.FINAL,
+                                    "stop_reason": LoopStopReason.NEED_CLARIFICATION.value,
+                                    "loop_iteration": loop_iteration,
+                                    "executed_tool_fingerprints": sorted(fingerprints),
                                 }
-                            )
-                            state = state.model_copy(update={"meeting_request": request})
-                            messages[0] = ToolLoopMessage(
-                                role="system",
-                                content=_scheduling_system_prompt(
-                                    state=state, context=context
-                                ),
-                            )
-                        resolved = [
-                            Participant(name=item.display_name, employee_id=item.employee_id)
-                            for item in recent.participants
-                            if item.participant_type == "REQUIRED"
-                        ]
+                            ),
+                            answer,
+                            outcomes,
+                            model_calls,
+                        )
+                    recent = matches[0]
+                    state, request = _hydrate_mutation_target(
+                        state=state,
+                        request=request,
+                        meeting=recent,
+                        recent_data=recent_data,
+                    )
+                    resolved = [
+                        Participant(name=item.display_name, employee_id=item.employee_id)
+                        for item in recent.participants
+                        if item.participant_type == "REQUIRED"
+                    ]
+                    messages[0] = ToolLoopMessage(
+                        role="system",
+                        content=_scheduling_system_prompt(state=state, context=context),
+                    )
             # Even when deterministic facts are now complete, send the
             # resulting role=tool observations back through one assistant
             # turn. A tool-free response is the explicit protocol boundary
@@ -847,6 +888,11 @@ class SchedulingAgent:
 
         if not result.has_solution:
             assert result.unsat is not None
+            detailed_unsat = _enrich_unsat_analysis(
+                result.unsat,
+                resolved=resolved,
+                organizer_id=context.user_id,
+            )
             return (
                 usage_state.model_copy(
                     update={
@@ -854,14 +900,15 @@ class SchedulingAgent:
                         "availability_snapshot": snapshot,
                         "schedule_candidates": [],
                         "selected_candidate_id": None,
-                        "unsat_analysis": result.unsat,
-                        "answer_summary": result.unsat.summary,
+                        "unsat_analysis": detailed_unsat,
+                        "answer_summary": detailed_unsat.summary,
+                        "status": RunStatus.WAITING_USER_INPUT,
                         "next_route": Route.FINAL,
-                        "stop_reason": LoopStopReason.NO_SOLUTION.value,
+                        "stop_reason": LoopStopReason.NEED_CLARIFICATION.value,
                         **common_update,
                     }
                 ),
-                result.unsat.summary,
+                detailed_unsat.summary,
                 outcomes,
                 model_calls,
             )
@@ -1253,6 +1300,27 @@ def _apply_explicit_meeting_defaults(
     draft: RequirementDraft, source: str, *, request_time: datetime
 ) -> RequirementDraft:
     updates: dict[str, object] = {}
+    normalized_source = _normalize_chinese_clock_tokens(source)
+    time_source = normalized_source
+    if draft.intent is Intent.MODIFY_MEETING:
+        mutation = re.search(r"改到|调整到|移到|改为", source)
+        if mutation is not None:
+            selector_source = source[: mutation.start()].strip()
+            destination_source = source[mutation.end() :].strip()
+            if selector_source:
+                updates["target_meeting_reference"] = selector_source[-240:]
+            normalized_selector = _normalize_chinese_clock_tokens(selector_source)
+            normalized_destination = _normalize_chinese_clock_tokens(destination_source)
+            if any(marker in destination_source for marker in ("同一时间", "原时间", "同样时间")):
+                selector_clock = re.search(
+                    r"(?:上午|早上|中午|下午|晚上)?\s*(\d{1,2})(?::(\d{2})|点)(?:开始)?",
+                    normalized_selector,
+                )
+                if selector_clock is not None:
+                    normalized_destination = (
+                        normalized_destination + " " + selector_clock.group(0)
+                    )
+            time_source = normalized_destination
     if "架构评审" in source:
         if not draft.title:
             updates["title"] = "架构评审"
@@ -1294,7 +1362,7 @@ def _apply_explicit_meeting_defaults(
 
     preferred = re.search(
         r"(?:最好|尽量|优先)(?:是|在)?(?:下午|晚上|上午|早上|中午)?\s*(\d{1,2})(?::(\d{2})|点)(?:开始)?",
-        source,
+        normalized_source,
     )
     if preferred is not None:
         hour = int(preferred.group(1))
@@ -1305,17 +1373,17 @@ def _apply_explicit_meeting_defaults(
         soft.append(Constraint(type="PREFER_START_AT", value=f"{hour:02d}:{minute:02d}", weight=20))
         updates["soft_constraints"] = soft
 
-    target_date = _deterministic_target_date(source, request_time)
-    daypart = _daypart_window(source)
+    target_date = _deterministic_target_date(time_source, request_time)
+    daypart = _daypart_window(time_source)
     has_explicit_time_context = target_date is not None or daypart is not None
     explicit_range = re.search(
         r"(?:上午|早上|中午|下午|晚上)?\s*(\d{1,2})(?::(\d{2})|点)\s*"
         r"(?:到|至|-)\s*(\d{1,2})(?::(\d{2})|点)",
-        source,
+        time_source,
     )
     explicit_single = re.search(
         r"(?:上午|早上|中午|下午|晚上)?\s*(\d{1,2})(?::(\d{2})|点)(?:开始)?",
-        source,
+        time_source,
     )
     has_preferred_only = preferred is not None and not any(
         marker in source for marker in ("必须", "固定", "就定", "只能")
@@ -1335,7 +1403,7 @@ def _apply_explicit_meeting_defaults(
         if (
             target_date is not None
             and explicit_single is not None
-            and _source_has_ambiguous_single_time(source)
+            and _source_has_ambiguous_single_time(time_source)
             and not has_preferred_only
         ):
             start = _at_local_date(
@@ -1346,10 +1414,11 @@ def _apply_explicit_meeting_defaults(
             )
             updates["pending_start_at"] = start
             updates["pending_start_ambiguous"] = True
+            updates["time_window"] = None
         elif (
             target_date is not None
             and explicit_range is not None
-            and not _source_has_ambiguous_single_time(source)
+            and not _source_has_ambiguous_single_time(time_source)
         ):
             start_hour = int(explicit_range.group(1))
             start_minute = int(explicit_range.group(2) or 0)
@@ -1370,7 +1439,7 @@ def _apply_explicit_meeting_defaults(
             target_date is not None
             and explicit_single is not None
             and not has_preferred_only
-            and not _source_has_ambiguous_single_time(source)
+            and not _source_has_ambiguous_single_time(time_source)
         ):
             hour = int(explicit_single.group(1))
             minute = int(explicit_single.group(2) or 0)
@@ -1381,6 +1450,7 @@ def _apply_explicit_meeting_defaults(
             if draft.duration_minutes is None:
                 updates["pending_start_at"] = start
                 updates["pending_start_ambiguous"] = False
+                updates["time_window"] = None
             else:
                 updates["time_window"] = TimeWindow(
                     start=start, end=start + timedelta(minutes=draft.duration_minutes)
@@ -1397,6 +1467,29 @@ def _apply_explicit_meeting_defaults(
     except ValueError:
         updates.pop("time_window", None)
     return draft.model_copy(update=updates) if updates else draft
+
+
+def _normalize_chinese_clock_tokens(source: str) -> str:
+    values = {
+        "一": "1",
+        "两": "2",
+        "二": "2",
+        "三": "3",
+        "四": "4",
+        "五": "5",
+        "六": "6",
+        "七": "7",
+        "八": "8",
+        "九": "9",
+        "十": "10",
+        "十一": "11",
+        "十二": "12",
+    }
+    return re.sub(
+        r"(十二|十一|十|[一二两三四五六七八九])(?=点)",
+        lambda match: values[match.group(1)],
+        source,
+    )
 
 
 def _deterministic_target_date(source: str, request_time: datetime) -> Any:
@@ -1682,6 +1775,48 @@ def _merge_requirement_drafts(
             "field_evidence": evidence[-40:],
             "needs_policy": current.needs_policy or previous.needs_policy,
             "summary": current.summary,
+        }
+    )
+
+
+def _apply_unsat_recommended_time(
+    previous: RequirementDraft | None,
+    current: RequirementDraft,
+    *,
+    source: str,
+    analysis: UnsatAnalysis | None,
+) -> RequirementDraft:
+    """Apply a previously offered time only after the user explicitly accepts it."""
+
+    if previous is None or analysis is None:
+        return current
+    if not any(
+        marker in source
+        for marker in (
+            "按你推荐",
+            "按推荐",
+            "用推荐时间",
+            "最近可行时间",
+            "推荐的时间",
+        )
+    ):
+        return current
+    blocker_ends = [item.end_at for item in analysis.blocking_intervals]
+    if not blocker_ends or previous.duration_minutes is None:
+        return current
+    recommended_start = max(blocker_ends)
+    local_day_end = recommended_start.replace(hour=18, minute=0, second=0, microsecond=0)
+    if recommended_start + timedelta(minutes=previous.duration_minutes) > local_day_end:
+        return current
+    return current.model_copy(
+        update={
+            "time_window": None,
+            "pending_start_at": recommended_start,
+            "pending_start_ambiguous": False,
+            "summary": (
+                f"用户接受了上一轮建议的最近可重新校验时间 "
+                f"{recommended_start:%Y-%m-%d %H:%M}。"
+            ),
         }
     )
 
@@ -2023,6 +2158,7 @@ def _format_requirement_clarification(items: list[RequirementItem]) -> str:
     status_labels = {
         RequirementSlotStatus.DEFAULTED: "系统补全",
         RequirementSlotStatus.DIRECTORY_RESOLVED: "通讯录推定",
+        RequirementSlotStatus.INHERITED: "原会议继承",
         RequirementSlotStatus.MISSING: "还需补充",
         RequirementSlotStatus.EXPLICIT: "已明确",
         RequirementSlotStatus.AMBIGUOUS: "需要确认",
@@ -2054,15 +2190,26 @@ def _scheduling_system_prompt(*, state: AgentState, context: AgentContext) -> st
         "targetMeetingId": request.target_meeting_id,
         "targetMeetingReference": request.target_meeting_reference,
         "participantNames": [item.name for item in request.required_participants],
+        "participantIds": [
+            item.employee_id
+            for item in request.required_participants
+            if item.employee_id is not None
+        ],
         "from": window.start.isoformat() if window is not None else None,
         "to": window.end.isoformat() if window is not None else None,
         "requestedMinimumCapacity": request.minimum_capacity or 1,
         "requiredFeatures": request.required_features,
+        "excludeMeetingId": (
+            request.target_meeting_id if request.intent is Intent.MODIFY_MEETING else None
+        ),
         "excludedCandidateIds": state.excluded_candidate_ids,
     }
     return (
         "You are the Scheduling Agent. Use only the supplied READ functions. Never call DRAFT "
         "or WRITE operations, never provide userId/runId/roles, and never expose reasoning. "
+        "For MODIFY_MEETING or CANCEL_MEETING, call get_recent_meeting before any availability "
+        "tool. After the target is uniquely hydrated, availability calls use the refreshed "
+        "destination window and excludeMeetingId from CANONICAL_CONTEXT. "
         "After employee resolution, room minimumCapacity must be the maximum of "
         "requestedMinimumCapacity and the unique organizer plus resolved employee IDs.\n"
         "CANONICAL_CONTEXT="
@@ -2118,15 +2265,22 @@ def _missing_read_tools(
 
 
 def _recent_meeting_id(data: dict[str, Any] | None) -> int | None:
-    meeting = _recent_meeting(data, None)
-    return meeting.id if meeting is not None else None
+    meetings = _recent_meetings(data)
+    return meetings[0].id if len(meetings) == 1 else None
 
 
 def _recent_meeting(
     data: dict[str, Any] | None, target_meeting_id: int | None
 ) -> MeetingView | None:
+    meetings = _recent_meetings(data)
+    if target_meeting_id is not None:
+        return next((item for item in meetings if item.id == target_meeting_id), None)
+    return meetings[0] if len(meetings) == 1 else None
+
+
+def _recent_meetings(data: dict[str, Any] | None) -> list[MeetingView]:
     if data is None:
-        return None
+        return []
     raw = data.get("meetings", [])
     if not isinstance(raw, list):
         raise WorkflowError("TOOL_RESPONSE_INVALID", "最近会议响应格式无效")
@@ -2138,9 +2292,242 @@ def _recent_meeting(
         ]
     except ValueError as exc:
         raise WorkflowError("TOOL_RESPONSE_INVALID", "最近会议响应格式无效") from exc
-    if target_meeting_id is not None:
-        return next((item for item in meetings if item.id == target_meeting_id), None)
-    return meetings[0] if meetings else None
+    return meetings
+
+
+def _resolve_target_meeting(
+    data: dict[str, Any] | None,
+    *,
+    request: MeetingRequest,
+    message: str,
+    request_time: datetime,
+) -> tuple[list[MeetingView], list[MeetingView]]:
+    meetings = _recent_meetings(data)
+    if request.target_meeting_id is not None:
+        return (
+            [item for item in meetings if item.id == request.target_meeting_id],
+            meetings,
+        )
+    reference = (request.target_meeting_reference or "").strip()
+    selector = reference or message
+    selected = list(meetings)
+    target_date = _target_reference_date(selector, request_time=request_time)
+    target_clock = _target_reference_clock(selector)
+    if target_date is not None:
+        selected = [item for item in selected if item.start_at.date() == target_date.date()]
+    if target_clock is not None:
+        selected = [
+            item
+            for item in selected
+            if (item.start_at.hour, item.start_at.minute) == target_clock
+        ]
+    if target_date is not None or target_clock is not None:
+        return selected, meetings
+    title_matches = [
+        item
+        for item in selected
+        if item.title in selector or (item.title != "会议安排" and item.title in message)
+    ]
+    if title_matches:
+        return title_matches, meetings
+    if any(marker in selector or marker in message for marker in ("刚才", "刚刚", "最近")):
+        return meetings[:1], meetings
+    return (meetings if len(meetings) == 1 else []), meetings
+
+
+def _target_reference_date(value: str, *, request_time: datetime) -> datetime | None:
+    match = re.search(
+        r"(?:(?P<year>20\d{2})年)?(?:(?P<month>1[0-2]|0?[1-9])月)?"
+        r"(?P<day>3[01]|[12]?\d)\s*[号日]",
+        value,
+    )
+    if match is None:
+        return None
+    try:
+        return request_time.replace(
+            year=int(match.group("year") or request_time.year),
+            month=int(match.group("month") or request_time.month),
+            day=int(match.group("day")),
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+    except ValueError:
+        return None
+
+
+def _target_reference_clock(value: str) -> tuple[int, int] | None:
+    match = re.search(
+        r"(?P<period>上午|早上|中午|下午|晚上)?\s*"
+        r"(?P<hour>2[0-3]|[01]?\d|[零〇一二两三四五六七八九十]{1,3})\s*点"
+        r"(?P<half>半)?",
+        value,
+    )
+    if match is None:
+        return None
+    hour = _chinese_hour(match.group("hour"))
+    if hour is None or hour > 23:
+        return None
+    period = match.group("period")
+    if (period in {"下午", "晚上"} and hour < 12) or (
+        period == "中午" and hour < 11
+    ):
+        hour += 12
+    elif period in {"上午", "早上"} and hour == 12:
+        hour = 0
+    return hour, 30 if match.group("half") else 0
+
+
+def _chinese_hour(value: str) -> int | None:
+    if value.isdigit():
+        return int(value)
+    digits = {"零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
+              "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+    if value == "十":
+        return 10
+    if "十" in value:
+        left, right = value.split("十", 1)
+        tens = digits.get(left, 1) if left else 1
+        ones = digits.get(right, 0) if right else 0
+        return tens * 10 + ones
+    if len(value) == 1:
+        return digits.get(value)
+    return None
+
+
+def _target_meeting_clarification(
+    *, matches: list[MeetingView], visible_meetings: list[MeetingView]
+) -> str:
+    choices = matches if len(matches) > 1 else visible_meetings
+    if not choices:
+        return "没有找到与该日期、时间或标题匹配且你可管理的会议，请补充会议日期、开始时间或标题。"
+    lines = [
+        "目标会议还不能唯一确定，请从以下会议中说明要操作哪一场："
+    ]
+    for item in choices[:5]:
+        lines.append(
+            f"- 会议 {item.id}：{item.title}，"
+            f"{item.start_at:%Y-%m-%d %H:%M}-{item.end_at:%H:%M}，{item.room_name}"
+        )
+    return "\n".join(lines)[:500]
+
+
+def _hydrate_mutation_target(
+    *,
+    state: AgentState,
+    request: MeetingRequest,
+    meeting: MeetingView,
+    recent_data: dict[str, Any],
+) -> tuple[AgentState, MeetingRequest]:
+    draft = state.requirement_draft
+    original_duration = int((meeting.end_at - meeting.start_at).total_seconds() / 60)
+    explicit_duration = draft.duration_minutes if draft is not None else None
+    duration = explicit_duration or original_duration
+    destination = request.time_window
+    if draft is not None and draft.pending_start_at is not None:
+        destination = TimeWindow(
+            start=draft.pending_start_at,
+            end=draft.pending_start_at + timedelta(minutes=duration),
+        )
+    elif destination is None or _window_only_selects_target(
+        destination, meeting, request.target_meeting_reference
+    ):
+        destination = TimeWindow(start=meeting.start_at, end=meeting.end_at)
+    required = [
+        Participant(name=item.display_name, employee_id=item.employee_id)
+        for item in meeting.participants
+        if item.participant_type == "REQUIRED"
+    ]
+    required_features = request.required_features
+    if not required_features and _preserves_existing_requirements(state.message):
+        required_features = _meeting_room_features(recent_data, meeting.id)
+    hydrated = request.model_copy(
+        update={
+            "title": meeting.title,
+            "meeting_type": meeting.meeting_type,
+            "duration_minutes": duration,
+            "time_window": destination,
+            "required_participants": required,
+            "required_features": required_features,
+            "minimum_capacity": max(request.minimum_capacity or 1, len(required)),
+            "target_meeting_id": meeting.id,
+        }
+    )
+    draft_update: dict[str, object] = {"target_meeting_id": meeting.id}
+    if draft is not None:
+        draft_update.update(
+            {
+                "title": meeting.title,
+                "meeting_type": meeting.meeting_type,
+                "duration_minutes": duration,
+                "time_window": destination,
+                "required_participant_names": [item.name for item in required],
+                "required_features": required_features,
+                "minimum_capacity": hydrated.minimum_capacity,
+            }
+        )
+    updated_draft = draft.model_copy(update=draft_update) if draft is not None else None
+    hydrated_items = state.requirement_items
+    if updated_draft is not None:
+        hydrated_items = _requirement_items(
+            draft=updated_draft,
+            request=hydrated,
+            missing_fields=[],
+            source=state.message,
+            previous_items=state.requirement_items,
+            optional_closed=state.optional_requirements_closed,
+        )
+        inherited_fields = {"durationMinutes", "requiredParticipants"}
+        if required_features and _preserves_existing_requirements(state.message):
+            inherited_fields.add("optionalRequirements")
+        hydrated_items = [
+            item.model_copy(
+                update={
+                    "status": RequirementSlotStatus.INHERITED,
+                    "source": f"目标会议 {meeting.id}",
+                    "blocking": False,
+                }
+            )
+            if item.field in inherited_fields
+            else item
+            for item in hydrated_items
+        ]
+    return (
+        state.model_copy(
+            update={
+                "meeting_request": hydrated,
+                "requirement_draft": updated_draft,
+                "requirement_items": hydrated_items,
+            }
+        ),
+        hydrated,
+    )
+
+
+def _window_only_selects_target(
+    window: TimeWindow, meeting: MeetingView, reference: str | None
+) -> bool:
+    if not reference:
+        return False
+    return window.start <= meeting.start_at < window.end
+
+
+def _preserves_existing_requirements(message: str) -> bool:
+    return any(
+        marker in message
+        for marker in ("其他都不变", "其它都不变", "要求不变", "设备不变", "保持不变")
+    )
+
+
+def _meeting_room_features(data: dict[str, Any], meeting_id: int) -> list[str]:
+    raw = data.get("roomFeaturesByMeetingId", {})
+    if not isinstance(raw, dict):
+        raise WorkflowError("TOOL_RESPONSE_INVALID", "最近会议房间设备响应格式无效")
+    features = raw.get(str(meeting_id), raw.get(meeting_id, []))
+    if not isinstance(features, list) or any(not isinstance(item, str) for item in features):
+        raise WorkflowError("TOOL_RESPONSE_INVALID", "最近会议房间设备响应格式无效")
+    return list(dict.fromkeys(features))
 
 
 def _snapshot_from_java(
@@ -2155,7 +2542,11 @@ def _snapshot_from_java(
             EmployeeBusySlots(
                 employee_id=item["employeeId"],
                 busy_intervals=[
-                    BusyInterval(start_at=slot["startAt"], end_at=slot["endAt"])
+                    BusyInterval(
+                        meeting_id=slot.get("meetingId"),
+                        start_at=slot["startAt"],
+                        end_at=slot["endAt"],
+                    )
                     for slot in item.get("busySlots", [])
                 ],
             )
@@ -2172,6 +2563,15 @@ def _snapshot_from_java(
                 capacity=item["capacity"],
                 room_type=item["roomType"],
                 features=item.get("features", []),
+                busy_intervals=[
+                    BusyInterval(
+                        meeting_id=slot.get("meetingId"),
+                        start_at=slot["startAt"],
+                        end_at=slot["endAt"],
+                    )
+                    for slot in item.get("busySlots", [])
+                    if isinstance(slot, dict)
+                ],
             )
             for item in raw_rooms
             if isinstance(item, dict)
@@ -2181,6 +2581,66 @@ def _snapshot_from_java(
         return AvailabilitySnapshot(rooms=rooms, employee_busy_slots=employees)
     except (KeyError, TypeError, ValueError) as exc:
         raise WorkflowError("TOOL_RESPONSE_INVALID", "可用性查询响应格式无效") from exc
+
+
+def _enrich_unsat_analysis(
+    analysis: UnsatAnalysis,
+    *,
+    resolved: list[Participant],
+    organizer_id: int,
+) -> UnsatAnalysis:
+    names: dict[int, str] = {}
+    for item in resolved:
+        if item.employee_id is not None:
+            names[item.employee_id] = item.name
+    names.setdefault(organizer_id, "会议发起人")
+    blockers = [
+        blocker.model_copy(
+            update={
+                "resource_name": (
+                    names.get(blocker.resource_id) or blocker.resource_name
+                    if blocker.resource_id is not None
+                    else blocker.resource_name
+                )
+            }
+        )
+        for blocker in analysis.blocking_intervals
+    ]
+    if not blockers:
+        return analysis
+    visible = []
+    for blocker in blockers[:5]:
+        label = blocker.resource_name or f"员工 {blocker.resource_id}"
+        meeting = (
+            f"（会议 {blocker.meeting_id}）" if blocker.meeting_id is not None else ""
+        )
+        visible.append(
+            f"{label}在 {blocker.start_at:%H:%M}-{blocker.end_at:%H:%M} "
+            f"{blocker.reason}{meeting}"
+        )
+    window = analysis.requested_window
+    summary = (
+        f"{window.start:%Y-%m-%d %H:%M}-{window.end:%H:%M} 无法安排连续 "
+        f"{analysis.duration_minutes} 分钟：" + "；".join(visible) + "。"
+    )
+    suggestions = list(analysis.relaxation_suggestions)
+    latest_end = max(blocker.end_at for blocker in blockers)
+    local_day_end = latest_end.replace(hour=18, minute=0, second=0, microsecond=0)
+    if latest_end + timedelta(minutes=analysis.duration_minutes) <= local_day_end:
+        suggestions.insert(
+            0,
+            (
+                f"可尝试 {latest_end:%Y-%m-%d %H:%M} 开始，"
+                "回复“按你推荐的最近可行时间”后系统会重新校验全部约束。"
+            ),
+        )
+    return analysis.model_copy(
+        update={
+            "summary": summary[:500],
+            "blocking_intervals": blockers,
+            "relaxation_suggestions": suggestions[:3],
+        }
+    )
 
 
 def _scheduling_problem(
@@ -2574,6 +3034,19 @@ class WorkflowRun:
                     "Perform bounded Java READ, candidate solving, and optional draft creation."
                 ),
             )
+            if updated.requirement_items != state.requirement_items:
+                self.sink.emit(
+                    "requirement.updated",
+                    {
+                        "runId": updated.run_id,
+                        "revision": updated.requirement_revision,
+                        "ready": not updated.missing_fields,
+                        "items": [
+                            item.model_dump(by_alias=True, mode="json")
+                            for item in updated.requirement_items
+                        ],
+                    },
+                )
             if updated.schedule_candidates:
                 self.sink.emit(
                     "plan.candidates",
@@ -2583,6 +3056,16 @@ class WorkflowRun:
                             candidate.model_dump(by_alias=True, mode="json")
                             for candidate in updated.schedule_candidates
                         ],
+                    },
+                )
+            if updated.unsat_analysis is not None:
+                self.sink.emit(
+                    "plan.unsat",
+                    {
+                        "runId": updated.run_id,
+                        "unsatAnalysis": updated.unsat_analysis.model_dump(
+                            by_alias=True, mode="json"
+                        ),
                     },
                 )
             if updated.status is RunStatus.WAITING_CONFIRMATION:

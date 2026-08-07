@@ -29,6 +29,7 @@
         :history="conversationHistory"
         :submitted-message="submittedMessage"
         :answer-summary="answerSummary"
+        :unsat-analysis="unsatAnalysis"
         :run-id="runId"
         :run-status="runStatus"
         :booking-request="bookingRequest"
@@ -137,6 +138,7 @@ import type {
   AgentTraceStep,
   AgentTraceToolCall,
   AgentToolEvent,
+  AgentUnsatAnalysis,
   BookingRequest,
 } from '../api/types'
 import AgentComposer from '../components/AgentComposer.vue'
@@ -164,6 +166,7 @@ const hitlDraft = ref<AgentHitlDraft | null>(null)
 const confirmationToken = ref<string | null>(null)
 const expiresAt = ref<string | undefined>()
 const answerSummary = ref('')
+const unsatAnalysis = ref<AgentUnsatAnalysis | null>(null)
 const citations = ref<AgentCitation[]>([])
 const hitlFeedback = ref('')
 const bookingRequest = ref<BookingRequest | null>(null)
@@ -186,6 +189,7 @@ interface ConversationTurn {
   question: string
   answer: string
   status: string
+  unsatAnalysis?: AgentUnsatAnalysis | null
 }
 
 interface StoredConversation {
@@ -356,6 +360,68 @@ function readRequirementItems(value: unknown): AgentRequirementItem[] {
   })
 }
 
+function readUnsatAnalysis(value: unknown): AgentUnsatAnalysis | null {
+  const analysis = record(value)
+  const window = analysis === null ? null : record(analysis.requestedWindow)
+  if (analysis === null || window === null) {
+    return null
+  }
+  const category = stringValue(analysis, 'category')
+  const summary = stringValue(analysis, 'summary')
+  const start = stringValue(window, 'start')
+  const end = stringValue(window, 'end')
+  const durationMinutes = numberValue(analysis, 'durationMinutes')
+  if (
+    category === undefined
+    || summary === undefined
+    || start === undefined
+    || end === undefined
+    || durationMinutes === undefined
+  ) {
+    return null
+  }
+  const blockingIntervals = Array.isArray(analysis.blockingIntervals)
+    ? analysis.blockingIntervals.flatMap((entry) => {
+        const blocker = record(entry)
+        if (blocker === null) {
+          return []
+        }
+        const resourceType = stringValue(blocker, 'resourceType')
+        const startAt = stringValue(blocker, 'startAt')
+        const endAt = stringValue(blocker, 'endAt')
+        const reason = stringValue(blocker, 'reason')
+        if (
+          resourceType === undefined
+          || startAt === undefined
+          || endAt === undefined
+          || reason === undefined
+        ) {
+          return []
+        }
+        return [{
+          resourceType,
+          resourceId: typeof blocker.resourceId === 'number' ? blocker.resourceId : null,
+          resourceName: typeof blocker.resourceName === 'string' ? blocker.resourceName : null,
+          meetingId: typeof blocker.meetingId === 'number' ? blocker.meetingId : null,
+          startAt,
+          endAt,
+          reason,
+        }]
+      })
+    : []
+  const relaxationSuggestions = Array.isArray(analysis.relaxationSuggestions)
+    ? analysis.relaxationSuggestions.filter((item): item is string => typeof item === 'string')
+    : []
+  return {
+    category,
+    summary,
+    requestedWindow: { start, end },
+    durationMinutes,
+    blockingIntervals,
+    relaxationSuggestions,
+  }
+}
+
 function requirementFieldLabel(field: string): string {
   return {
     timeWindow: '时间范围',
@@ -370,6 +436,7 @@ function requirementStatusLabel(status: string): string {
     EXPLICIT: '已明确',
     DEFAULTED: '已默认',
     DIRECTORY_RESOLVED: '组织库补全',
+    INHERITED: '原会议继承',
     MISSING: '待补充',
     AMBIGUOUS: '待确认',
     CONFLICT: '有冲突',
@@ -464,7 +531,12 @@ function handleSseMessage(messageEvent: SseMessage): void {
     }
     case 'plan.candidates':
       candidates.value = readCandidates(payload.candidates)
+      unsatAnalysis.value = null
       autoOpenOrchestration('candidates')
+      return
+    case 'plan.unsat':
+      unsatAnalysis.value = readUnsatAnalysis(payload.unsatAnalysis)
+      candidates.value = []
       return
     case 'hitl.required': {
       const token = stringValue(payload, 'confirmationToken')
@@ -475,6 +547,7 @@ function handleSseMessage(messageEvent: SseMessage): void {
         hitlDraft.value = nextDraft.draft
         expiresAt.value = stringValue(payload, 'expiresAt')
         hitlFeedback.value = ''
+        unsatAnalysis.value = null
         runStatus.value = stringValue(payload, 'status') ?? 'WAITING_CONFIRMATION'
         autoOpenOrchestration('requirements')
       }
@@ -602,6 +675,7 @@ async function startRun(): Promise<void> {
     clearRunState()
   } else {
     answerSummary.value = ''
+    unsatAnalysis.value = null
     errorMessage.value = ''
   }
   threadId.value ??= `thread_${crypto.randomUUID().replaceAll('-', '')}`
@@ -663,6 +737,7 @@ function currentConversationTurn(): ConversationTurn | null {
     question: submittedMessage.value,
     answer,
     status: runStatus.value,
+    unsatAnalysis: unsatAnalysis.value,
   }
 }
 
@@ -819,6 +894,7 @@ function clearRunState(): void {
   confirmationToken.value = null
   expiresAt.value = undefined
   answerSummary.value = ''
+  unsatAnalysis.value = null
   citations.value = []
   hitlFeedback.value = ''
   bookingRequest.value = null
@@ -855,6 +931,7 @@ function applyRecovery(recovery: AgentRunRecovery): void {
   requirementRevision.value = recovery.requirementRevision ?? 0
   requirementItems.value = recovery.requirementItems ?? []
   requirementBaselineAvailable.value = recovery.requirementBaselineAvailable ?? false
+  unsatAnalysis.value = readUnsatAnalysis(recovery.unsatAnalysis)
   const nextDraft = recovery.draft === undefined
     ? null
     : readHitlDraft(recovery.draft, recovery.actionType ?? recovery.operationType)
@@ -1008,7 +1085,16 @@ watch(threadId, (nextThreadId) => {
 })
 
 watch(
-  [threadId, runId, submittedMessage, answerSummary, runStatus, errorMessage, conversationHistory],
+  [
+    threadId,
+    runId,
+    submittedMessage,
+    answerSummary,
+    unsatAnalysis,
+    runStatus,
+    errorMessage,
+    conversationHistory,
+  ],
   () => {
     persistConversation()
     if (runId.value !== null) {

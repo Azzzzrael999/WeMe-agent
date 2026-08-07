@@ -227,6 +227,8 @@ class RequirementNormalizer:
         if (
             duration is None
             and draft.time_window is not None
+            and draft.intent
+            not in {Intent.MODIFY_MEETING, Intent.CANCEL_MEETING}
             and not _source_describes_search_window(source)
         ):
             duration = int((draft.time_window.end - draft.time_window.start).total_seconds() / 60)
@@ -513,6 +515,11 @@ class ReadToolGate:
             payload = input_type.model_validate_json(call.arguments)
         except ValidationError as exc:
             raise ToolGateError("TOOL_ARGUMENTS_INVALID") from exc
+        payload = self._canonicalize_mutation_exclusion(
+            name=call.name,
+            payload=payload,
+            state=state,
+        )
         self._validate_business_context(
             name=call.name,
             payload=payload,
@@ -553,6 +560,29 @@ class ReadToolGate:
         return GatedToolResult(outcome=outcome, fingerprint=fingerprint, observation=observation)
 
     @staticmethod
+    def _canonicalize_mutation_exclusion(
+        *, name: str, payload: ToolInput, state: AgentState
+    ) -> ToolInput:
+        request = state.meeting_request
+        assert request is not None
+        if (
+            request.intent in {Intent.MODIFY_MEETING, Intent.CANCEL_MEETING}
+            and request.target_meeting_id is None
+            and name != "get_recent_meeting"
+        ):
+            raise ToolGateError("TARGET_MEETING_REQUIRED")
+        if not isinstance(payload, FreeBusyInput | SearchRoomsInput):
+            return payload
+        expected = (
+            request.target_meeting_id
+            if request.intent is Intent.MODIFY_MEETING
+            else None
+        )
+        if payload.exclude_meeting_id not in {None, expected}:
+            raise ToolGateError("TOOL_CONTEXT_MISMATCH")
+        return payload.model_copy(update={"exclude_meeting_id": expected})
+
+    @staticmethod
     def _validate_business_context(
         *,
         name: str,
@@ -588,6 +618,12 @@ class ReadToolGate:
                 payload.employee_ids != expected_ids
                 or payload.from_ != window.start
                 or payload.to != window.end
+                or payload.exclude_meeting_id
+                != (
+                    request.target_meeting_id
+                    if request.intent is Intent.MODIFY_MEETING
+                    else None
+                )
             ):
                 raise ToolGateError("TOOL_CONTEXT_MISMATCH")
         elif name == "search_available_rooms":
@@ -605,6 +641,12 @@ class ReadToolGate:
                 or payload.minimum_capacity != expected_capacity
                 or payload.required_features != request.required_features
                 or payload.limit != 50
+                or payload.exclude_meeting_id
+                != (
+                    request.target_meeting_id
+                    if request.intent is Intent.MODIFY_MEETING
+                    else None
+                )
             ):
                 raise ToolGateError("TOOL_CONTEXT_MISMATCH")
 
@@ -629,6 +671,7 @@ class ReadToolGate:
                 employee_ids=payload.employee_ids,
                 from_=payload.from_,
                 to=payload.to,
+                exclude_meeting_id=payload.exclude_meeting_id,
                 tool_call_id=tool_call_id,
             )
         if isinstance(payload, SearchRoomsInput):
@@ -638,6 +681,7 @@ class ReadToolGate:
                 to=payload.to,
                 minimum_capacity=payload.minimum_capacity,
                 required_features=payload.required_features,
+                exclude_meeting_id=payload.exclude_meeting_id,
                 tool_call_id=tool_call_id,
             )
         assert isinstance(payload, RecentMeetingInput)

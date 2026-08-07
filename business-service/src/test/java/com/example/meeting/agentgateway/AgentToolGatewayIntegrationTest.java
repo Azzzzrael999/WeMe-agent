@@ -188,7 +188,101 @@ class AgentToolGatewayIntegrationTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.data.meetings.length()").value(1))
         .andExpect(jsonPath("$.data.meetings[0].id").value(confirmedMeetingId))
-        .andExpect(jsonPath("$.data.meetings[0].status").value("CONFIRMED"));
+        .andExpect(jsonPath("$.data.meetings[0].status").value("CONFIRMED"))
+        .andExpect(jsonPath("$.data.roomFeaturesByMeetingId." + confirmedMeetingId).isArray());
+  }
+
+  @Test
+  void rescheduleReadsExcludeOnlyTheAuthorizedTargetMeetingsOwnOccupancy() throws Exception {
+    long targetMeetingId =
+        createManualMeeting(101, "2026-09-11T09:00:00+08:00", "2026-09-11T11:00:00+08:00");
+    String window =
+        "\"from\":\"2026-09-11T09:30:00+08:00\"," + "\"to\":\"2026-09-11T10:00:00+08:00\"";
+
+    MvcResult busyWithoutExclusion =
+        performTool(
+                "/internal/v1/tools/get-employee-free-busy",
+                "{\"employeeIds\":[1001]," + window + "}",
+                identity("run_busy_without_exclusion", "tool_busy_without_exclusion"),
+                SERVICE_TOKEN,
+                true)
+            .andExpect(status().isOk())
+            .andReturn();
+    assertThat(data(busyWithoutExclusion).at("/employees/0/busySlots/0/meetingId").asLong())
+        .isEqualTo(targetMeetingId);
+    assertThat(data(busyWithoutExclusion).at("/employees/0/busySlots/0/startAt").asText())
+        .isEqualTo("2026-09-11T09:00:00+08:00");
+    assertThat(data(busyWithoutExclusion).at("/employees/0/busySlots/0/endAt").asText())
+        .isEqualTo("2026-09-11T11:00:00+08:00");
+
+    MvcResult busyWithExclusion =
+        performTool(
+                "/internal/v1/tools/get-employee-free-busy",
+                "{\"employeeIds\":[1001],"
+                    + window
+                    + ",\"excludeMeetingId\":"
+                    + targetMeetingId
+                    + "}",
+                identity("run_busy_with_exclusion", "tool_busy_with_exclusion"),
+                SERVICE_TOKEN,
+                true)
+            .andExpect(status().isOk())
+            .andReturn();
+    assertThat(data(busyWithExclusion).at("/employees/0/busySlots").size()).isZero();
+
+    MvcResult roomsWithoutExclusion =
+        performTool(
+                "/internal/v1/tools/search-available-rooms",
+                "{" + window + ",\"minimumCapacity\":1,\"requiredFeatures\":[],\"limit\":50}",
+                identity("run_rooms_without_exclusion", "tool_rooms_without_exclusion"),
+                SERVICE_TOKEN,
+                true)
+            .andExpect(status().isOk())
+            .andReturn();
+    assertThat(roomIds(data(roomsWithoutExclusion))).contains(101L);
+    assertThat(roomBusyMeetingIds(data(roomsWithoutExclusion), 101L)).contains(targetMeetingId);
+
+    MvcResult roomsWithExclusion =
+        performTool(
+                "/internal/v1/tools/search-available-rooms",
+                "{"
+                    + window
+                    + ",\"minimumCapacity\":1,\"requiredFeatures\":[],\"limit\":50,"
+                    + "\"excludeMeetingId\":"
+                    + targetMeetingId
+                    + "}",
+                identity("run_rooms_with_exclusion", "tool_rooms_with_exclusion"),
+                SERVICE_TOKEN,
+                true)
+            .andExpect(status().isOk())
+            .andReturn();
+    assertThat(roomIds(data(roomsWithExclusion))).contains(101L);
+    assertThat(roomBusyMeetingIds(data(roomsWithExclusion), 101L)).isEmpty();
+  }
+
+  @Test
+  void rescheduleReadCannotExcludeAnotherUsersMeeting() throws Exception {
+    long otherUsersMeetingId =
+        createManualMeeting(
+            adminAccessToken(), 101, "2026-09-12T09:00:00+08:00", "2026-09-12T10:00:00+08:00");
+
+    performTool(
+            "/internal/v1/tools/get-employee-free-busy",
+            objectMapper.writeValueAsString(
+                Map.of(
+                    "employeeIds",
+                    List.of(1001L),
+                    "from",
+                    "2026-09-12T09:00:00+08:00",
+                    "to",
+                    "2026-09-12T10:00:00+08:00",
+                    "excludeMeetingId",
+                    otherUsersMeetingId)),
+            identity("run_exclude_forbidden", "tool_exclude_forbidden"),
+            SERVICE_TOKEN,
+            true)
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("MEETING_NOT_FOUND"));
   }
 
   @Test
@@ -984,6 +1078,24 @@ class AgentToolGatewayIntegrationTest {
     return objectMapper
         .readTree(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
         .get("data");
+  }
+
+  private List<Long> roomIds(JsonNode data) {
+    List<Long> ids = new ArrayList<>();
+    data.path("rooms").forEach(room -> ids.add(room.path("roomId").asLong()));
+    return ids;
+  }
+
+  private List<Long> roomBusyMeetingIds(JsonNode data, long roomId) {
+    List<Long> ids = new ArrayList<>();
+    data.path("rooms")
+        .forEach(
+            room -> {
+              if (room.path("roomId").asLong() == roomId) {
+                room.path("busySlots").forEach(slot -> ids.add(slot.path("meetingId").asLong()));
+              }
+            });
+    return ids;
   }
 
   private record ToolIdentity(String traceId, String runId, String toolCallId, String token) {}

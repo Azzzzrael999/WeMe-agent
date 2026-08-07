@@ -171,6 +171,25 @@ export interface AgentCandidate {
   costBreakdown: AgentCandidateCostBreakdown
 }
 
+export interface AgentUnsatBlockingInterval {
+  resourceType: 'EMPLOYEE' | 'ROOM' | 'POLICY' | string
+  resourceId: number | null
+  resourceName: string | null
+  meetingId: number | null
+  startAt: string
+  endAt: string
+  reason: string
+}
+
+export interface AgentUnsatAnalysis {
+  category: string
+  summary: string
+  requestedWindow: { start: string; end: string }
+  durationMinutes: number
+  blockingIntervals: AgentUnsatBlockingInterval[]
+  relaxationSuggestions: string[]
+}
+
 export interface AgentDraftParticipant {
   employeeId: number
   displayName: string
@@ -251,6 +270,7 @@ export type AgentRequirementStatus =
   | 'EXPLICIT'
   | 'DEFAULTED'
   | 'DIRECTORY_RESOLVED'
+  | 'INHERITED'
   | 'MISSING'
   | 'AMBIGUOUS'
   | 'CONFLICT'
@@ -278,6 +298,7 @@ export interface AgentRunRecovery extends AgentRunSummary {
   requirementRevision?: number
   requirementItems?: AgentRequirementItem[]
   requirementBaselineAvailable?: boolean
+  unsatAnalysis?: AgentUnsatAnalysis
 }
 
 export type AgentLoopPhase = 'PLAN' | 'ACT' | 'OBSERVE' | 'VERIFY' | 'REPLAN' | string

@@ -44,20 +44,24 @@ class FixtureModelProvider:
     def complete_tools(self, request: ToolModelRequest) -> ToolModelResponse:
         """Reproduce a native two-turn READ trajectory without network calls."""
 
-        tool_names = {
-            call.name
-            for message in request.messages
-            for call in message.tool_calls
-            if message.role == "assistant"
-        }
         observations = [message for message in request.messages if message.role == "tool"]
+        successful_tool_names: set[str] = set()
+        for observation in observations:
+            try:
+                observed_value = json.loads(observation.content or "{}")
+            except json.JSONDecodeError:
+                continue
+            if isinstance(observed_value.get("data"), dict) and isinstance(
+                observed_value.get("toolName"), str
+            ):
+                successful_tool_names.add(observed_value["toolName"])
         canonical = _fixture_canonical_context(request)
         intent = canonical.get("intent")
         target_meeting_id = canonical.get("targetMeetingId")
         participant_names = canonical.get("participantNames")
         if not isinstance(participant_names, list):
             raise ValueError("fixture participantNames is invalid")
-        if participant_names and "resolve_employees" not in tool_names:
+        if participant_names and "resolve_employees" not in successful_tool_names:
             return ToolModelResponse(
                 content=None,
                 tool_calls=(
@@ -71,7 +75,7 @@ class FixtureModelProvider:
         if (
             intent in {"MODIFY_MEETING", "CANCEL_MEETING"}
             and (intent == "MODIFY_MEETING" or target_meeting_id is None)
-            and "get_recent_meeting" not in tool_names
+            and "get_recent_meeting" not in successful_tool_names
         ):
             return ToolModelResponse(
                 content=None,
@@ -85,8 +89,16 @@ class FixtureModelProvider:
             )
         if intent == "CANCEL_MEETING":
             return ToolModelResponse(content="取消目标已核验。", tool_calls=())
-        if not {"get_employee_free_busy", "search_available_rooms"}.intersection(tool_names):
-            resolved_ids: list[int] = []
+        if not {
+            "get_employee_free_busy",
+            "search_available_rooms",
+        }.issubset(successful_tool_names):
+            canonical_participant_ids = canonical.get("participantIds")
+            resolved_ids: list[int] = (
+                [item for item in canonical_participant_ids if isinstance(item, int)]
+                if isinstance(canonical_participant_ids, list)
+                else []
+            )
             for observation in observations:
                 try:
                     value = json.loads(observation.content or "{}")
@@ -98,7 +110,7 @@ class FixtureModelProvider:
                         for item in value.get("data", {}).get("employees", [])
                         if isinstance(item, dict) and isinstance(item.get("employeeId"), int)
                     ]
-                elif value.get("toolName") == "get_recent_meeting":
+                elif value.get("toolName") == "get_recent_meeting" and not resolved_ids:
                     meetings = value.get("data", {}).get("meetings", [])
                     first = meetings[0] if isinstance(meetings, list) and meetings else {}
                     if isinstance(first, dict):
@@ -127,6 +139,7 @@ class FixtureModelProvider:
                                 "employeeIds": employee_ids,
                                 "from": canonical["from"],
                                 "to": canonical["to"],
+                                "excludeMeetingId": canonical.get("excludeMeetingId"),
                             }
                         ),
                     ),
@@ -142,6 +155,7 @@ class FixtureModelProvider:
                                 ),
                                 "requiredFeatures": canonical["requiredFeatures"],
                                 "limit": 50,
+                                "excludeMeetingId": canonical.get("excludeMeetingId"),
                             }
                         ),
                     ),
@@ -209,7 +223,7 @@ class FixtureModelProvider:
         intent = "CREATE_MEETING"
         if "取消" in message:
             intent = "CANCEL_MEETING"
-        elif any(term in message for term in ("改期", "调整", "修改")):
+        elif any(term in message for term in ("改期", "调整", "修改", "改到")):
             intent = "MODIFY_MEETING"
         elif any(term in message for term in ("共同空闲", "共同时间", "大家有空")):
             intent = "FIND_COMMON_TIME"
@@ -239,7 +253,27 @@ class FixtureModelProvider:
             features.append("WHITEBOARD")
         if "视频会议设备" in message or "视频会议" in message:
             features.append("VIDEO_CONFERENCE")
-        window = self._time_window(message)
+        mutation_parts = (
+            re.split(r"改到|调整到|移到", message, maxsplit=1)
+            if intent == "MODIFY_MEETING"
+            else [message]
+        )
+        target_reference = (
+            mutation_parts[0][-240:]
+            if intent == "MODIFY_MEETING" and len(mutation_parts) == 2
+            else next(
+                (term for term in ("刚才", "最近", "那个会议") if term in message),
+                None,
+            )
+            if intent in {"MODIFY_MEETING", "CANCEL_MEETING"}
+            else None
+        )
+        pending_start_at = (
+            self._mutation_pending_start(mutation_parts[0], mutation_parts[1])
+            if intent == "MODIFY_MEETING" and len(mutation_parts) == 2
+            else None
+        )
+        window = self._time_window(mutation_parts[0] if pending_start_at is not None else message)
         if window is None and not runtime_message:
             window = (
                 self.now.replace(hour=9, minute=0, second=0, microsecond=0),
@@ -285,6 +319,10 @@ class FixtureModelProvider:
                     if window is not None
                     else None
                 ),
+                "pendingStartAt": (
+                    pending_start_at.isoformat() if pending_start_at is not None else None
+                ),
+                "pendingStartAmbiguous": False,
                 "requiredParticipantNames": [item["name"] for item in participants],
                 "participantScope": (
                     "MY_DEPARTMENT"
@@ -308,11 +346,7 @@ class FixtureModelProvider:
                 "hardConstraints": [],
                 "softConstraints": self._soft_constraints(message),
                 "targetMeetingId": target_meeting_id,
-                "targetMeetingReference": (
-                    next((term for term in ("刚才", "最近", "那个会议") if term in message), None)
-                    if intent in {"MODIFY_MEETING", "CANCEL_MEETING"}
-                    else None
-                ),
+                "targetMeetingReference": target_reference,
                 "fieldEvidence": evidence,
                 "needsPolicy": False,
                 "summary": "已提取用户明确表达的会议事实。",
@@ -408,6 +442,49 @@ class FixtureModelProvider:
         if crosses_midnight:
             end += timedelta(days=1)
         return start, end
+
+    def _mutation_pending_start(self, before: str, after: str) -> datetime | None:
+        day = re.search(r"(?<!月)(?<!\d)(\d{1,2})号", after)
+        if day is None:
+            return None
+        clock_source = before if "同一时间" in after else after
+        clock = re.search(
+            r"(上午|早上|中午|下午|晚上)?\s*"
+            r"(\d{1,2}|[零〇一二两三四五六七八九十]{1,3})点(半)?",
+            clock_source,
+        )
+        if clock is None:
+            return None
+        hour = self._hour_value(clock.group(2))
+        if hour is None:
+            return None
+        period = clock.group(1)
+        if (period in {"下午", "晚上"} and hour < 12) or (
+            period == "中午" and hour < 11
+        ):
+            hour += 12
+        return self.now.replace(
+            day=int(day.group(1)),
+            hour=hour,
+            minute=30 if clock.group(3) else 0,
+            second=0,
+            microsecond=0,
+        )
+
+    @staticmethod
+    def _hour_value(value: str) -> int | None:
+        if value.isdigit():
+            return int(value)
+        digits = {
+            "零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3,
+            "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9,
+        }
+        if value == "十":
+            return 10
+        if "十" in value:
+            left, right = value.split("十", 1)
+            return digits.get(left, 1) * 10 + digits.get(right, 0)
+        return digits.get(value)
 
     @staticmethod
     def _soft_constraints(message: str) -> list[dict[str, object]]:
