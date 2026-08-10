@@ -49,7 +49,7 @@
             </span>
             <ChevronRight class="recent-task-chevron" :size="15" aria-hidden="true" />
           </RouterLink>
-          <p v-if="filteredRecentTasks.length === 0" class="recent-task-empty nav-label">没有匹配的本地任务</p>
+          <p v-if="filteredRecentTasks.length === 0" class="recent-task-empty nav-label">没有匹配的任务</p>
         </section>
 
         <section v-for="group in navigationGroups" :key="group.label">
@@ -83,20 +83,6 @@
           </RouterLink>
         </section>
 
-        <section class="preview-navigation">
-          <p class="nav-group-label">产品预览</p>
-          <RouterLink
-            v-for="item in previewItems"
-            :key="String(item.to.name)"
-            :to="item.to"
-            :title="item.label"
-            @click="closeMobileNavigation()"
-          >
-            <component :is="item.icon" :size="18" aria-hidden="true" />
-            <span class="nav-label">{{ item.label }}</span>
-            <span class="nav-preview-label nav-label">预览</span>
-          </RouterLink>
-        </section>
       </nav>
 
       <div class="workspace-user">
@@ -144,10 +130,6 @@
         </button>
         <div class="topbar-title">
           <span>{{ currentSectionTitle }}</span>
-          <small>Asia/Shanghai</small>
-        </div>
-        <div class="topbar-actions">
-          <span class="live-indicator"><span aria-hidden="true" />业务服务已连接</span>
         </div>
       </header>
       <main class="workspace-content"><slot /></main>
@@ -162,7 +144,7 @@ import {
   CheckCircle2,
   ChevronRight,
   DoorOpen,
-  LayoutDashboard,
+  ListChecks,
   LogOut,
   Menu,
   MessageCircle,
@@ -231,6 +213,7 @@ const navigationGroups = computed<{ label: string; items: NavigationItem[] }[]>(
       { label: '会议室', icon: DoorOpen, to: { name: 'rooms' } },
       { label: '消息中心', icon: Bell, to: { name: 'notifications' } },
       { label: '异常重排', icon: RotateCcw, to: { name: 'replan' } },
+      { label: '会前会后', icon: ListChecks, to: { name: 'meeting-lifecycle' } },
     ],
   },
   ...(authStore.state.user?.roles.includes('ADMIN') === true ? [{
@@ -238,10 +221,6 @@ const navigationGroups = computed<{ label: string; items: NavigationItem[] }[]>(
     items: [{ label: '员工管理', icon: UserRoundCog, to: { name: 'admin-employees' } }],
   }] : []),
 ])
-
-const previewItems: NavigationItem[] = [
-  { label: '会前会后', icon: LayoutDashboard, to: { name: 'preview-lifecycle' } },
-]
 
 const roleLabel = computed(() => authStore.state.user?.roles.includes('ADMIN') ? '管理员' : '员工')
 const initials = computed(() => authStore.state.user?.displayName.slice(0, 1) ?? 'M')
@@ -266,7 +245,7 @@ const currentSectionTitle = computed(() => {
     'admin-employees': '员工管理',
     'agent-run': '运行记录',
     replan: '异常重排',
-    'preview-lifecycle': '会前会后',
+    'meeting-lifecycle': '会前会后',
   }
   return typeof route.name === 'string' ? labels[route.name] ?? 'MeetOps' : 'MeetOps'
 })

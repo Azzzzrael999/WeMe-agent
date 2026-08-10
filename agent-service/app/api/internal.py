@@ -27,6 +27,11 @@ from app.database.health import probe_database
 from app.models.metadata import AgentRun
 from app.persistence import MetadataRepository, question_summary
 from app.providers import ModelProvider, build_model_provider
+from app.providers.base import (
+    ModelOutputError,
+    ModelProviderError,
+    StructuredModelRunner,
+)
 from app.rag import PolicyRetriever, build_policy_retriever
 from app.run_locks import run_execution_locks
 from app.schemas.agent import (
@@ -38,6 +43,8 @@ from app.schemas.agent import (
     BusinessResultCallback,
     ConflictRepairFeedbackState,
     Participant,
+    PostMeetingDraftRequest,
+    PostMeetingDraftResponse,
     ProcessedRequirementInput,
     Route,
     RunStatus,
@@ -45,7 +52,15 @@ from app.schemas.agent import (
 from app.schemas.health import ComponentStatus, HealthResponse, ServiceStatus
 from app.security import AgentContext, InternalAuthenticationError, authenticate_agent_context
 from app.tools import JavaReadToolClient
-from app.workflow import WorkflowError, WorkflowRun, _visible_draft, build_workflow_run
+from app.workflow import (
+    POST_MEETING_PROMPT_VERSION,
+    POST_MEETING_SCHEMA_VERSION,
+    RequirementAgent,
+    WorkflowError,
+    WorkflowRun,
+    _visible_draft,
+    build_workflow_run,
+)
 
 router = APIRouter(prefix="/internal/v1", tags=["internal"])
 logger = logging.getLogger(__name__)
@@ -153,6 +168,65 @@ def health(
         redis_checkpoint=redis_checkpoint,
         qdrant=ComponentStatus.NOT_CHECKED,
         business_service=ComponentStatus.NOT_CHECKED,
+    )
+
+
+@router.post("/post-meeting/drafts", response_model=PostMeetingDraftResponse)
+def create_post_meeting_draft(
+    body: PostMeetingDraftRequest,
+    response: Response,
+    context: Annotated[AgentContext, Depends(get_agent_context)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    provider: Annotated[ModelProvider, Depends(get_model_provider)],
+) -> PostMeetingDraftResponse:
+    """Generate an unpersisted, review-only draft from Java-authenticated facts."""
+
+    requirement_agent = RequirementAgent(
+        provider=provider,
+        runner=StructuredModelRunner(),
+    )
+    try:
+        draft, completions = requirement_agent.analyze_post_meeting(body)
+    except ModelOutputError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="POST_MEETING_OUTPUT_INVALID",
+        ) from exc
+    except ModelProviderError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="POST_MEETING_PROVIDER_UNAVAILABLE",
+        ) from exc
+    except Exception as exc:
+        logger.exception("Post-meeting analysis failed for run %s", context.run_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="POST_MEETING_ANALYSIS_UNAVAILABLE",
+        ) from exc
+
+    allowed_assignee_ids = {item.employee_id for item in body.participants}
+    normalized_items = [
+        item
+        if item.assignee_employee_id in allowed_assignee_ids
+        or item.assignee_employee_id is None
+        else item.model_copy(update={"assignee_employee_id": None})
+        for item in draft.action_items
+    ]
+    normalized_draft = draft.model_copy(update={"action_items": normalized_items})
+    response_model = next(
+        (completion.model for completion in reversed(completions) if completion.model),
+        None,
+    )
+    model = response_model or (
+        settings.deepseek_model if settings.agent_model_provider == "deepseek" else "fixture"
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return PostMeetingDraftResponse(
+        agent_run_id=context.run_id,
+        model=model,
+        prompt_version=POST_MEETING_PROMPT_VERSION,
+        schema_version=POST_MEETING_SCHEMA_VERSION,
+        draft=normalized_draft,
     )
 
 

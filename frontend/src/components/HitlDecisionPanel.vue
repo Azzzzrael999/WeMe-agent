@@ -15,7 +15,7 @@
         <dd>{{ draft.roomName }}</dd>
       </div>
       <div>
-        <dt>时间（Asia/Shanghai）</dt>
+        <dt>时间</dt>
         <dd>{{ formatDateTime(draft.startAt) }} — {{ formatDateTime(draft.endAt) }}</dd>
       </div>
       <div>
@@ -34,11 +34,11 @@
 
     <div v-if="editing" class="edit-draft-form">
       <label>
-        <span>会议室 ID（可选）</span>
+        <span>会议室编号（可选）</span>
         <input v-model.trim="editRoomId" inputmode="numeric" placeholder="例如 102" :disabled="busy" />
       </label>
       <label>
-        <span>开始时间（可选，Asia/Shanghai）</span>
+        <span>开始时间（可选）</span>
         <input v-model="editStartAt" type="datetime-local" step="1800" :disabled="busy" />
       </label>
       <p class="muted">编辑仅允许会议室或开始时间，提交后会重新查询并求解候选。</p>
@@ -135,7 +135,7 @@ function submitEdit(): void {
   const changedStart = editStartAt.value.length > 0 && editStartAt.value !== originalStart
 
   if (roomId !== undefined && (!Number.isSafeInteger(roomId) || roomId <= 0)) {
-    editError.value = '会议室 ID 必须是正整数。'
+    editError.value = '会议室编号必须是正整数。'
     return
   }
   if (editStartAt.value.length > 0 && !/^[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):(?:00|30)$/.test(editStartAt.value)) {

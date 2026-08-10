@@ -12,7 +12,7 @@
       <button class="ui-button ui-button--default" type="button" :disabled="busy || expired" @click="$emit('accept')">
         {{ busy ? '处理中…' : acceptLabel }}
       </button>
-      <button v-if="actionType !== 'CANCEL'" class="ui-button ui-button--outline" type="button" :disabled="busy || expired" @click="editing = true">
+      <button v-if="actionType !== 'CANCEL'" class="ui-button ui-button--outline" type="button" :disabled="busy || expired" @click="openEditor">
         编辑后重新规划
       </button>
       <button class="ui-button ui-button--ghost hitl-reject" type="button" :disabled="busy || expired" @click="confirmReject = true">拒绝</button>
@@ -22,10 +22,11 @@
     <div v-if="editing && editableDraft" class="dialog-layer">
       <button class="drawer-overlay" aria-label="关闭编辑" @click="editing=false" />
       <section class="ui-dialog" role="dialog" aria-modal="true" aria-labelledby="edit-title">
-        <header><div><p>HITL 编辑 · {{ operationLabel }}</p><h2 id="edit-title">修改草案并重新规划</h2></div><button class="icon-button" type="button" aria-label="关闭编辑" @click="editing=false"><X :size="18" aria-hidden="true" /></button></header>
+        <header><div><p>人工确认编辑 · {{ operationLabel }}</p><h2 id="edit-title">修改草案并重新规划</h2></div><button class="icon-button" type="button" aria-label="关闭编辑" @click="editing=false"><X :size="18" aria-hidden="true" /></button></header>
         <p>只允许调整会议室或开始时间；提交后会重新执行规则与可用性校验。</p>
-        <label><span>会议室 ID</span><input v-model.trim="roomId" inputmode="numeric" /></label>
-        <label><span>开始时间（Asia/Shanghai）</span><input v-model="startAt" type="datetime-local" step="1800" /></label>
+        <label><span>会议室</span><select v-model="roomId" :disabled="roomsLoading"><option v-for="room in roomOptions" :key="room.id" :value="String(room.id)">{{ room.name }} · {{ room.building }} {{ room.floor }}</option></select></label>
+        <small v-if="roomsLoading">正在加载可用会议室…</small>
+        <label><span>开始时间</span><input v-model="startAt" type="datetime-local" step="1800" /></label>
         <label><span>反馈（可选）</span><textarea :value="feedback" rows="2" maxlength="1000" @input="updateFeedback" /></label>
         <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
         <footer><button class="ui-button ui-button--outline" type="button" @click="editing=false">取消</button><button class="ui-button ui-button--default" type="button" @click="submitEdit">重新规划</button></footer>
@@ -35,7 +36,7 @@
       <button class="drawer-overlay" aria-label="关闭拒绝确认" @click="confirmReject=false" />
       <section class="ui-dialog ui-dialog--sm" role="alertdialog" aria-modal="true" aria-labelledby="reject-title">
         <h2 id="reject-title">拒绝这份{{ operationLabel }}草案？</h2>
-        <p>草案会失效，当前 Agent Run 将结束；不会产生正式业务写入。</p>
+        <p>拒绝后草案会失效，会议不会发生变更。</p>
         <footer><button class="ui-button ui-button--outline" type="button" @click="confirmReject=false">返回</button><button class="ui-button ui-button--destructive" type="button" @click="reject">确认拒绝</button></footer>
       </section>
     </div>
@@ -46,8 +47,9 @@
 import { ShieldAlert, X } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 
+import { ApiError, apiRequest } from '@/api/client'
 import { isCancellationPreview, proposedDraft } from '@/api/agent-view'
-import type { AgentHitlDraft, AgentOperationType } from '@/api/types'
+import type { AgentHitlDraft, AgentOperationType, MeetingRoom, RoomListResult } from '@/api/types'
 import { useModalFocus } from '@/composables/useModalFocus'
 import { formatDateTime, toShanghaiDateTimeLocal, toShanghaiOffset } from '@/utils/format'
 
@@ -71,6 +73,8 @@ const confirmReject = ref(false)
 const roomId = ref('')
 const startAt = ref('')
 const error = ref('')
+const roomsLoading = ref(false)
+const roomOptions = ref<MeetingRoom[]>([])
 const editableDraft = computed(() => proposedDraft(props.draft))
 const operationLabel = computed(() => ({ CREATE: '创建会议', RESCHEDULE: '改期会议', CANCEL: '取消会议' })[props.actionType])
 const acceptLabel = computed(() => ({ CREATE: '接受并创建', RESCHEDULE: '接受并改期', CANCEL: '确认取消会议' })[props.actionType])
@@ -94,6 +98,21 @@ watch(editableDraft, (draft) => {
 function updateFeedback(event: Event): void {
   if (event.target instanceof HTMLTextAreaElement) {
     emit('update:feedback', event.target.value)
+  }
+}
+
+async function openEditor(): Promise<void> {
+  editing.value = true
+  if (roomOptions.value.length > 0 || roomsLoading.value) return
+  roomsLoading.value = true
+  error.value = ''
+  try {
+    const result = await apiRequest<RoomListResult>('/rooms')
+    roomOptions.value = result.items.filter((room) => room.status === 'ACTIVE')
+  } catch (cause) {
+    error.value = cause instanceof ApiError ? cause.message : '会议室加载失败，请稍后重试。'
+  } finally {
+    roomsLoading.value = false
   }
 }
 

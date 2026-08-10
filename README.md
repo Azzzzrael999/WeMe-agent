@@ -13,6 +13,7 @@
 - Requirement 使用 Evaluator–Optimizer：确定性评估器只返回结构化反馈，并最多触发一次语义修复；同步 409 和异步 `BOOKING_RESULT(CONFLICT)` 共享同一冲突证据与排除失败候选的重规划路径。
 - 默认 `AGENT_MODEL_PROVIDER=fixture`，所有 Smoke、评测和自动测试均不调用真实 DeepSeek；切换为 `deepseek` 时仅在本机 `.env` 填入真实 Key。
 - 会议室停用会原子创建异常重排单并通知会议发起人；系统不自动移动会议。异常页支持同一时段硬约束不降级的快速换房，跨时间或约束变化继续由 OR-Tools + RESCHEDULE HITL 处理。
+- 会前会后页使用真实 Java 业务数据：议程、材料元数据、动态准备清单、24 小时/30 分钟提醒、自动完成，以及文本会议记录经现有 Requirement Agent 生成的纪要/决策/行动项草案。只有发起人 HITL 接受后行动项才正式写入并开始站内催办。
 
 ```mermaid
 flowchart LR
@@ -89,6 +90,7 @@ docker compose -f compose.yaml -f compose.dev.yaml up -d --build --wait
 3. 输入 `下周三下午帮张三安排一个90分钟架构评审，10人，要大屏`，可演示 HOT 房间的异步预约、冲突回调和恢复草案。
 4. 在“我的会议”创建、修改、取消手动会议；以 `admin` 登录后可在“会议室”创建、编辑或启停会议室。员工只能读取 ACTIVE 房间。
 5. 以 `admin` 停用一间承载未来会议的房间并填写原因；发起人从资源失效通知进入“异常重排”，可快速换房，或把带 meetingId 和约束继承要求的开场白带入智能编排后再发送。
+6. 打开“会前会后”，为未来会议保存议程和材料状态并查看实时准备清单；选择已完成的演示会议，提交文本记录，先编辑 Agent 草案，再接受并更新行动项状态。
 
 自动 Smoke（均使用虚构数据，成功写入的 Smoke 会议会被取消）：
 
@@ -104,6 +106,9 @@ python .\scripts\smoke-day6.py
 
 # 资源失效：异常单/通知隔离、同一时段候选、双版本与快速换房
 python .\scripts\smoke-exception-replan.py
+
+# 会前会后：真实准备清单、Agent 草案、EDIT 后再确认与行动项状态
+python .\scripts\smoke-pre-post-meeting.py
 
 # Day 7：全新项目/全新命名卷，完整 Golden Path 连续 3 次；不删除任何卷
 .\scripts\Test-Day7EmptyVolume.ps1
@@ -158,15 +163,16 @@ python .\scripts\live-model-trajectory.py --public-base http://localhost --outpu
 
 | 目录 | 职责 |
 |---|---|
-| `business-service/` | Spring Boot / Java 21：鉴权、会议、并发、Outbox、RocketMQ、Tool Gateway、SSE 代理 |
-| `agent-service/` | FastAPI / LangGraph：四 Agent、Provider、RAG、OR-Tools、HITL、checkpoint、Trace、评测 |
-| `frontend/` | Vue 3 + TypeScript：聊天、候选确认、Trace、会议与房间管理 |
+| `business-service/` | Spring Boot / Java 21：鉴权、会议、会前会后事实、并发、Outbox、RocketMQ、Tool Gateway、SSE 代理 |
+| `agent-service/` | FastAPI / LangGraph：四 Agent、会后结构化草案、Provider、RAG、OR-Tools、HITL、checkpoint、Trace、评测 |
+| `frontend/` | Vue 3 + TypeScript：聊天、候选确认、Trace、会议/房间管理、会前准备与会后行动项 |
 | `deploy/` | MySQL 初始化、Nginx、RocketMQ 配置 |
 | `scripts/` | 可复现 Smoke、并发和空卷验收脚本 |
 
 ## 当前范围与限制
 
 - 无真实或 Mock 邮件、日历、视频会议链接或 IoT 供应商；`VIDEO_CONFERENCE` 只表示会议室设备特征。
+- 会前会后闭环不包含 RSVP、签到、附件二进制上传、政策检查结果绑定、统计复盘或外部任务平台同步。
 - Qdrant 使用确定性 hash embedding；4 条固定种子只保留为 fixture/兼容语料，生产会议制度由受控文件导入器索引。
 - `rag-init` 会把 `deploy/rag-documents/` 中的 UTF-8 Markdown 或文本型 PDF 幂等导入 Qdrant，并在 Python 自有 `rag_document` 表登记 checksum 与索引状态；不做 OCR、Rerank、目录镜像删除或公共上传 API。
 - 不包含 SSO、多租户、多级审批、复杂访客流程、自动移动他人会议、Kubernetes、服务网格、完整 OpenTelemetry/Grafana 或故障注入平台。

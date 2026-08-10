@@ -7,17 +7,16 @@
 
     <div v-if="actionType === 'RESCHEDULE' && reschedule" class="hitl-diff">
       <section>
-        <span>Before · 原会议</span>
+        <span>原会议</span>
         <h3>{{ reschedule.originalMeeting.title }}</h3>
         <dl>
-          <div><dt>会议 ID</dt><dd>{{ reschedule.originalMeeting.meetingId }}</dd></div>
           <div><dt>会议室</dt><dd>{{ reschedule.originalMeeting.roomName }}</dd></div>
           <div><dt>时间</dt><dd>{{ formatDateTime(reschedule.originalMeeting.startAt) }} — {{ formatDateTime(reschedule.originalMeeting.endAt) }}</dd></div>
         </dl>
       </section>
       <span class="hitl-diff__arrow" aria-hidden="true"><ArrowRight :size="20" /></span>
       <section class="hitl-diff__after">
-        <span>After · 改期方案</span>
+        <span>改期方案</span>
         <h3>{{ reschedule.proposedMeeting.title }}</h3>
         <dl>
           <div><dt>会议室</dt><dd>{{ reschedule.proposedMeeting.roomName }}</dd></div>
@@ -30,8 +29,6 @@
       <span>取消目标会议</span>
       <h3>{{ cancellation.meeting.title }}</h3>
       <dl>
-        <div><dt>会议 ID</dt><dd>{{ cancellation.meeting.meetingId }}</dd></div>
-        <div v-if="cancellation.meeting.meetingNo"><dt>会议号</dt><dd>{{ cancellation.meeting.meetingNo }}</dd></div>
         <div><dt>会议室</dt><dd>{{ cancellation.meeting.roomName }}</dd></div>
         <div><dt>时间</dt><dd>{{ formatDateTime(cancellation.meeting.startAt) }} — {{ formatDateTime(cancellation.meeting.endAt) }}</dd></div>
       </dl>

@@ -285,6 +285,114 @@ created_at DATETIME(3)
 UNIQUE(run_id, tool_call_id, tool_name)
 ```
 
+### 2.16 会前会后业务表
+
+```text
+meeting_lifecycle_profile(
+  meeting_id BIGINT PK,
+  preparation_version INT,
+  created_at DATETIME(3),
+  updated_at DATETIME(3)
+)
+
+meeting_agenda_item(
+  id BIGINT PK,
+  meeting_id BIGINT,
+  sequence_no INT,
+  topic VARCHAR(200),
+  owner_employee_id BIGINT,
+  planned_minutes INT,
+  UNIQUE(meeting_id, sequence_no)
+)
+
+meeting_material(
+  id BIGINT PK,
+  meeting_id BIGINT,
+  sequence_no INT,
+  title VARCHAR(200),
+  owner_employee_id BIGINT,
+  required BOOLEAN,
+  status VARCHAR(16),              # MISSING/READY
+  version_label VARCHAR(64) NULL,
+  note VARCHAR(500) NULL,
+  UNIQUE(meeting_id, sequence_no)
+)
+
+meeting_reminder_delivery(
+  id BIGINT PK,
+  meeting_id BIGINT,
+  meeting_start_at DATETIME(3),
+  recipient_id BIGINT,
+  reminder_type VARCHAR(32),
+  created_at DATETIME(3),
+  UNIQUE(meeting_id, meeting_start_at, recipient_id, reminder_type)
+)
+
+post_meeting_draft(
+  id BIGINT PK,
+  meeting_id BIGINT UNIQUE,
+  request_id VARCHAR(80) UNIQUE,
+  agent_run_id VARCHAR(64),
+  transcript TEXT,
+  payload_json JSON/TEXT NULL,
+  status VARCHAR(24),              # PROCESSING/PENDING_REVIEW/ACCEPTED/REJECTED/FAILED
+  version INT,
+  error_code VARCHAR(64) NULL,
+  submitted_by BIGINT,
+  reviewed_by BIGINT NULL,
+  created_at DATETIME(3),
+  updated_at DATETIME(3),
+  reviewed_at DATETIME(3) NULL
+)
+
+meeting_minutes(
+  id BIGINT PK,
+  meeting_id BIGINT UNIQUE,
+  background VARCHAR(2000),
+  discussion_summary TEXT,
+  conclusion VARCHAR(2000),
+  confirmed_by BIGINT,
+  confirmed_at DATETIME(3)
+)
+
+meeting_decision(
+  id BIGINT PK,
+  meeting_id BIGINT,
+  sequence_no INT,
+  content VARCHAR(1000),
+  rationale VARCHAR(1000) NULL,
+  UNIQUE(meeting_id, sequence_no)
+)
+
+meeting_action_item(
+  id BIGINT PK,
+  meeting_id BIGINT,
+  sequence_no INT,
+  title VARCHAR(200),
+  description VARCHAR(1000) NULL,
+  assignee_employee_id BIGINT,
+  due_at DATETIME(3),
+  status VARCHAR(24),              # OPEN/IN_PROGRESS/DONE
+  version INT,
+  completed_at DATETIME(3) NULL,
+  created_at DATETIME(3),
+  updated_at DATETIME(3),
+  UNIQUE(meeting_id, sequence_no)
+)
+
+action_item_reminder_delivery(
+  id BIGINT PK,
+  action_item_id BIGINT,
+  due_at DATETIME(3),
+  recipient_id BIGINT,
+  reminder_type VARCHAR(32),
+  created_at DATETIME(3),
+  UNIQUE(action_item_id, due_at, recipient_id, reminder_type)
+)
+```
+
+材料表不包含二进制内容、外部平台对象 ID 或访问凭证。准备清单由当前事实动态计算，不单独持久化 READY 结果。
+
 ## 3. Python核心表
 
 ### 3.1 agent_thread
@@ -531,6 +639,22 @@ POST  /api/v1/admin/employees/{employeeId}/password
 
 - 状态请求为 `{"status":"ACTIVE|DISABLED","expectedVersion":0}`。
 - 密码重置请求为 `{"newPassword":"new-temporary-password","expectedVersion":0}`。密码长度为 8–72，服务端只保存 BCrypt 哈希，响应仍为员工 item，绝不返回密码或哈希。
+
+### 5.1.2 在职员工通讯录
+
+```text
+GET /api/v1/directory/employees
+```
+
+EMPLOYEE 与 ADMIN 均可读取在职员工的安全选择目录，用于手动预约和会议室空闲槽位预约。响应仅包含 `id/displayName/departmentId/departmentName`，按部门与显示名排序；不得返回用户名、邮箱、角色、状态、版本或密码相关字段。停用员工不会出现在目录中：
+
+```json
+{
+  "items": [
+    {"id": 1001, "displayName": "张三", "departmentId": 10, "departmentName": "研发中心"}
+  ]
+}
+```
 
 ### 5.2 会议室
 
@@ -861,7 +985,7 @@ PATCH /api/v1/notifications/read-all
 }
 ```
 
-- 类型只允许 `MEETING_CONFIRMED|MEETING_CHANGED|MEETING_CANCELLED|RESOURCE_UNAVAILABLE|RESOURCE_RESTORED`；`unreadOnly` 默认 false，`page` 默认 1，`size` 默认 20、最大 100。
+- 类型只允许 `MEETING_CONFIRMED|MEETING_CHANGED|MEETING_CANCELLED|RESOURCE_UNAVAILABLE|RESOURCE_RESTORED|MEETING_REMINDER_24H|MEETING_REMINDER_30M|PREPARATION_MISSING|ACTION_ITEM_DUE_SOON|ACTION_ITEM_OVERDUE`；`unreadOnly` 默认 false，`page` 默认 1，`size` 默认 20、最大 100。
 - `GET /unread-count` 返回 `{"unreadCount":1}`。单条已读返回更新后的通知 item；重复标记幂等。
 - `PATCH /read-all` 返回 `{"updatedCount":1,"readAt":"2026-08-19T10:05:00+08:00"}`，只更新当前用户未读通知。
 - 所有通知接口仅使用认证用户 ID。不存在或属于其他用户的通知统一返回 `NOTIFICATION_NOT_FOUND`，ADMIN 没有跨用户读取特权。
@@ -922,6 +1046,109 @@ POST /api/v1/replan-cases/{caseId}/resolve
 - EMPLOYEE 只能访问本人作为 organizer 的异常单；ADMIN 可以访问全部并代处理。不可见统一为 `REPLAN_CASE_NOT_FOUND`。
 - 状态/版本过期返回 `REPLAN_CASE_STATE_CONFLICT`；提交时候选已失效返回 `REPLAN_CANDIDATE_STALE` 或既有 `BOOKING_CONFLICT`。
 - `PATCH /api/v1/admin/rooms/{roomId}/status` 的请求扩展为 `{"status":"ACTIVE|INACTIVE","expectedVersion":0,"reason":"..."}`；INACTIVE 时 reason 必填且最长 200 字，ACTIVE 时可省略。
+
+### 5.7 会前准备与会后执行
+
+```text
+GET   /api/v1/meetings/{meetingId}/lifecycle
+PUT   /api/v1/meetings/{meetingId}/preparation
+POST  /api/v1/meetings/{meetingId}/post-meeting-drafts
+POST  /api/v1/meetings/{meetingId}/post-meeting-drafts/{draftId}/review
+PATCH /api/v1/meetings/{meetingId}/action-items/{actionItemId}
+```
+
+会前保存请求原子替换全部议程与材料：
+
+```json
+{
+  "expectedVersion": 0,
+  "agendaItems": [
+    {"topic":"确认发布范围","ownerEmployeeId":1001,"plannedMinutes":20}
+  ],
+  "materials": [
+    {
+      "title":"上线方案 V3",
+      "ownerEmployeeId":1002,
+      "required":true,
+      "status":"READY",
+      "versionLabel":"v3",
+      "note":"已完成评审"
+    }
+  ]
+}
+```
+
+- `expectedVersion` 来自 lifecycle 的 `preparation.version`；成功后递增。版本过期返回 `MEETING_CONTENT_STATE_CONFLICT`。
+- 只允许尚未开始的 `CONFIRMED` 会议，由组织者或 ADMIN 写；议题/材料负责人必须在组织者与参与者白名单内。
+- `agendaItems` 最多 30 条，`materials` 最多 50 条；议题总时长不得超过会议时长。
+
+`GET /lifecycle` 返回当前 `meeting` 视图和以下结构：
+
+```json
+{
+  "meeting": {},
+  "permissions": {"canEditPreparation":true,"canSubmitRecord":false,"canReviewDraft":false},
+  "preparation": {
+    "version": 1,
+    "agendaItems": [{"id":1,"sequenceNo":1,"topic":"确认发布范围","ownerEmployeeId":1001,"ownerName":"张三","plannedMinutes":20}],
+    "materials": [{"id":1,"sequenceNo":1,"title":"上线方案 V3","ownerEmployeeId":1002,"ownerName":"李四","required":true,"status":"READY","versionLabel":"v3","note":"已完成评审"}],
+    "checklist": {
+      "status": "NEEDS_ATTENTION",
+      "generatedAt": "2026-08-19T10:00:00+08:00",
+      "items": [
+        {"code":"MATERIALS_READY","passed":false,"message":"仍有 1 份必需材料未就绪"}
+      ]
+    }
+  },
+  "postMeeting": {
+    "draft":{"id":1,"status":"PENDING_REVIEW","version":0,"agentRunId":"run_uuid","errorCode":null,"content":{}},
+    "minutes":null,
+    "decisions":[],
+    "actionItems":[]
+  }
+}
+```
+
+正式 `minutes` 使用 `background/discussionSummary/conclusion/confirmedBy/confirmedAt`；`decisions` item 使用 `id/sequenceNo/content/rationale`；`actionItems` item 使用 `id/sequenceNo/title/description/assigneeEmployeeId/assigneeName/dueAt/status/version/completedAt`。preparation 和 review 成功响应都返回同一 lifecycle data；行动项 PATCH 返回更新后的 action item。
+
+创建会后草案请求必须携带 `Idempotency-Key`：
+
+```json
+{"transcript":"会议讨论了……"}
+```
+
+- Java 生成 `agentRunId`，调用 Python 后返回 `PENDING_REVIEW` 草案；Agent 失败返回 `FAILED` 草案与稳定错误码，正式表保持为空。
+- 每个会议只有一条当前草案；`ACCEPTED` 后不能覆盖，`FAILED/REJECTED` 只能通过新的显式提交替换并递增版本。
+
+审核请求：
+
+```json
+{
+  "action":"EDIT",
+  "expectedVersion":0,
+  "editedDraft": {
+    "minutes": {"background":"...","discussionSummary":"...","conclusion":"..."},
+    "decisions":[{"content":"...","rationale":"..."}],
+    "actionItems":[
+      {"title":"补充回滚演练","description":"...","assigneeEmployeeId":1002,"dueAt":"2026-08-20T18:00:00+08:00"}
+    ]
+  }
+}
+```
+
+- `action` 只允许 `ACCEPT|EDIT|REJECT`。`EDIT` 必须提供 `editedDraft`，保持 `PENDING_REVIEW` 并递增版本；`ACCEPT/REJECT` 不接受编辑载荷。
+- `ACCEPT` 在单事务中创建正式 minutes/decisions/actionItems。重复、过期版本或非待审状态返回 `POST_MEETING_DRAFT_STATE_CONFLICT`。
+- 行动项负责人必须在当前会议人员白名单内，存在行动项时负责人和 `dueAt` 必填，`dueAt` 必须晚于会议结束。
+
+行动项更新请求：
+
+```json
+{"status":"IN_PROGRESS","expectedVersion":0}
+```
+
+负责人、会议组织者或 ADMIN 可以更新；成功返回更新后的 action item。不可见返回 `ACTION_ITEM_NOT_FOUND`，版本或状态冲突返回 `ACTION_ITEM_STATE_CONFLICT`。
+
+通知类型新增：`MEETING_REMINDER_24H|MEETING_REMINDER_30M|PREPARATION_MISSING|ACTION_ITEM_DUE_SOON|ACTION_ITEM_OVERDUE`。它们仍只通过既有通知 API 读取。
 
 ## 6. Java内部Tool API
 
@@ -1183,7 +1410,26 @@ POST /internal/v1/agent-runs/{runId}/business-result
 GET  /internal/v1/agent-runs/{runId}
 GET  /internal/v1/agent-runs/{runId}/trace
 GET  /internal/v1/health
+POST /internal/v1/post-meeting/drafts
 ```
+
+`POST /internal/v1/post-meeting/drafts` 使用与 Agent Run 相同的 AgentContextToken、Service Token、`X-Trace-Id` 和 `X-Run-Id` 校验。请求不接受可信 userId/role/runId 字段：
+
+```json
+{
+  "meetingId":9001,
+  "title":"支付网关 V2 上线评审",
+  "meetingType":"ARCHITECTURE_REVIEW",
+  "startAt":"2026-08-19T15:00:00+08:00",
+  "endAt":"2026-08-19T16:00:00+08:00",
+  "participants":[{"employeeId":1001,"displayName":"张三"}],
+  "transcript":"……"
+}
+```
+
+响应为会后草案结构并包含 `agentRunId/model/promptVersion/schemaVersion` 摘要。Python 使用现有 Requirement Agent，结构化输出最多修复一次；负责人只能从 `participants` 选择，无法确认时返回 `null`。该接口不得调用 Java WRITE Tool、不得写 Java 业务表。
+
+冻结上限：`participants` 为 1 至 100 人且员工 ID 不重复，`transcript` 为 1 至 20000 字符；`background/conclusion` 各最多 2000 字符，`discussionSummary` 最多 10000 字符，决策最多 20 条且 `content/rationale` 各最多 1000 字符，行动项最多 50 条且 `title/description` 分别最多 200/1000 字符。所有时间必须使用 `Asia/Shanghai` 的 `+08:00` 偏移。
 
 除健康检查外，Day 4 的 Agent Run 内部接口只接受 Java 代理调用，并统一要求：
 

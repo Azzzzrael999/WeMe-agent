@@ -167,7 +167,7 @@ class AgentToolGatewayIntegrationTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.data.scope").value("MY_DEPARTMENT"))
         .andExpect(jsonPath("$.data.scopeName").value("研发中心"))
-        .andExpect(jsonPath("$.data.members.length()").value(4))
+        .andExpect(jsonPath("$.data.members.length()").value(5))
         .andExpect(jsonPath("$.data.members[0].status").value("ACTIVE"));
   }
 

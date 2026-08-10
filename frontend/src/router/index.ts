@@ -64,9 +64,10 @@ export const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
-      path: '/preview/meeting-lifecycle',
-      name: 'preview-lifecycle',
-      component: () => import('../views/MeetingLifecyclePreviewView.vue'),
+      path: '/lifecycle',
+      alias: '/preview/meeting-lifecycle',
+      name: 'meeting-lifecycle',
+      component: () => import('../views/MeetingLifecycleView.vue'),
       meta: { requiresAuth: true },
     },
     { path: '/', redirect: '/chat' },

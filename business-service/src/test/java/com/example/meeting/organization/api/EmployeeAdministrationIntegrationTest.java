@@ -28,6 +28,20 @@ class EmployeeAdministrationIntegrationTest {
   @Autowired private ObjectMapper objectMapper;
 
   @Test
+  void authenticatedEmployeeCanReadSafeActiveDirectory() throws Exception {
+    String employeeToken = login("zhangsan", "demo-password", 200);
+
+    mockMvc
+        .perform(get("/api/v1/directory/employees").header("Authorization", bearer(employeeToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.items[0].id").isNumber())
+        .andExpect(jsonPath("$.data.items[0].displayName").isString())
+        .andExpect(jsonPath("$.data.items[0].username").doesNotExist())
+        .andExpect(jsonPath("$.data.items[0].email").doesNotExist())
+        .andExpect(jsonPath("$.data.items[?(@.displayName == '离职员工')]").isEmpty());
+  }
+
+  @Test
   void adminCanManageEmployeeLifecycleAndResetPassword() throws Exception {
     String adminToken = login("admin", "demo-password", 200);
     String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);

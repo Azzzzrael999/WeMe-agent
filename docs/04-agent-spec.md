@@ -117,6 +117,8 @@ Supervisor不得直接调用业务写工具。
 
 输出必须符合 `MeetingRequest` Schema，不允许直接输出预约结论。
 
+Requirement Agent 额外支持隔离的 `POST_MEETING_ANALYSIS` 结构化抽取模式：输入只能是 Java 已鉴权并限长的会议标题、类型、时间、参与者白名单和用户提交的文本记录；输出为 `PostMeetingDraft`，包含纪要、决策和行动项草案。该模式不进入 Scheduling、不调用 Java Tool、不写正式业务表，也不构成第五个运行时 Agent。
+
 ### 2.3 Policy Agent
 
 职责：
@@ -363,6 +365,14 @@ CANCELLED
 ```
 
 `EDIT`后必须重新进入Requirement或Scheduling流程，不能直接执行编辑后的参数。
+
+### 8.4 会后草案审核
+
+- 会后分析由 Java 同步调用 `POST /internal/v1/post-meeting/drafts`，Python 使用现有 Provider 与 `StructuredModelRunner`，Schema 修复最多 1 次。
+- `PostMeetingDraft` 最多包含 20 条决策和 50 条行动项；正文和单字段均有长度上限。
+- 模型只能从输入白名单选择 `assigneeEmployeeId`。无法唯一识别负责人时返回 `null`，不得猜测或创造业务 ID。
+- Python 返回内容始终是 DRAFT。`ACCEPT/EDIT/REJECT` 由 Java 公共业务接口处理；`EDIT` 后仍需再次 `ACCEPT`，Python 不获得 WRITE Tool。
+- Provider 网络失败、空输出、Schema 失败或白名单违规返回稳定内部错误，不得生成恒定成功草案。
 
 ## 9. 热门预约结果恢复
 
@@ -611,3 +621,4 @@ totalCost =
 - OR-Tools硬约束属性测试。
 - RAG引用存在性测试。
 - 离线评测集端到端测试。
+- 会后草案 Schema、负责人白名单、一次修复、Provider 失败和不产生业务写副作用测试。

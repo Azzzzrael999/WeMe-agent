@@ -50,7 +50,7 @@
             :class="['replan-case-button', { 'replan-case-button--active': selectedCaseId === item.id }]"
             @click="selectCase(item.id)"
           >
-            <span class="replan-case-button__heading"><strong>{{ item.caseNo }}</strong><StatusBadge :status="item.status" /></span>
+            <span class="replan-case-button__heading"><strong>资源异常</strong><StatusBadge :status="item.status" /></span>
             <span>{{ item.currentMeeting.title }}</span>
             <small><DoorClosed :size="13" aria-hidden="true" />{{ item.failedRoom.name }} · {{ formatDateTime(item.originalStartAt) }}</small>
             <small class="replan-case-button__reason">{{ item.failureReason }}</small>
@@ -74,7 +74,7 @@
           <article class="content-panel replan-case-detail">
             <header class="replan-detail-heading">
               <div>
-                <p class="eyebrow">{{ selectedCase.caseNo }} · Meeting ID {{ selectedCase.meetingId }}</p>
+                <p class="eyebrow">会议资源异常</p>
                 <h2>{{ selectedCase.currentMeeting.title }}</h2>
               </div>
               <StatusBadge :status="selectedCase.status" />
@@ -85,7 +85,7 @@
                 <span><TriangleAlert :size="16" aria-hidden="true" />资源失效</span>
                 <strong>{{ selectedCase.failedRoom.name }}</strong>
                 <p>{{ selectedCase.failureReason }}</p>
-                <small>发现于 {{ formatDateTime(selectedCase.createdAt) }} · 房间事件版本 {{ selectedCase.roomStatusVersion }}</small>
+                <small>发现于 {{ formatDateTime(selectedCase.createdAt) }}</small>
               </section>
               <section class="replan-fact">
                 <span><CalendarClock :size="16" aria-hidden="true" />原计划</span>
@@ -97,7 +97,7 @@
                 <span><Database :size="16" aria-hidden="true" />当前事实</span>
                 <strong>{{ selectedCase.currentMeeting.roomName }}</strong>
                 <p>{{ formatRange(selectedCase.currentMeeting.startAt, selectedCase.currentMeeting.endAt) }}</p>
-                <small>会议 {{ selectedCase.currentMeeting.status }} · 版本 {{ selectedCase.currentMeeting.version }}</small>
+                <small>会议状态：{{ meetingStatusLabel(selectedCase.currentMeeting.status) }}</small>
               </section>
               <section v-if="selectedCase.status !== 'OPEN'" class="replan-fact replan-fact--readonly">
                 <span><ShieldCheck :size="16" aria-hidden="true" />处置结果</span>
@@ -138,7 +138,7 @@
                   @click="selectedAlternative = candidate"
                 >
                   <span class="replan-alternative__heading">
-                    <span><strong>{{ candidate.roomName }}</strong><small>{{ candidate.roomCode }} · {{ candidate.building }} {{ candidate.floor }}</small></span>
+                    <span><strong>{{ candidate.roomName }}</strong><small>{{ candidate.building }} {{ candidate.floor }}</small></span>
                     <span class="replan-only-room">仅会议室改变</span>
                   </span>
                   <span class="replan-alternative__meta"><Users :size="14" aria-hidden="true" />容纳 {{ candidate.capacity }} 人 <span v-for="feature in candidate.features" :key="feature.code">{{ feature.name }}</span></span>
@@ -167,7 +167,7 @@
 
           <article v-else class="content-panel replan-readonly-callout">
             <ShieldCheck :size="22" aria-hidden="true" />
-            <div><h2>此异常单已进入终态</h2><p>页面展示 Java 返回的最新事实，旧候选已失效，不能再次提交。</p></div>
+            <div><h2>此异常单已处理完成</h2><p>旧候选已经失效，不能再次提交。</p></div>
           </article>
         </template>
       </section>
@@ -178,7 +178,7 @@
         <button class="drawer-overlay" aria-label="关闭快速换房确认" @click="closeResolutionConfirm" />
         <section class="ui-dialog" role="alertdialog" aria-modal="true" aria-labelledby="replan-confirm-title">
           <header><div><p>最终人工确认</p><h2 id="replan-confirm-title">换到“{{ confirmingAlternative.roomName }}”？</h2></div><button class="icon-button" type="button" aria-label="关闭确认" @click="closeResolutionConfirm"><X :size="18" /></button></header>
-          <p>本次只改变会议室。原时间、时长、必需/可选参会人和设备能力保持不变；提交时 Java 会使用会议版本 {{ alternatives?.meetingVersion }} 与异常单版本 {{ alternatives?.caseVersion }} 重新裁决。</p>
+          <p>本次只改变会议室。原时间、时长、参会人和设备能力保持不变，提交时系统会重新检查可用性。</p>
           <dl class="replan-confirm-summary">
             <div><dt>失效房间</dt><dd>{{ selectedCase?.failedRoom.name }}</dd></div>
             <div><dt>替代房间</dt><dd>{{ confirmingAlternative.roomName }}</dd></div>
@@ -287,6 +287,10 @@ function resolutionLabel(type: ReplanResolutionType | null): string {
   if (type === 'MEETING_CANCELLED') return '会议已取消'
   if (type === 'RESOURCE_RESTORED') return '原资源已恢复'
   return '已结束'
+}
+
+function meetingStatusLabel(status: string): string {
+  return ({ CONFIRMED: '已确认', COMPLETED: '已完成', CANCELLED: '已取消' } as Record<string, string>)[status] ?? '处理中'
 }
 
 async function loadCases(): Promise<void> {

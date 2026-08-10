@@ -20,6 +20,12 @@ from app.providers.base import (
 class FixtureModelProvider:
     now: datetime
 
+    @property
+    def network_calls(self) -> int:
+        """Fixture completions are entirely local and deterministic."""
+
+        return 0
+
     def complete(self, request: ModelRequest) -> ModelCompletion:
         message = request.user_prompt
         if request.agent_name == "supervisor":
@@ -28,6 +34,10 @@ class FixtureModelProvider:
                     content=self._json(self._clarification(message)), model="fixture"
                 )
             return ModelCompletion(content=self._json(self._supervisor(message)), model="fixture")
+        if request.agent_name == "requirement" and request.schema_name == "PostMeetingDraft":
+            return ModelCompletion(
+                content=self._json(self._post_meeting_draft(message)), model="fixture"
+            )
         if request.agent_name == "requirement":
             return ModelCompletion(content=self._json(self._requirement(message)), model="fixture")
         if request.agent_name == "policy":
@@ -389,6 +399,87 @@ class FixtureModelProvider:
                 "summary": "已提取用户明确表达的会议事实。",
             },
             "missingFields": [],
+        }
+
+    def _post_meeting_draft(self, message: str) -> dict[str, object]:
+        marker = "POST_MEETING_INPUT="
+        if not message.startswith(marker):
+            raise ValueError("fixture post-meeting prompt is invalid")
+        payload = json.loads(message.removeprefix(marker))
+        if not isinstance(payload, dict):
+            raise ValueError("fixture post-meeting payload is invalid")
+        transcript = payload.get("transcript")
+        participants = payload.get("participants")
+        if not isinstance(transcript, str) or not isinstance(participants, list):
+            raise ValueError("fixture post-meeting payload is invalid")
+        participant_ids = {
+            item["displayName"]: item["employeeId"]
+            for item in participants
+            if isinstance(item, dict)
+            and isinstance(item.get("displayName"), str)
+            and isinstance(item.get("employeeId"), int)
+        }
+        sentences = [
+            item.strip(" \t\r\n，,：:")
+            for item in re.split(r"[。；;\r\n]+", transcript)
+            if item.strip(" \t\r\n，,：:")
+        ]
+        decisions: list[dict[str, object]] = []
+        action_items: list[dict[str, object]] = []
+        for sentence in sentences:
+            if any(keyword in sentence for keyword in ("决定", "结论")):
+                decisions.append({"content": sentence[:1000], "rationale": None})
+            if "负责" not in sentence:
+                continue
+            assignee_id = next(
+                (
+                    employee_id
+                    for display_name, employee_id in participant_ids.items()
+                    if display_name in sentence.split("负责", maxsplit=1)[0]
+                ),
+                None,
+            )
+            title = sentence.split("负责", maxsplit=1)[1]
+            title = re.split(r"[，,]?\s*截止", title, maxsplit=1)[0].strip(" ，,")
+            if not title:
+                continue
+            due_at: str | None = None
+            deadline = re.search(
+                r"(20\d{2}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::\d{2})?",
+                sentence,
+            )
+            if deadline is not None:
+                due_at = f"{deadline.group(1)}T{deadline.group(2)}:00+08:00"
+            action_items.append(
+                {
+                    "title": title[:200],
+                    "description": None,
+                    "assigneeEmployeeId": assignee_id,
+                    "dueAt": due_at,
+                }
+            )
+        title = payload.get("title")
+        meeting_type = payload.get("meetingType")
+        start_at = payload.get("startAt")
+        end_at = payload.get("endAt")
+        background = (
+            f"{title}（{meeting_type}）于 {start_at} 至 {end_at} 召开。"
+            if all(isinstance(item, str) for item in (title, meeting_type, start_at, end_at))
+            else "会议已按提交的事实快照召开。"
+        )
+        conclusion = (
+            "；".join(str(item["content"]) for item in decisions)[:2000]
+            if decisions
+            else "会议记录未包含明确决策。"
+        )
+        return {
+            "minutes": {
+                "background": background[:2000],
+                "discussionSummary": transcript.strip()[:10000],
+                "conclusion": conclusion,
+            },
+            "decisions": decisions[:20],
+            "actionItems": action_items[:50],
         }
 
     @staticmethod

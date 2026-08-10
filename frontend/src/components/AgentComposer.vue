@@ -13,7 +13,7 @@
       @keydown="handleKeydown"
     />
     <div class="agent-composer__footer">
-      <span>{{ modelValue.length }} / 4000 · Enter 发送 · Shift + Enter 换行</span>
+      <span>{{ modelValue.length }} / 4000</span>
       <button
         class="agent-composer__send"
         type="submit"

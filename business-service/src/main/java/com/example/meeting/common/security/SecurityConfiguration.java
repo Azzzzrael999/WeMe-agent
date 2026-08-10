@@ -48,6 +48,8 @@ public class SecurityConfiguration {
                     .hasRole("ADMIN")
                     .requestMatchers("/api/v1/rooms", "/api/v1/rooms/**", "/api/v1/auth/me")
                     .hasAnyRole("EMPLOYEE", "ADMIN")
+                    .requestMatchers("/api/v1/directory", "/api/v1/directory/**")
+                    .hasAnyRole("EMPLOYEE", "ADMIN")
                     .requestMatchers("/api/v1/meetings", "/api/v1/meetings/**")
                     .hasAnyRole("EMPLOYEE", "ADMIN")
                     .requestMatchers("/api/v1/booking-requests/**", "/api/v1/agent/runs/**")

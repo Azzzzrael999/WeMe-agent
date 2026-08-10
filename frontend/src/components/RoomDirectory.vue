@@ -4,7 +4,7 @@
       <header>
         <button class="room-directory__name" type="button" @click="$emit('detail', room)">
           <Building2 :size="18" aria-hidden="true" />
-          <span><strong>{{ room.name }}</strong><small>{{ room.code }}</small></span>
+          <span><strong>{{ room.name }}</strong></span>
         </button>
         <div class="room-directory__badges">
           <span v-if="room.isHot" class="room-directory__hot"><Flame :size="12" aria-hidden="true" />热门</span>
@@ -14,7 +14,7 @@
       <dl>
         <div><dt><MapPin :size="14" aria-hidden="true" />位置</dt><dd>{{ room.building }} · {{ room.floor }}</dd></div>
         <div><dt><Users :size="14" aria-hidden="true" />容量</dt><dd>{{ room.capacity }} 人</dd></div>
-        <div><dt><DoorOpen :size="14" aria-hidden="true" />类型</dt><dd>{{ room.roomType }}</dd></div>
+        <div><dt><DoorOpen :size="14" aria-hidden="true" />类型</dt><dd>{{ roomTypeLabel(room.roomType) }}</dd></div>
       </dl>
       <div class="room-directory__features" :aria-label="`${room.name}设备`">
         <span v-for="feature in room.features" :key="feature.code">{{ feature.name }}</span>
@@ -35,6 +35,7 @@
 import { Building2, DoorOpen, Flame, MapPin, Pencil, Power, Users } from '@lucide/vue'
 
 import type { MeetingRoom } from '../api/types'
+import { roomTypeLabel } from '../utils/labels'
 import StatusBadge from './StatusBadge.vue'
 
 defineProps<{ rooms: readonly MeetingRoom[]; admin: boolean }>()

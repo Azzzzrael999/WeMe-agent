@@ -26,7 +26,12 @@ public class NotificationService {
           "MEETING_CHANGED",
           "MEETING_CANCELLED",
           "RESOURCE_UNAVAILABLE",
-          "RESOURCE_RESTORED");
+          "RESOURCE_RESTORED",
+          "MEETING_REMINDER_24H",
+          "MEETING_REMINDER_30M",
+          "PREPARATION_MISSING",
+          "ACTION_ITEM_DUE_SOON",
+          "ACTION_ITEM_OVERDUE");
 
   private final NotificationMapper mapper;
   private final Clock clock;

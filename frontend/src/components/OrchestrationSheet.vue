@@ -15,7 +15,6 @@
 
         <div class="orchestration-sheet__status">
           <StatusBadge :status="runStatus || 'RUNNING'" />
-          <span v-if="runId" :title="runId">{{ runId }}</span>
           <button v-if="runId" class="text-button" type="button" @click="$emit('trace')">查看完整运行过程</button>
         </div>
 
@@ -38,7 +37,7 @@
         <div class="orchestration-sheet__body">
           <div v-if="activeTab === 'requirements'" class="orchestration-section">
             <div class="orchestration-section__heading">
-              <div><span>Requirement</span><h3>需求与确认草案</h3></div>
+              <div><span>需求解析</span><h3>需求与确认草案</h3></div>
               <StatusBadge v-if="actionType" status="PENDING" :label="operationLabel" />
             </div>
             <RequirementSummary :action-type="actionType" :draft="draft" />
@@ -67,7 +66,7 @@
 
           <div v-else-if="activeTab === 'candidates'" class="orchestration-section">
             <div class="orchestration-section__heading">
-              <div><span>OR-Tools</span><h3>经过硬约束验证的候选</h3></div>
+              <div><span>候选方案</span><h3>经过硬约束验证的候选</h3></div>
               <span class="orchestration-section__meta">最多 3 项 · 成本升序</span>
             </div>
             <CandidateComparison :candidates="candidates" :draft="editableDraft" @select="$emit('select-candidate', $event)" />
@@ -75,25 +74,25 @@
 
           <div v-else-if="activeTab === 'policy'" class="orchestration-section">
             <div class="orchestration-section__heading">
-              <div><span>Policy</span><h3>政策依据</h3></div>
-              <span class="orchestration-section__meta">仅展示本轮真实引用</span>
+              <div><span>制度检索</span><h3>政策依据</h3></div>
+              <span class="orchestration-section__meta">可核对出处</span>
             </div>
             <PolicyCitations :citations="citations" />
           </div>
 
           <div v-else class="orchestration-section">
             <div class="orchestration-section__heading">
-              <div><span>Execution</span><h3>受控执行过程</h3></div>
+              <div><span>执行</span><h3>受控执行过程</h3></div>
               <button v-if="runId" class="text-button" type="button" @click="$emit('refresh')">刷新状态</button>
             </div>
             <div v-if="runStatus === 'WAITING_BUSINESS_RESULT'" class="pending-callout">
               <StatusBadge status="WAITING_BUSINESS_RESULT" />
-              <div><strong>热门预约正在异步裁决</strong><p>RocketMQ 返回最终结果后会恢复当前 Run；发生冲突时将重新规划。</p></div>
+              <div><strong>热门时段正在确认</strong><p>结果确认后会自动更新；如遇冲突，系统会重新规划。</p></div>
             </div>
             <div v-if="steps.length || tools.length" class="execution-summary">
-              <div><span>Agent 步骤</span><strong>{{ steps.length }}</strong></div>
-              <div><span>Tool 调用</span><strong>{{ tools.length }}</strong></div>
-              <div><span>Loop 事件</span><strong>{{ loops.length }}</strong></div>
+              <div><span>处理步骤</span><strong>{{ steps.length }}</strong></div>
+              <div><span>资源查询</span><strong>{{ tools.length }}</strong></div>
+              <div><span>校验轮次</span><strong>{{ loops.length }}</strong></div>
             </div>
             <AgentLoopTimeline :events="loops" :run="run" />
           </div>

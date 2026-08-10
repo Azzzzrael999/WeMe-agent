@@ -1,7 +1,7 @@
 <template>
   <AppShell
     title="我的会议"
-    description="在当前日期窗口中查看、创建和管理真实会议。"
+    description="查看并安排团队会议。"
     eyebrow="协作 / 我的会议"
   >
     <template #actions>
@@ -25,7 +25,6 @@
           </div>
           <div class="calendar-toolbar__title">
             <strong>{{ dateTitle }}</strong>
-            <span>{{ windowMode === 'day' ? '单日窗口' : '7 天窗口' }} · Asia/Shanghai</span>
           </div>
         </div>
 
@@ -37,7 +36,7 @@
           <label class="compact-filter">
             <span>状态</span>
             <select v-model="statusFilter" :disabled="listLoading" @change="loadMeetings">
-              <option value="">全部状态</option>
+              <option value="ACTIVE">有效会议</option>
               <option value="CONFIRMED">已确认</option>
               <option value="COMPLETED">已完成</option>
               <option value="CANCELLED">已取消</option>
@@ -67,7 +66,7 @@
       <div v-else-if="meetings.length === 0" class="calendar-empty">
         <CalendarX2 :size="28" aria-hidden="true" />
         <strong>这个窗口没有会议</strong>
-        <span>当前筛选没有返回真实记录，可以切换日期或创建会议。</span>
+        <span>可以切换日期或创建会议。</span>
         <button class="ui-button ui-button--outline" type="button" @click="openCreateSheet()">创建会议</button>
       </div>
 
@@ -104,9 +103,6 @@
         </button>
       </div>
 
-      <footer v-if="!listLoading && !listError" class="calendar-workspace__footer">
-        当前接口窗口内共 {{ total }} 条记录，仅呈现已加载数据，不补造月历事件。
-      </footer>
     </section>
 
     <Teleport to="body">
@@ -117,8 +113,7 @@
             <div><p>手动预约</p><h2 id="create-meeting-title">创建会议</h2></div>
             <button class="icon-button" type="button" aria-label="关闭创建会议" @click="closeCreateSheet"><X :size="18" aria-hidden="true" /></button>
           </header>
-          <p class="product-sheet__notice">最终提交即为人工确认，Java 会重新校验时间、容量与并发冲突。</p>
-          <MeetingFormFields :model-value="createForm" :rooms="activeMeetingRooms" :disabled="createSubmitting" />
+          <MeetingFormFields :model-value="createForm" :rooms="activeMeetingRooms" :employees="employeeDirectory" :disabled="createSubmitting" />
           <p v-if="createError" class="error-message" role="alert">{{ createError }}</p>
           <footer class="product-sheet__actions">
             <button class="ui-button ui-button--outline" type="button" :disabled="createSubmitting" @click="closeCreateSheet">返回</button>
@@ -135,7 +130,7 @@
         <button class="drawer-overlay" aria-label="关闭会议详情" @click="selectedMeeting = null" />
         <aside class="trace-drawer product-sheet" role="dialog" aria-modal="true" aria-labelledby="meeting-detail-title">
           <header class="product-sheet__header">
-            <div><p>{{ selectedMeeting.meetingNo }}</p><h2 id="meeting-detail-title">{{ selectedMeeting.title }}</h2></div>
+            <div><h2 id="meeting-detail-title">{{ selectedMeeting.title }}</h2></div>
             <button class="icon-button" type="button" aria-label="关闭会议详情" @click="selectedMeeting = null"><X :size="18" aria-hidden="true" /></button>
           </header>
           <div class="product-sheet__badges">
@@ -146,9 +141,9 @@
           <p v-if="detailError" class="calendar-feedback calendar-feedback--error" role="alert">{{ detailError }}</p>
           <dl class="product-detail-list">
             <div><dt><Clock3 :size="15" aria-hidden="true" />时间</dt><dd>{{ formatDateTime(selectedMeeting.startAt) }} — {{ formatDateTime(selectedMeeting.endAt) }}</dd></div>
-            <div><dt><MapPin :size="15" aria-hidden="true" />会议室</dt><dd>{{ selectedMeeting.roomName }}（{{ selectedMeeting.roomCode }}）</dd></div>
+            <div><dt><MapPin :size="15" aria-hidden="true" />会议室</dt><dd>{{ selectedMeeting.roomName }}</dd></div>
             <div><dt><UserRound :size="15" aria-hidden="true" />组织者</dt><dd>{{ selectedMeeting.organizerName }}</dd></div>
-            <div><dt><Tag :size="15" aria-hidden="true" />类型</dt><dd>{{ selectedMeeting.meetingType }}</dd></div>
+            <div><dt><Tag :size="15" aria-hidden="true" />类型</dt><dd>{{ meetingTypeLabel(selectedMeeting.meetingType) }}</dd></div>
           </dl>
           <section class="participant-section">
             <h3>参会者</h3>
@@ -176,7 +171,7 @@
             <div><p>修改并重新校验</p><h2 id="edit-meeting-title">{{ editingMeeting.title }}</h2></div>
             <button class="icon-button" type="button" aria-label="关闭编辑会议" @click="editingMeeting = null"><X :size="18" aria-hidden="true" /></button>
           </header>
-          <MeetingFormFields :model-value="editForm" :rooms="editableMeetingRooms" :disabled="updateSubmitting" />
+          <MeetingFormFields :model-value="editForm" :rooms="editableMeetingRooms" :employees="employeeDirectory" :disabled="updateSubmitting" />
           <p v-if="updateError" class="error-message" role="alert">{{ updateError }}</p>
           <footer class="product-sheet__actions">
             <button class="ui-button ui-button--outline" type="button" :disabled="updateSubmitting" @click="editingMeeting = null">返回</button>
@@ -226,13 +221,15 @@ import { computed, defineComponent, h, onMounted, reactive, ref, watch, type Pro
 import { useRoute } from 'vue-router'
 
 import { ApiError, apiRequest } from '../api/client'
-import type { Meeting, MeetingListResult, MeetingMutation, MeetingRoom, MeetingUpdateMutation, RoomListResult } from '../api/types'
+import type { EmployeeDirectoryItem, EmployeeDirectoryResult, Meeting, MeetingListResult, MeetingMutation, MeetingRoom, MeetingUpdateMutation, RoomListResult } from '../api/types'
 import { authStore } from '../auth/store'
 import AppShell from '../components/AppShell.vue'
+import EmployeeMultiSelect from '../components/EmployeeMultiSelect.vue'
 import MeetingCalendar from '../components/MeetingCalendar.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import { useModalFocus } from '../composables/useModalFocus'
-import { createClientRequestId, formatDateTime, parseEmployeeIds, toShanghaiDateTimeLocal, toShanghaiOffset } from '../utils/format'
+import { createClientRequestId, formatDateTime, toShanghaiDateTimeLocal, toShanghaiOffset } from '../utils/format'
+import { isTechnicalDemoMeeting, meetingTypeLabel, meetingTypeOptions } from '../utils/labels'
 
 interface MeetingForm {
   title: string
@@ -240,18 +237,19 @@ interface MeetingForm {
   roomId: number
   startAt: string
   endAt: string
-  requiredParticipantIds: string
-  optionalParticipantIds: string
+  requiredParticipantIds: number[]
+  optionalParticipantIds: number[]
 }
 
 const MeetingFormFields = defineComponent({
   props: {
     modelValue: { type: Object as PropType<MeetingForm>, required: true },
     rooms: { type: Array as PropType<MeetingRoom[]>, required: true },
+    employees: { type: Array as PropType<EmployeeDirectoryItem[]>, required: true },
     disabled: { type: Boolean, default: false },
   },
   setup(props) {
-    const update = (field: keyof MeetingForm, value: string | number): void =>
+    const update = (field: keyof MeetingForm, value: string | number | number[]): void =>
       { props.modelValue[field] = value as never }
     const field = (label: string, key: keyof MeetingForm, attributes: Record<string, unknown> = {}) =>
       h('label', { class: key === 'title' ? 'form-span-2' : undefined }, [
@@ -265,18 +263,37 @@ const MeetingFormFields = defineComponent({
       ])
     return () => h('div', { class: 'form-grid product-sheet__form' }, [
       field('会议主题', 'title', { maxlength: 128, required: true }),
-      field('会议类型', 'meetingType', { maxlength: 32, required: true, placeholder: '例如 GENERAL' }),
+      h('label', [h('span', '会议类型'), h('select', {
+        value: props.modelValue.meetingType,
+        disabled: props.disabled,
+        required: true,
+        onChange: (event: Event) => update('meetingType', (event.target as HTMLSelectElement).value),
+      }, meetingTypeOptions.map((option) => h('option', { value: option.value }, option.label)))]),
       h('label', [h('span', '会议室'), h('select', {
         value: props.modelValue.roomId,
         disabled: props.disabled,
         required: true,
         onChange: (event: Event) => update('roomId', Number((event.target as HTMLSelectElement).value)),
       }, [h('option', { value: 0, disabled: true }, '请选择会议室'), ...props.rooms.map((room) => h('option', { value: room.id }, `${room.name}（${room.capacity} 人）`))])]),
-      field('开始（Asia/Shanghai）', 'startAt', { type: 'datetime-local', step: 1800, required: true }),
-      field('结束（Asia/Shanghai）', 'endAt', { type: 'datetime-local', step: 1800, required: true }),
-      field('必须参会者 ID', 'requiredParticipantIds', { placeholder: '1002, 1003' }),
-      field('可选参会者 ID', 'optionalParticipantIds', { placeholder: '1004' }),
-      h('p', { class: 'form-span-2 product-sheet__help' }, '员工 ID 以逗号分隔；组织者由服务端加入必须参会者。时间必须落在 30 分钟边界。'),
+      field('开始时间', 'startAt', { type: 'datetime-local', step: 1800, required: true }),
+      field('结束时间', 'endAt', { type: 'datetime-local', step: 1800, required: true }),
+      h(EmployeeMultiSelect, {
+        label: '必须参会者',
+        modelValue: props.modelValue.requiredParticipantIds,
+        employees: props.employees,
+        excludedIds: props.modelValue.optionalParticipantIds,
+        disabled: props.disabled,
+        'onUpdate:modelValue': (value: number[]) => update('requiredParticipantIds', value),
+      }),
+      h(EmployeeMultiSelect, {
+        label: '可选参会者',
+        modelValue: props.modelValue.optionalParticipantIds,
+        employees: props.employees,
+        excludedIds: props.modelValue.requiredParticipantIds,
+        disabled: props.disabled,
+        'onUpdate:modelValue': (value: number[]) => update('optionalParticipantIds', value),
+      }),
+      h('p', { class: 'form-span-2 product-sheet__help' }, '会议时间按 30 分钟粒度安排。'),
     ])
   },
 })
@@ -285,6 +302,7 @@ type WindowMode = 'day' | 'week'
 type ViewMode = 'calendar' | 'list'
 
 const rooms = ref<MeetingRoom[]>([])
+const employeeDirectory = ref<EmployeeDirectoryItem[]>([])
 const route = useRoute()
 const activeMeetingRooms = computed(() => rooms.value.filter((room) => room.status === 'ACTIVE'))
 const editableMeetingRooms = computed(() => {
@@ -293,7 +311,7 @@ const editableMeetingRooms = computed(() => {
 })
 const meetings = ref<Meeting[]>([])
 const total = ref(0)
-const statusFilter = ref('')
+const statusFilter = ref('ACTIVE')
 const listLoading = ref(true)
 const listError = ref('')
 const windowMode = ref<WindowMode>('week')
@@ -318,16 +336,18 @@ useModalFocus(modalOpen, closeAllOverlays)
 
 const visibleDays = computed(() => {
   const count = windowMode.value === 'day' ? 1 : 7
-  return Array.from({ length: count }, (_, index) => addDays(anchorDate.value, index))
+  const firstDay = windowMode.value === 'week' ? mondayOfWeek(anchorDate.value) : anchorDate.value
+  return Array.from({ length: count }, (_, index) => addDays(firstDay, index))
 })
-const windowEnd = computed(() => addDays(anchorDate.value, visibleDays.value.length))
+const windowStart = computed(() => visibleDays.value[0] ?? anchorDate.value)
+const windowEnd = computed(() => addDays(windowStart.value, visibleDays.value.length))
 const dateTitle = computed(() => {
   if (windowMode.value === 'day') return longDate(anchorDate.value)
-  return `${shortDate(anchorDate.value)} — ${shortDate(addDays(windowEnd.value, -1))}`
+  return `${shortDate(windowStart.value)} — ${shortDate(addDays(windowEnd.value, -1))}`
 })
 
 function blankMeetingForm(): MeetingForm {
-  return { title: '', meetingType: 'GENERAL', roomId: 0, startAt: '', endAt: '', requiredParticipantIds: '', optionalParticipantIds: '' }
+  return { title: '', meetingType: 'GENERAL', roomId: 0, startAt: '', endAt: '', requiredParticipantIds: [], optionalParticipantIds: [] }
 }
 
 function replaceForm(target: MeetingForm, source: MeetingForm): void { Object.assign(target, source) }
@@ -344,6 +364,12 @@ function addDays(value: string, amount: number): string {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date)
   const read = (type: Intl.DateTimeFormatPartTypes): string => parts.find((part) => part.type === type)?.value ?? ''
   return `${read('year')}-${read('month')}-${read('day')}`
+}
+
+function mondayOfWeek(value: string): string {
+  const date = new Date(`${value}T12:00:00+08:00`)
+  const day = date.getUTCDay()
+  return addDays(value, -(day === 0 ? 6 : day - 1))
 }
 
 function longDate(value: string): string { return new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' }).format(new Date(`${value}T00:00:00+08:00`)) }
@@ -371,20 +397,32 @@ async function loadRooms(): Promise<void> {
   }
 }
 
+async function loadEmployeeDirectory(): Promise<void> {
+  try {
+    const result = await apiRequest<EmployeeDirectoryResult>('/directory/employees')
+    employeeDirectory.value = result.items
+  } catch (error) {
+    createError.value = error instanceof ApiError ? error.message : '参会人员列表加载失败。'
+  }
+}
+
 async function loadMeetings(): Promise<void> {
   listLoading.value = true
   listError.value = ''
   try {
     const query = new URLSearchParams({
-      from: `${anchorDate.value}T00:00:00+08:00`,
+      from: `${windowStart.value}T00:00:00+08:00`,
       to: `${windowEnd.value}T00:00:00+08:00`,
       page: '1',
       size: '100',
     })
-    if (statusFilter.value) query.set('status', statusFilter.value)
+    if (statusFilter.value !== 'ACTIVE') query.set('status', statusFilter.value)
     const result = await apiRequest<MeetingListResult>(`/meetings?${query.toString()}`)
-    meetings.value = [...result.items].sort((left, right) => left.startAt.localeCompare(right.startAt))
-    total.value = result.total
+    const visibleItems = result.items.filter((meeting) =>
+      !isTechnicalDemoMeeting(meeting.title, meeting.meetingType)
+      && (statusFilter.value !== 'ACTIVE' || meeting.status !== 'CANCELLED'))
+    meetings.value = [...visibleItems].sort((left, right) => left.startAt.localeCompare(right.startAt))
+    total.value = visibleItems.length
   } catch (error) {
     listError.value = error instanceof ApiError ? error.message : '会议列表加载失败，请稍后重试。'
   } finally {
@@ -405,8 +443,8 @@ function openCreateSheet(prefill?: Partial<MeetingForm>): void {
 function closeCreateSheet(): void { createSheetOpen.value = false }
 
 function validateForm(form: MeetingForm): MeetingMutation | null {
-  const requiredParticipantIds = parseEmployeeIds(form.requiredParticipantIds)
-  const optionalParticipantIds = parseEmployeeIds(form.optionalParticipantIds)
+  const requiredParticipantIds = [...new Set(form.requiredParticipantIds)]
+  const optionalParticipantIds = [...new Set(form.optionalParticipantIds)]
   if (!form.title || !form.meetingType || form.roomId <= 0 || !form.startAt || !form.endAt) return null
   if (!/:(00|30)$/.test(form.startAt) || !/:(00|30)$/.test(form.endAt) || form.endAt <= form.startAt) return null
   if (optionalParticipantIds.some((id) => requiredParticipantIds.includes(id))) return null
@@ -462,8 +500,8 @@ function beginEdit(meeting: Meeting): void {
     roomId: meeting.roomId,
     startAt: toShanghaiDateTimeLocal(meeting.startAt),
     endAt: toShanghaiDateTimeLocal(meeting.endAt),
-    requiredParticipantIds: meeting.participants.filter((participant) => participant.participantType === 'REQUIRED').map((participant) => participant.employeeId).join(', '),
-    optionalParticipantIds: meeting.participants.filter((participant) => participant.participantType === 'OPTIONAL').map((participant) => participant.employeeId).join(', '),
+    requiredParticipantIds: meeting.participants.filter((participant) => participant.participantType === 'REQUIRED').map((participant) => participant.employeeId),
+    optionalParticipantIds: meeting.participants.filter((participant) => participant.participantType === 'OPTIONAL').map((participant) => participant.employeeId),
   })
 }
 
@@ -496,7 +534,7 @@ function closeAllOverlays(): void { createSheetOpen.value = false; selectedMeeti
 
 onMounted(() => {
   if (window.matchMedia('(max-width: 520px)').matches) windowMode.value = 'day'
-  void Promise.all([loadRooms(), loadMeetings()]).then(() => openMeetingFromQuery(route.query.meetingId))
+  void Promise.all([loadRooms(), loadEmployeeDirectory(), loadMeetings()]).then(() => openMeetingFromQuery(route.query.meetingId))
 })
 watch(() => route.query.meetingId, (value, previous) => {
   if (value !== previous) void openMeetingFromQuery(value)

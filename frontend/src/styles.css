@@ -8,5 +8,6 @@
 @import "./styles/preview.css";
 @import "./styles/operations.css";
 @import "./styles/replan.css";
+@import "./styles/lifecycle.css";
 
 /* Page-level styles live in the imported modules above. */

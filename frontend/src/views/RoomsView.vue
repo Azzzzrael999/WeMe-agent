@@ -1,7 +1,7 @@
 <template>
   <AppShell
     title="会议室"
-    description="按 30 分钟槽位查看真实可用性，或浏览会议室资源目录。"
+    description="按 30 分钟查看会议室可用性和资源信息。"
     eyebrow="协作 / 会议室"
   >
     <template #actions>
@@ -35,7 +35,7 @@
         <label><span>楼层</span><select v-model="filters.floor"><option value="">全部楼层</option><option v-for="value in floorOptions" :key="value">{{ value }}</option></select></label>
         <label><span>至少容纳</span><input v-model.number="filters.capacity" type="number" min="0" step="1" placeholder="不限" /></label>
         <label><span>设备</span><select v-model="filters.feature"><option value="">全部设备</option><option v-for="value in featureOptions" :key="value.code" :value="value.code">{{ value.name }}</option></select></label>
-        <label><span>房型</span><select v-model="filters.roomType"><option value="">全部房型</option><option v-for="value in roomTypeOptions" :key="value">{{ value }}</option></select></label>
+        <label><span>房型</span><select v-model="filters.roomType"><option value="">全部房型</option><option v-for="option in roomTypeChoices" :key="option.value" :value="option.value">{{ option.label }}</option></select></label>
         <label><span>日期</span><input v-model="selectedDate" type="date" required /></label>
         <label><span>开始</span><input v-model="timeFrom" type="time" step="1800" required /></label>
         <label><span>结束</span><input v-model="timeTo" type="time" step="1800" required /></label>
@@ -51,7 +51,6 @@
       <div v-else-if="filteredRooms.length === 0" class="calendar-empty">
         <DoorClosed :size="28" aria-hidden="true" />
         <strong>没有符合条件的会议室</strong>
-        <span>这些筛选基于真实会议室字段，没有生成替代资源。</span>
         <button class="ui-button ui-button--outline" type="button" @click="resetFilters">清除筛选</button>
       </div>
 
@@ -71,9 +70,6 @@
         @toggle="requestRoomStatus"
       />
 
-      <footer v-if="!loading" class="calendar-workspace__footer">
-        时间轴只显示公共 availability 接口返回的可用/占用状态；其他会议标题和参会者不会暴露。
-      </footer>
     </section>
 
     <Teleport to="body">
@@ -81,7 +77,7 @@
         <button class="drawer-overlay" aria-label="关闭会议室详情" @click="selectedRoom = null" />
         <aside class="trace-drawer product-sheet" role="dialog" aria-modal="true" aria-labelledby="room-detail-title">
           <header class="product-sheet__header">
-            <div><p>{{ selectedRoom.code }}</p><h2 id="room-detail-title">{{ selectedRoom.name }}</h2></div>
+            <div><h2 id="room-detail-title">{{ selectedRoom.name }}</h2></div>
             <button class="icon-button" type="button" aria-label="关闭会议室详情" @click="selectedRoom = null"><X :size="18" aria-hidden="true" /></button>
           </header>
           <div class="product-sheet__badges"><StatusBadge :status="selectedRoom.status" /><span v-if="selectedRoom.isHot"><Flame :size="13" aria-hidden="true" />热门资源</span></div>
@@ -90,8 +86,7 @@
           <dl class="product-detail-list">
             <div><dt><MapPin :size="15" aria-hidden="true" />位置</dt><dd>{{ selectedRoom.building }} · {{ selectedRoom.floor }}</dd></div>
             <div><dt><Users :size="15" aria-hidden="true" />容量</dt><dd>{{ selectedRoom.capacity }} 人</dd></div>
-            <div><dt><DoorOpen :size="15" aria-hidden="true" />类型</dt><dd>{{ selectedRoom.roomType }}</dd></div>
-            <div><dt><GitCommitHorizontal :size="15" aria-hidden="true" />版本</dt><dd>{{ selectedRoom.version }}</dd></div>
+            <div><dt><DoorOpen :size="15" aria-hidden="true" />类型</dt><dd>{{ roomTypeLabel(selectedRoom.roomType) }}</dd></div>
           </dl>
           <section class="participant-section"><h3>设备</h3><div class="room-detail-features"><span v-for="feature in selectedRoom.features" :key="feature.code">{{ feature.name }}</span><p v-if="selectedRoom.features.length === 0">暂无设备标签。</p></div></section>
           <footer class="product-sheet__actions">
@@ -113,15 +108,14 @@
             <div><p>来自空闲槽位</p><h2 id="room-booking-title">创建会议</h2></div>
             <button class="icon-button" type="button" aria-label="关闭创建会议" @click="closeMeetingSheet"><X :size="18" aria-hidden="true" /></button>
           </header>
-          <p class="product-sheet__notice">已预填 {{ selectedBookingRoom?.name }} 和一个 30 分钟空闲槽位；提交时仍由 Java 最终校验。</p>
           <div class="form-grid product-sheet__form">
             <label class="form-span-2"><span>会议主题</span><input v-model.trim="meetingForm.title" maxlength="128" required :disabled="meetingSubmitting" /></label>
-            <label><span>会议类型</span><input v-model.trim="meetingForm.meetingType" maxlength="32" required :disabled="meetingSubmitting" /></label>
+            <label><span>会议类型</span><select v-model="meetingForm.meetingType" required :disabled="meetingSubmitting"><option v-for="option in meetingTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></label>
             <label><span>会议室</span><select v-model.number="meetingForm.roomId" disabled><option v-for="room in activeRooms" :key="room.id" :value="room.id">{{ room.name }}</option></select></label>
-            <label><span>开始（Asia/Shanghai）</span><input v-model="meetingForm.startAt" type="datetime-local" step="1800" required :disabled="meetingSubmitting" /></label>
-            <label><span>结束（Asia/Shanghai）</span><input v-model="meetingForm.endAt" type="datetime-local" step="1800" required :disabled="meetingSubmitting" /></label>
-            <label><span>必须参会者 ID</span><input v-model.trim="meetingForm.requiredParticipantIds" placeholder="1002, 1003" :disabled="meetingSubmitting" /></label>
-            <label><span>可选参会者 ID</span><input v-model.trim="meetingForm.optionalParticipantIds" placeholder="1004" :disabled="meetingSubmitting" /></label>
+            <label><span>开始</span><input v-model="meetingForm.startAt" type="datetime-local" step="1800" required :disabled="meetingSubmitting" /></label>
+            <label><span>结束</span><input v-model="meetingForm.endAt" type="datetime-local" step="1800" required :disabled="meetingSubmitting" /></label>
+            <EmployeeMultiSelect v-model="meetingForm.requiredParticipantIds" label="必须参会者" :employees="employeeDirectory" :excluded-ids="meetingForm.optionalParticipantIds" :disabled="meetingSubmitting" />
+            <EmployeeMultiSelect v-model="meetingForm.optionalParticipantIds" label="可选参会者" :employees="employeeDirectory" :excluded-ids="meetingForm.requiredParticipantIds" :disabled="meetingSubmitting" />
           </div>
           <p v-if="meetingError" class="error-message" role="alert">{{ meetingError }}</p>
           <footer class="product-sheet__actions">
@@ -140,15 +134,14 @@
             <div><p>管理员</p><h2 id="room-admin-title">{{ editingRoom ? '编辑会议室' : '新增会议室' }}</h2></div>
             <button class="icon-button" type="button" aria-label="关闭会议室编辑" @click="closeAdminPanel"><X :size="18" aria-hidden="true" /></button>
           </header>
-          <p class="product-sheet__notice">更新和启停都携带当前资源版本，由 Java 管理接口裁决。</p>
           <form class="form-grid product-sheet__form" @submit.prevent="saveRoom">
             <label><span>编码</span><input v-model.trim="roomForm.code" maxlength="32" required :disabled="adminSubmitting" /></label>
             <label><span>名称</span><input v-model.trim="roomForm.name" maxlength="64" required :disabled="adminSubmitting" /></label>
             <label><span>楼栋</span><input v-model.trim="roomForm.building" maxlength="64" required :disabled="adminSubmitting" /></label>
             <label><span>楼层</span><input v-model.trim="roomForm.floor" maxlength="32" required :disabled="adminSubmitting" /></label>
             <label><span>容量</span><input v-model.number="roomForm.capacity" type="number" min="1" required :disabled="adminSubmitting" /></label>
-            <label><span>类型</span><input v-model.trim="roomForm.roomType" maxlength="32" required :disabled="adminSubmitting" /></label>
-            <label class="form-span-2"><span>设备代码</span><input v-model.trim="roomForm.featureCodes" placeholder="WHITEBOARD, LARGE_SCREEN" :disabled="adminSubmitting" /></label>
+            <label><span>类型</span><select v-model="roomForm.roomType" required :disabled="adminSubmitting"><option v-for="option in allRoomTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></label>
+            <label class="form-span-2"><span>设备</span><select v-model="roomForm.featureCodes" multiple :disabled="adminSubmitting"><option v-for="feature in featureOptions" :key="feature.code" :value="feature.code">{{ feature.name }}</option></select><small>可多选</small></label>
             <label class="resource-filters__check"><input v-model="roomForm.isHot" type="checkbox" :disabled="adminSubmitting" /><span>热门会议室</span></label>
             <p v-if="adminError" class="error-message form-span-2" role="alert">{{ adminError }}</p>
             <footer class="product-sheet__actions form-span-2"><button class="ui-button ui-button--outline" type="button" :disabled="adminSubmitting" @click="closeAdminPanel">返回</button><button class="ui-button ui-button--default" type="submit" :disabled="adminSubmitting">{{ adminSubmitting ? '正在保存…' : editingRoom ? '保存修改' : '新增会议室' }}</button></footer>
@@ -183,7 +176,6 @@ import {
   DoorOpen,
   Flame,
   GanttChart,
-  GitCommitHorizontal,
   LayoutGrid,
   LoaderCircle,
   MapPin,
@@ -195,13 +187,15 @@ import {
   Users,
   X,
 } from '@lucide/vue'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 
 import { ApiError, apiRequest } from '../api/client'
 import type {
   Meeting,
   MeetingMutation,
   MeetingRoom,
+  EmployeeDirectoryResult,
+  EmployeeDirectoryItem,
   RoomAvailability,
   RoomAvailabilitySlot,
   RoomListResult,
@@ -211,16 +205,19 @@ import type {
 } from '../api/types'
 import { authStore } from '../auth/store'
 import AppShell from '../components/AppShell.vue'
+import EmployeeMultiSelect from '../components/EmployeeMultiSelect.vue'
 import ResourceTimeline, { type ResourceTimelineRow } from '../components/ResourceTimeline.vue'
 import RoomDirectory from '../components/RoomDirectory.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import { useModalFocus } from '../composables/useModalFocus'
-import { createClientRequestId, parseEmployeeIds, toShanghaiDateTimeLocal, toShanghaiOffset } from '../utils/format'
+import { createClientRequestId, toShanghaiDateTimeLocal, toShanghaiOffset } from '../utils/format'
+import { meetingTypeOptions, roomTypeLabel, roomTypeOptions as allRoomTypeOptions } from '../utils/labels'
 
-interface RoomForm { code: string; name: string; building: string; floor: string; capacity: number; roomType: string; isHot: boolean; featureCodes: string }
-interface MeetingForm { title: string; meetingType: string; roomId: number; startAt: string; endAt: string; requiredParticipantIds: string; optionalParticipantIds: string }
+interface RoomForm { code: string; name: string; building: string; floor: string; capacity: number; roomType: string; isHot: boolean; featureCodes: string[] }
+interface MeetingForm { title: string; meetingType: string; roomId: number; startAt: string; endAt: string; requiredParticipantIds: number[]; optionalParticipantIds: number[] }
 
 const rooms = ref<MeetingRoom[]>([])
+const employeeDirectory = ref<EmployeeDirectoryItem[]>([])
 const loading = ref(true)
 const errorMessage = ref('')
 const viewMode = ref<'timeline' | 'directory'>('timeline')
@@ -246,14 +243,16 @@ const selectedBookingRoom = ref<MeetingRoom | null>(null)
 const meetingSubmitting = ref(false)
 const meetingError = ref('')
 let meetingIdempotencyKey: string | null = null
+let availabilityEpoch = 0
+let availabilityTimer: number | undefined
 
-const roomForm = reactive<RoomForm>({ code: '', name: '', building: '', floor: '', capacity: 8, roomType: 'STANDARD', isHot: false, featureCodes: '' })
-const meetingForm = reactive<MeetingForm>({ title: '', meetingType: 'GENERAL', roomId: 0, startAt: '', endAt: '', requiredParticipantIds: '', optionalParticipantIds: '' })
+const roomForm = reactive<RoomForm>({ code: '', name: '', building: '', floor: '', capacity: 8, roomType: 'STANDARD', isHot: false, featureCodes: [] })
+const meetingForm = reactive<MeetingForm>({ title: '', meetingType: 'GENERAL', roomId: 0, startAt: '', endAt: '', requiredParticipantIds: [], optionalParticipantIds: [] })
 const isAdmin = computed(() => authStore.state.user?.roles.includes('ADMIN') ?? false)
 const activeRooms = computed(() => rooms.value.filter((room) => room.status === 'ACTIVE'))
 const buildingOptions = computed(() => unique(rooms.value.map((room) => room.building)))
 const floorOptions = computed(() => unique(rooms.value.filter((room) => !filters.building || room.building === filters.building).map((room) => room.floor)))
-const roomTypeOptions = computed(() => unique(rooms.value.map((room) => room.roomType)))
+const roomTypeChoices = computed(() => unique(rooms.value.map((room) => room.roomType)).map((value) => ({ value, label: roomTypeLabel(value) })))
 const featureOptions = computed(() => {
   const map = new Map<string, string>()
   for (const room of rooms.value) for (const feature of room.features) map.set(feature.code, feature.name)
@@ -303,9 +302,23 @@ async function loadRooms(): Promise<void> {
   finally { loading.value = false }
 }
 
+async function loadEmployeeDirectory(): Promise<void> {
+  try {
+    const result = await apiRequest<EmployeeDirectoryResult>('/directory/employees')
+    employeeDirectory.value = result.items
+  } catch {
+    employeeDirectory.value = []
+  }
+}
+
 async function refreshRooms(): Promise<void> { await loadRooms(); await loadAvailabilityMatrix() }
 async function loadAvailabilityMatrix(): Promise<void> {
-  if (!selectedDate.value || !validWindow()) { availabilityError.value = '请选择有效日期；开始和结束时间必须落在 30 分钟边界。'; return }
+  const epoch = ++availabilityEpoch
+  if (!selectedDate.value || !validWindow()) {
+    availabilityLoading.value = false
+    availabilityError.value = '请选择有效日期；开始和结束时间必须落在 30 分钟边界。'
+    return
+  }
   const targets = filteredRoomsBase.value
   availabilityLoading.value = true
   availabilityError.value = ''
@@ -317,16 +330,22 @@ async function loadAvailabilityMatrix(): Promise<void> {
     const query = new URLSearchParams({ from, to })
     try {
       const result = await apiRequest<RoomAvailability>(`/rooms/${room.id}/availability?${query.toString()}`)
-      replaceAvailabilityRow(room, { room, slots: result.availableSlots })
+      if (epoch === availabilityEpoch) replaceAvailabilityRow(room, { room, slots: result.availableSlots })
     } catch (error) {
-      replaceAvailabilityRow(room, { room, slots: [], error: error instanceof ApiError ? error.message : '查询失败' })
+      if (epoch === availabilityEpoch) replaceAvailabilityRow(room, { room, slots: [], error: error instanceof ApiError ? error.message : '查询失败' })
     }
   }))
+  if (epoch !== availabilityEpoch) return
   availabilityLoading.value = false
   if (availabilityRows.value.some((row) => row.error)) availabilityError.value = '部分会议室可用性查询失败，对应槽位不会被展示为可预约。'
 }
 function replaceAvailabilityRow(room: MeetingRoom, row: ResourceTimelineRow): void { availabilityRows.value = availabilityRows.value.map((current) => current.room.id === room.id ? row : current) }
 function resetFilters(): void { Object.assign(filters, { building: '', floor: '', capacity: 0, feature: '', roomType: '', onlyAvailable: false }); void loadAvailabilityMatrix() }
+function scheduleAvailabilityReload(): void {
+  availabilityEpoch += 1
+  if (availabilityTimer !== undefined) window.clearTimeout(availabilityTimer)
+  availabilityTimer = window.setTimeout(() => { void loadAvailabilityMatrix() }, 250)
+}
 
 async function openRoomDetails(room: MeetingRoom): Promise<void> {
   selectedRoom.value = room
@@ -345,15 +364,15 @@ function focusRoomTimeline(room: MeetingRoom): void {
 
 function openMeetingFromSlot(room: MeetingRoom, slot: RoomAvailabilitySlot): void {
   selectedBookingRoom.value = room
-  Object.assign(meetingForm, { title: '', meetingType: 'GENERAL', roomId: room.id, startAt: toShanghaiDateTimeLocal(slot.startAt), endAt: toShanghaiDateTimeLocal(slot.endAt), requiredParticipantIds: '', optionalParticipantIds: '' })
+  Object.assign(meetingForm, { title: '', meetingType: 'GENERAL', roomId: room.id, startAt: toShanghaiDateTimeLocal(slot.startAt), endAt: toShanghaiDateTimeLocal(slot.endAt), requiredParticipantIds: [], optionalParticipantIds: [] })
   meetingError.value = ''
   meetingIdempotencyKey = null
   meetingSheetOpen.value = true
 }
 function closeMeetingSheet(): void { meetingSheetOpen.value = false; selectedBookingRoom.value = null }
 function meetingPayload(): MeetingMutation | null {
-  const requiredParticipantIds = parseEmployeeIds(meetingForm.requiredParticipantIds)
-  const optionalParticipantIds = parseEmployeeIds(meetingForm.optionalParticipantIds)
+  const requiredParticipantIds = [...new Set(meetingForm.requiredParticipantIds)]
+  const optionalParticipantIds = [...new Set(meetingForm.optionalParticipantIds)]
   if (!meetingForm.title || !meetingForm.meetingType || meetingForm.roomId <= 0 || !/:(00|30)$/.test(meetingForm.startAt) || !/:(00|30)$/.test(meetingForm.endAt) || meetingForm.endAt <= meetingForm.startAt || optionalParticipantIds.some((id) => requiredParticipantIds.includes(id))) return null
   return { title: meetingForm.title, meetingType: meetingForm.meetingType, roomId: meetingForm.roomId, startAt: toShanghaiOffset(meetingForm.startAt), endAt: toShanghaiOffset(meetingForm.endAt), requiredParticipantIds, optionalParticipantIds }
 }
@@ -373,19 +392,18 @@ async function createMeeting(): Promise<void> {
   finally { meetingSubmitting.value = false }
 }
 
-function featureCodes(value: string): string[] { return [...new Set(value.split(/[，,\s]+/).map((code) => code.trim()).filter(Boolean))] }
 function roomPayload(): RoomMutation | null {
   if (!roomForm.code || !roomForm.name || !roomForm.building || !roomForm.floor || !roomForm.roomType || !Number.isSafeInteger(roomForm.capacity) || roomForm.capacity <= 0) return null
-  return { code: roomForm.code, name: roomForm.name, building: roomForm.building, floor: roomForm.floor, capacity: roomForm.capacity, roomType: roomForm.roomType, isHot: roomForm.isHot, featureCodes: featureCodes(roomForm.featureCodes) }
+  return { code: roomForm.code, name: roomForm.name, building: roomForm.building, floor: roomForm.floor, capacity: roomForm.capacity, roomType: roomForm.roomType, isHot: roomForm.isHot, featureCodes: [...new Set(roomForm.featureCodes)] }
 }
-function resetRoomForm(): void { editingRoom.value = null; adminError.value = ''; Object.assign(roomForm, { code: '', name: '', building: '', floor: '', capacity: 8, roomType: 'STANDARD', isHot: false, featureCodes: '' }) }
+function resetRoomForm(): void { editingRoom.value = null; adminError.value = ''; Object.assign(roomForm, { code: '', name: '', building: '', floor: '', capacity: 8, roomType: 'STANDARD', isHot: false, featureCodes: [] }) }
 function openAdminCreate(): void { resetRoomForm(); adminPanelOpen.value = true }
 function closeAdminPanel(): void { adminPanelOpen.value = false; resetRoomForm() }
 function beginRoomEdit(room: MeetingRoom): void {
   selectedRoom.value = null
   editingRoom.value = room
   adminError.value = ''
-  Object.assign(roomForm, { code: room.code, name: room.name, building: room.building, floor: room.floor, capacity: room.capacity, roomType: room.roomType, isHot: room.isHot, featureCodes: room.features.map((feature) => feature.code).join(', ') })
+  Object.assign(roomForm, { code: room.code, name: room.name, building: room.building, floor: room.floor, capacity: room.capacity, roomType: room.roomType, isHot: room.isHot, featureCodes: room.features.map((feature) => feature.code) })
   adminPanelOpen.value = true
 }
 async function saveRoom(): Promise<void> {
@@ -434,5 +452,16 @@ async function confirmRoomStatus(): Promise<void> {
 
 function closeAllOverlays(): void { selectedRoom.value = null; meetingSheetOpen.value = false; selectedBookingRoom.value = null; adminPanelOpen.value = false; pendingStatusRoom.value = null; roomStatusReason.value = '' }
 
-onMounted(async () => { await loadRooms(); await loadAvailabilityMatrix() })
+watch(
+  [selectedDate, timeFrom, timeTo, () => filters.building, () => filters.floor, () => filters.capacity, () => filters.feature, () => filters.roomType],
+  scheduleAvailabilityReload,
+)
+onMounted(async () => {
+  await Promise.all([loadRooms(), loadEmployeeDirectory()])
+  await loadAvailabilityMatrix()
+})
+onUnmounted(() => {
+  availabilityEpoch += 1
+  if (availabilityTimer !== undefined) window.clearTimeout(availabilityTimer)
+})
 </script>

@@ -17,6 +17,11 @@
 | UserPreference | 用户明确保存的调度偏好 |
 | Notification | 站内通知 |
 | AgentRun/AgentStep | Agent 运行轨迹 |
+| MeetingAgendaItem | 会前议题、负责人、顺序和预计时长 |
+| MeetingMaterial | 会前材料元数据、负责人、版本和就绪状态 |
+| PostMeetingDraft | Agent 生成且尚未确认的纪要、决策和行动项草案 |
+| MeetingMinutes/Decision | HITL 接受后形成的正式纪要与决策记录 |
+| MeetingActionItem | HITL 接受后形成的负责人、截止时间和执行状态 |
 
 ## 2. 会议状态
 
@@ -41,6 +46,7 @@ stateDiagram-v2
 - 只有 `CONFIRMED` 会议占用正式业务槽位。
 - 首版不实现审批和签到状态。
 - 取消操作必须使用条件更新，只有 `CONFIRMED` 可取消。
+- Java 定时任务将 `endAt <= now` 的 `CONFIRMED` 条件更新为 `COMPLETED`；重复扫描幂等。
 
 ## 3. 用户故事
 
@@ -292,6 +298,17 @@ stateDiagram-v2
 - “在智能编排中详细处理”预填包含异常单号和 meetingId 的 RESCHEDULE 对话；只有用户发送后才启动 Agent，只有 HITL `ACCEPT` 后才修改会议。
 - 异常单支持 `OPEN/RESOLVED/RESTORED/CANCELLED`，刷新后必须展示 Java 当前事实并禁止处理旧候选。
 
+### 7.9 会前准备与会后执行
+
+- 会前会后页必须使用真实 Java API，不再读取 `frontend/src/demo/preview.ts` 的静态生命周期数据。
+- 尚未开始的 `CONFIRMED` 会议支持原子保存议程和材料元数据；每个议题包含主题、负责人、顺序和预计时长，每个材料包含标题、负责人、必需标记、版本、备注及 `MISSING/READY` 状态。
+- 准备清单按当前会议、会议室、参与者、议程和材料动态计算，至少检查议程存在、议程时长、负责人、必需材料、会议室状态和必需参会者。
+- 会议开始前 24 小时和 30 分钟向组织者与参会者发送去重站内提醒；24 小时扫描发现缺失项时只向组织者发送针对性通知。
+- 会议结束后自动转为 `COMPLETED`。只有组织者或 ADMIN 可以提交文本会议记录，现有 Requirement Agent 生成结构化纪要、决策和行动项草案。
+- 草案支持 `ACCEPT/EDIT/REJECT`。`EDIT` 只更新待审草案并要求再次确认；`REJECT` 不产生正式记录；只有 `ACCEPT` 才在 Java 单事务内写入正式纪要、决策和行动项。
+- 行动项负责人必须来自会议参与者或组织者；负责人、组织者或 ADMIN 可更新 `OPEN/IN_PROGRESS/DONE`。未完成行动项在截止前 24 小时和逾期后各产生一次去重站内催办。
+- 本页不展示或实现 RSVP、签到、附件上传、政策结果绑定、统计复盘和外部平台同步。
+
 ## 8. 验收标准
 
 | ID | 验收条件 |
@@ -320,3 +337,11 @@ stateDiagram-v2
 | AC-22 | 异常页候选不包含失效、容量不足、设备缺失或槽位冲突的房间；快速提交保留原时间、时长、人员和设备能力并经过会议/异常单双版本裁决 |
 | AC-23 | 异常重排智能对话稳定归类为 RESCHEDULE，继承并展示原约束，跨时段或放宽约束时重新求解、验证并生成新的 HITL 草案 |
 | AC-24 | 手动或 Agent 改期成功后异常单为 RESOLVED，会议取消后为 CANCELLED，原资源恢复且会议未移动时为 RESTORED；REJECT 后仍为 OPEN |
+| AC-25 | 发起人可为未来 CONFIRMED 会议保存议程和材料元数据，准备清单按当前事实返回具体缺失项，过期版本不能覆盖新版本 |
+| AC-26 | 会前 24 小时/30 分钟提醒和缺失项通知在重复调度扫描下不重复；改期后的新开始时间可按新事实重新提醒 |
+| AC-27 | 到达结束时间的 CONFIRMED 会议幂等转为 COMPLETED，CANCELLED 或已完成会议不发生非法状态转换 |
+| AC-28 | COMPLETED 会议的文本记录经现有 Requirement Agent 生成结构化草案；未知负责人不能被模型伪造成业务员工 ID |
+| AC-29 | 会后草案在 ACCEPT 前不产生正式纪要、决策或行动项；EDIT 后必须再次 ACCEPT，REJECT 无业务副作用，重复或过期审核被稳定拒绝 |
+| AC-30 | 行动项只允许负责人、组织者或 ADMIN 更新状态；临期与逾期站内催办幂等，DONE 项不再催办 |
+| AC-31 | 会前会后页完全使用真实 `/api/v1/**` 数据并剔除 RSVP、签到、附件、政策绑定与统计预览 |
+| AC-32 | 用户主路径不展示技术枚举、原始人员 ID、测试会议或冗余实现说明；周视图按周一至周日和 08:00–00:00 展示，会议室日期/筛选变化自动刷新且过期响应不能覆盖当前结果 |

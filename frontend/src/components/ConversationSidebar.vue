@@ -4,12 +4,11 @@
       <span class="conversation-context__mark" aria-hidden="true"><Sparkles :size="15" /></span>
       <div>
         <strong>MeetOps 编排助手</strong>
-        <small>Supervisor · Requirement · Policy · Scheduling</small>
+        <small>你的智能企业会议助手</small>
       </div>
     </div>
     <div v-if="runId" class="conversation-context__run">
       <StatusBadge :status="status || 'RUNNING'" />
-      <span :title="runId">{{ runId }}</span>
     </div>
     <span v-else class="conversation-context__ready"><span aria-hidden="true" />已就绪</span>
   </section>

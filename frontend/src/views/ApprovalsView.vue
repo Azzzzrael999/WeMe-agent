@@ -21,7 +21,6 @@
             <h2 id="approval-heading">当前待确认</h2>
             <span class="approval-count" :aria-label="`共 ${approvalCount} 项`">{{ approvalCount }}</span>
           </div>
-          <p>只显示当前浏览器标签页保存且仍可恢复的 Run，不创建跨 Run 任务队列。</p>
         </div>
         <label v-if="approval" class="approval-filter">
           <span>类型</span>
@@ -32,7 +31,7 @@
       </header>
 
       <ErrorState v-if="errorMessage" :message="errorMessage" retryable @retry="loadApproval" />
-      <LoadingState v-else-if="loading" title="正在恢复当前 Run" description="仅通过 Java 公共恢复接口读取真实待确认状态。" />
+      <LoadingState v-else-if="loading" title="正在加载待确认方案" description="正在同步最新方案状态。" />
 
       <ApprovalCard
         v-else-if="approval"
@@ -119,8 +118,8 @@ const chatTarget = computed(() => activeRunId.value === null
   ? { name: 'chat' as const }
   : { name: 'chat' as const, query: { runId: activeRunId.value } })
 const emptyDescription = computed(() => activeRunId.value === null
-  ? '当前标签页没有保存可恢复的 Run。请先在智能编排中生成会议草案。'
-  : '当前 Run 不处于 WAITING_CONFIRMATION，或服务端没有返回可恢复的真实草案。')
+  ? '暂无需要确认的会议方案。'
+  : '当前任务没有需要确认的会议方案。')
 
 function resolveActiveRunId(): string | null {
   const queryRunId = route.query.runId
@@ -146,7 +145,7 @@ async function loadApproval(): Promise<void> {
       ? null
       : readHitlDraft(recovery.draft, recovery.actionType ?? recovery.operationType)
     if (parsed === null || typeof recovery.confirmationToken !== 'string' || recovery.confirmationToken.length === 0) {
-      errorMessage.value = '当前 Run 标记为待确认，但恢复视图缺少可用草案或确认凭据。'
+      errorMessage.value = '当前任务正在等待确认，但暂时无法恢复确认方案。'
       return
     }
     approval.value = {
@@ -157,7 +156,7 @@ async function loadApproval(): Promise<void> {
       ...(recovery.expiresAt === undefined ? {} : { expiresAt: recovery.expiresAt }),
     }
   } catch (error) {
-    errorMessage.value = error instanceof ApiError ? error.message : '无法恢复当前待确认 Run。'
+    errorMessage.value = error instanceof ApiError ? error.message : '无法恢复当前待确认任务。'
   } finally {
     loading.value = false
   }

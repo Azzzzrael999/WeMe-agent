@@ -2,7 +2,7 @@
   <div class="meeting-calendar" aria-label="会议日历">
     <div class="meeting-calendar__scroller">
       <div class="meeting-calendar__grid" :style="gridStyle">
-        <div class="meeting-calendar__corner" aria-hidden="true">Asia/Shanghai</div>
+        <div class="meeting-calendar__corner" aria-hidden="true">时间</div>
         <div v-for="day in days" :key="day" class="meeting-calendar__day-heading">
           <span>{{ weekday(day) }}</span>
           <strong>{{ shortDate(day) }}</strong>
@@ -45,7 +45,6 @@
         </div>
       </div>
     </div>
-    <p class="meeting-calendar__note">当前仅呈现已加载窗口内的真实会议；点击会议块查看详情。</p>
   </div>
 </template>
 
@@ -82,29 +81,18 @@ function shanghaiParts(value: string): { date: string; hour: number; minute: num
   }
 }
 
-const bounds = computed(() => {
-  const visible = props.meetings.filter((meeting) => props.days.includes(shanghaiParts(meeting.startAt).date))
-  const starts = visible.map((meeting) => shanghaiParts(meeting.startAt).hour)
-  const ends = visible.map((meeting) => {
-    const part = shanghaiParts(meeting.endAt)
-    return part.hour + (part.minute > 0 ? 1 : 0)
-  })
-  return {
-    start: Math.max(0, Math.min(8, ...starts)),
-    end: Math.min(24, Math.max(19, ...ends)),
-  }
-})
+const bounds = { start: 8, end: 24 } as const
 
-const halfHourLines = computed(() => (bounds.value.end - bounds.value.start) * 2)
-const bodyHeightStyle = computed(() => ({ height: `${halfHourLines.value * slotHeight}px` }))
+const halfHourLines = (bounds.end - bounds.start) * 2
+const bodyHeightStyle = { height: `${halfHourLines * slotHeight}px` }
 const gridStyle = computed(() => ({
   gridTemplateColumns: `76px repeat(${Math.max(props.days.length, 1)}, minmax(154px, 1fr))`,
 }))
 const hourLabels = computed(() =>
-  Array.from({ length: bounds.value.end - bounds.value.start + 1 }, (_, index) => ({
-    minute: (bounds.value.start + index) * 60,
+  Array.from({ length: bounds.end - bounds.start + 1 }, (_, index) => ({
+    minute: (bounds.start + index) * 60,
     offset: index * slotHeight * 2,
-    label: `${String(bounds.value.start + index).padStart(2, '0')}:00`,
+    label: `${String((bounds.start + index) % 24).padStart(2, '0')}:00`,
   })),
 )
 
@@ -115,7 +103,7 @@ function meetingsForDay(day: string): Meeting[] {
 function eventStyle(meeting: Meeting): Record<string, string> {
   const start = shanghaiParts(meeting.startAt)
   const durationMinutes = Math.max(30, (new Date(meeting.endAt).getTime() - new Date(meeting.startAt).getTime()) / 60_000)
-  const startMinutes = start.hour * 60 + start.minute - bounds.value.start * 60
+  const startMinutes = start.hour * 60 + start.minute - bounds.start * 60
   return {
     top: `${(startMinutes / 30) * slotHeight + 2}px`,
     height: `${Math.max(slotHeight - 4, (durationMinutes / 30) * slotHeight - 4)}px`,

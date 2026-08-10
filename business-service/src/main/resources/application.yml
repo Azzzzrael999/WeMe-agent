@@ -65,6 +65,9 @@ app:
   outbox:
     publish-interval-millis: ${OUTBOX_PUBLISH_INTERVAL_MILLIS:500}
     max-retries: ${OUTBOX_MAX_RETRIES:10}
+  lifecycle:
+    scan-interval-millis: ${MEETING_LIFECYCLE_SCAN_INTERVAL_MILLIS:60000}
+    scan-batch-size: ${MEETING_LIFECYCLE_SCAN_BATCH_SIZE:100}
 
 management:
   endpoints:

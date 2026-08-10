@@ -11,7 +11,7 @@
     </article>
     <div v-if="citations.length === 0" class="policy-citations__empty">
       <FileQuestion :size="21" aria-hidden="true" />
-      <div><strong>未找到可验证证据</strong><p>只有 Agent 返回真实 citation 时才会显示出处，不会根据请求文本补写政策。</p></div>
+      <div><strong>暂未找到制度依据</strong><p>找到匹配的制度条款后，会在这里展示出处。</p></div>
     </div>
   </div>
 </template>

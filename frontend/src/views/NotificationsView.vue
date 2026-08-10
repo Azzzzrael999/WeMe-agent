@@ -1,5 +1,5 @@
 <template>
-  <AppShell title="消息中心" description="查看会议与资源异常通知。消息仅对当前登录用户可见。" eyebrow="协作 / 消息">
+  <AppShell title="消息中心" description="会议与协作动态。" eyebrow="协作 / 消息">
     <template #actions>
       <button class="ui-button ui-button--outline" type="button" :disabled="markingAll || unreadCount === 0" @click="markAllRead">
         <CheckCheck :size="16" aria-hidden="true" />{{ markingAll ? '正在处理…' : '全部标为已读' }}
@@ -11,7 +11,7 @@
         <button type="button" :class="{ active: !unreadOnly }" :aria-pressed="!unreadOnly" @click="setUnreadOnly(false)">全部</button>
         <button type="button" :class="{ active: unreadOnly }" :aria-pressed="unreadOnly" @click="setUnreadOnly(true)">未读 <span v-if="unreadCount > 0">{{ unreadCount }}</span></button>
       </div>
-      <label><span>消息类型</span><select v-model="typeFilter" @change="applyTypeFilter"><option value="">全部类型</option><option value="MEETING_CONFIRMED">会议已确认</option><option value="MEETING_CHANGED">会议已变更</option><option value="MEETING_CANCELLED">会议已取消</option><option value="RESOURCE_UNAVAILABLE">会议室已失效</option><option value="RESOURCE_RESTORED">会议室已恢复</option></select></label>
+      <label><span>消息类型</span><select v-model="typeFilter" @change="applyTypeFilter"><option value="">全部类型</option><option value="MEETING_CONFIRMED">会议已确认</option><option value="MEETING_CHANGED">会议已变更</option><option value="MEETING_CANCELLED">会议已取消</option><option value="MEETING_REMINDER_24H">会前 24 小时提醒</option><option value="MEETING_REMINDER_30M">会前 30 分钟提醒</option><option value="PREPARATION_MISSING">准备项缺失</option><option value="ACTION_ITEM_DUE_SOON">行动项临期</option><option value="ACTION_ITEM_OVERDUE">行动项逾期</option><option value="RESOURCE_UNAVAILABLE">会议室已失效</option><option value="RESOURCE_RESTORED">会议室已恢复</option></select></label>
       <button class="icon-button" type="button" title="刷新消息" aria-label="刷新消息" :disabled="loading" @click="loadNotifications"><RefreshCw :size="17" aria-hidden="true" /></button>
     </section>
 
@@ -23,7 +23,7 @@
       <article v-for="notification in notifications" :key="notification.id" class="notification-card" :class="{ 'notification-card--unread': notification.readAt === null }">
         <div class="notification-icon" :class="`notification-icon--${notificationTone(notification.type)}`" aria-hidden="true"><component :is="notificationIcon(notification.type)" :size="18" /></div>
         <div class="notification-card__body">
-          <header><div><p class="eyebrow">{{ notificationTypeLabel(notification.type) }}</p><h2>{{ notification.title }}</h2></div><span v-if="notification.readAt === null" class="unread-dot"><span class="sr-only">未读</span></span></header>
+          <header><div><p class="eyebrow">{{ notificationTypeLabel(notification.type) }}</p><h2>{{ displayNotificationTitle(notification) }}</h2></div><span v-if="notification.readAt === null" class="unread-dot"><span class="sr-only">未读</span></span></header>
           <p>{{ notification.content }}</p>
           <footer><time :datetime="notification.createdAt">{{ formatDateTime(notification.createdAt) }}</time><div class="notification-actions"><button v-if="notification.readAt === null" class="text-button" type="button" :disabled="pendingIds.has(notification.id)" @click="markRead(notification)">标为已读</button><button v-if="notification.relatedReplanCaseId != null" class="text-button" type="button" @click="openRelated(notification)">处理异常<ArrowUpRight :size="14" aria-hidden="true" /></button><button v-else-if="notification.relatedMeetingId != null" class="text-button" type="button" @click="openRelated(notification)">查看会议<ArrowUpRight :size="14" aria-hidden="true" /></button></div></footer>
         </div>
@@ -49,8 +49,10 @@ import EmptyState from '@/components/EmptyState.vue'
 import ErrorState from '@/components/ErrorState.vue'
 import { notificationStore } from '@/notifications/store'
 import { formatDateTime } from '@/utils/format'
+import { isTechnicalDemoNotification } from '@/utils/labels'
 
 const PAGE_SIZE = 20
+const FETCH_SIZE = 100
 const router = useRouter()
 const notifications = ref<NotificationItem[]>([])
 const total = ref(0)
@@ -66,6 +68,14 @@ const pendingIds = ref(new Set<number>())
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
 
 function message(error: unknown, fallback: string): string { return error instanceof ApiError ? error.message : fallback }
+function displayNotificationTitle(notification: NotificationItem): string {
+  const genericTitles = ['会议已确认', '会议已变更', '会议已取消']
+  if (!genericTitles.includes(notification.title)) return notification.title
+  const meetingTitle = notification.content.match(/会议[“"](.+?)[”"]/u)?.[1]
+  if (!meetingTitle) return notification.title
+  const suffix = notification.type === 'MEETING_CONFIRMED' ? '已确认' : notification.type === 'MEETING_CHANGED' ? '已更新' : '已取消'
+  return `${meetingTitle}${suffix}`
+}
 function notificationTypeLabel(type: NotificationType): string {
   return ({
     MEETING_CONFIRMED: '会议已确认',
@@ -73,29 +83,44 @@ function notificationTypeLabel(type: NotificationType): string {
     MEETING_CANCELLED: '会议已取消',
     RESOURCE_UNAVAILABLE: '会议室已失效',
     RESOURCE_RESTORED: '会议室已恢复',
+    MEETING_REMINDER_24H: '会前 24 小时提醒',
+    MEETING_REMINDER_30M: '会前 30 分钟提醒',
+    PREPARATION_MISSING: '准备项缺失',
+    ACTION_ITEM_DUE_SOON: '行动项临期',
+    ACTION_ITEM_OVERDUE: '行动项逾期',
   })[type]
 }
 function notificationTone(type: NotificationType): string {
   if (type === 'MEETING_CONFIRMED' || type === 'RESOURCE_RESTORED') return 'success'
-  if (type === 'MEETING_CHANGED') return 'info'
+  if (['MEETING_CHANGED', 'MEETING_REMINDER_24H', 'MEETING_REMINDER_30M', 'ACTION_ITEM_DUE_SOON'].includes(type)) return 'info'
   return 'danger'
 }
 function notificationIcon(type: NotificationType): Component {
   if (type === 'MEETING_CONFIRMED') return CalendarCheck2
-  if (type === 'MEETING_CHANGED') return CalendarClock
-  if (type === 'RESOURCE_UNAVAILABLE') return TriangleAlert
+  if (['MEETING_CHANGED', 'MEETING_REMINDER_24H', 'MEETING_REMINDER_30M', 'ACTION_ITEM_DUE_SOON'].includes(type)) return CalendarClock
+  if (['RESOURCE_UNAVAILABLE', 'PREPARATION_MISSING', 'ACTION_ITEM_OVERDUE'].includes(type)) return TriangleAlert
   if (type === 'RESOURCE_RESTORED') return RotateCcw
   return CalendarX2
 }
 
 async function loadNotifications(): Promise<void> {
   loading.value = true; listError.value = ''; actionError.value = ''
-  const query = new URLSearchParams({ unreadOnly: String(unreadOnly.value), page: String(page.value), size: String(PAGE_SIZE) })
+  const query = new URLSearchParams({ unreadOnly: String(unreadOnly.value), page: '1', size: String(FETCH_SIZE) })
   if (typeFilter.value) query.set('type', typeFilter.value)
   try {
-    const result = await apiRequest<NotificationListResult>(`/notifications?${query.toString()}`)
-    notifications.value = result.items; total.value = result.total; unreadCount.value = result.unreadCount
-    notificationStore.setUnreadCount(result.unreadCount)
+    const unreadQuery = new URLSearchParams({ unreadOnly: 'true', page: '1', size: String(FETCH_SIZE) })
+    const [result, unreadResult] = await Promise.all([
+      apiRequest<NotificationListResult>(`/notifications?${query.toString()}`),
+      apiRequest<NotificationListResult>(`/notifications?${unreadQuery.toString()}`),
+    ])
+    const visibleItems = result.items.filter((item) => !isTechnicalDemoNotification(item.title, item.content))
+    total.value = visibleItems.length
+    const lastPage = Math.max(1, Math.ceil(total.value / PAGE_SIZE))
+    if (page.value > lastPage) page.value = lastPage
+    const offset = (page.value - 1) * PAGE_SIZE
+    notifications.value = visibleItems.slice(offset, offset + PAGE_SIZE)
+    unreadCount.value = unreadResult.items.filter((item) => !isTechnicalDemoNotification(item.title, item.content)).length
+    notificationStore.setUnreadCount(unreadCount.value)
   } catch (error) { listError.value = message(error, '消息加载失败，请稍后重试。') }
   finally { loading.value = false }
 }
@@ -131,7 +156,8 @@ async function openRelated(notification: NotificationItem): Promise<void> {
   if (notification.relatedReplanCaseId != null) {
     await router.push({ name: 'replan', query: { caseId: String(notification.relatedReplanCaseId) } })
   } else if (notification.relatedMeetingId != null) {
-    await router.push({ name: 'meetings', query: { meetingId: String(notification.relatedMeetingId) } })
+    const lifecycleTypes: NotificationType[] = ['MEETING_REMINDER_24H', 'MEETING_REMINDER_30M', 'PREPARATION_MISSING', 'ACTION_ITEM_DUE_SOON', 'ACTION_ITEM_OVERDUE']
+    await router.push({ name: lifecycleTypes.includes(notification.type) ? 'meeting-lifecycle' : 'meetings', query: { meetingId: String(notification.relatedMeetingId) } })
   }
 }
 

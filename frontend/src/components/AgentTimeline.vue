@@ -4,7 +4,7 @@
       <div>
         <p class="eyebrow">业务进度</p>
         <h2 id="timeline-title">本次任务进展</h2>
-        <p class="muted">普通视图按六个阶段归纳真实节点；技术细节在下方 Activity 中查看。</p>
+        <p class="muted">按六个阶段展示本次任务进度，详细事件可在下方查看。</p>
       </div>
     </div>
 
@@ -48,7 +48,7 @@ const stages = computed(() => {
   return definitions.map((definition, index) => ({
     label: definition.label,
     state: definition.matched ? 'DONE' : index === activeIndex && props.runStatus !== 'FAILED' ? 'ACTIVE' : 'PENDING',
-    summary: definition.matched ? '已有真实运行活动' : index === activeIndex ? '当前或下一阶段' : '尚未到达',
+    summary: definition.matched ? '已完成' : index === activeIndex ? '当前或下一阶段' : '尚未到达',
   }))
 })
 </script>

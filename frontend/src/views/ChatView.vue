@@ -8,7 +8,6 @@
             <h1>智能编排</h1>
             <StatusBadge v-if="runId" :status="runStatus || 'RUNNING'" />
           </div>
-          <p>从一句话需求到可验证候选，所有写操作都会等待你的明确确认。</p>
         </div>
         <div class="chat-workspace__actions">
           <button
@@ -87,7 +86,6 @@
           :streaming="streaming"
           @submit="startRun"
         />
-        <p class="composer-disclaimer">MeetOps 只基于已验证的业务事实生成建议；关键安排请在确认前复核。</p>
       </div>
     </div>
 
@@ -760,7 +758,7 @@ function currentConversationTurn(): ConversationTurn | null {
   if (submittedMessage.value.length === 0) {
     return null
   }
-  const answer = answerSummary.value || errorMessage.value || (streaming.value ? '正在处理…' : '已保存当前 Run，可继续查看结构化编排结果。')
+  const answer = answerSummary.value || errorMessage.value || (streaming.value ? '正在处理…' : '已保存当前任务，可继续查看编排结果。')
   return {
     id: runId.value === null
       ? `pending-${submittedMessage.value}`
@@ -1031,7 +1029,7 @@ async function loadRecovery(id: string): Promise<void> {
       scheduleRecovery(id, 1000)
       return
     }
-    errorMessage.value = error instanceof ApiError ? error.message : '无法加载当前 Run。'
+    errorMessage.value = error instanceof ApiError ? error.message : '无法加载当前任务。'
   } finally {
     recoveryLoading.value = false
   }

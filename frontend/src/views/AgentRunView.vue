@@ -1,17 +1,17 @@
 <template>
-  <AppShell title="运行记录" description="先查看业务进度，再按需展开脱敏的 Agent、Tool 与 Loop Activity。" eyebrow="系统 / 运行记录">
+  <AppShell title="运行记录" description="查看任务进度与安全运行详情。" eyebrow="系统 / 运行记录">
     <template #actions>
       <RouterLink class="ui-button ui-button--outline" :to="{ name: 'chat', query: { runId } }"><ArrowLeft :size="16" aria-hidden="true" />返回编排</RouterLink>
       <button class="icon-button" type="button" :disabled="loading" aria-label="刷新运行记录" @click="loadData"><RefreshCw :size="17" aria-hidden="true" /></button>
     </template>
     <section class="run-page" aria-labelledby="trace-title">
       <header class="run-page__identity">
-        <div><p class="eyebrow">Run Activity</p><h2 id="trace-title">{{ run?.intent ?? 'Agent Run' }}</h2><p>{{ run?.questionSummary ?? '正在加载脱敏任务摘要…' }}</p></div>
+        <div><p class="eyebrow">任务活动</p><h2 id="trace-title">{{ run?.intent ?? '智能编排任务' }}</h2><p>{{ run?.questionSummary ?? '正在加载任务摘要…' }}</p></div>
         <StatusBadge v-if="run" :status="run.status" />
       </header>
 
       <ErrorState v-if="errorMessage" :message="errorMessage" retryable @retry="loadData" />
-      <LoadingState v-else-if="loading && run === null" title="正在加载 Run 和 Trace" />
+      <LoadingState v-else-if="loading && run === null" title="正在加载运行记录" />
 
       <RunOverview v-else-if="run" :run="run" />
       <AgentTimeline v-if="run" :steps="trace?.steps ?? []" :tools="trace?.toolCalls ?? []" :run-status="run.status" />
@@ -21,7 +21,7 @@
       <div class="section-heading compact-heading">
         <div>
           <h2>存在待确认草案</h2>
-          <p class="muted">确认令牌仅保留在当前已鉴权会话内，此 Trace 页面不会显示它。</p>
+          <p class="muted">请返回智能编排完成确认。</p>
         </div>
         <RouterLink class="primary-link" :to="{ name: 'chat', query: { runId } }">继续确认</RouterLink>
       </div>
@@ -29,7 +29,7 @@
       <p v-if="run.candidates?.length" class="muted">当前恢复视图包含 {{ run.candidates.length }} 个已验证候选；请在聊天页选择或编辑后重新校验。</p>
     </section>
 
-    <section class="content-panel run-timeline-panel"><div class="section-heading"><div><p class="eyebrow">技术详情</p><h2>Activity Feed</h2><p>支持 Agent、Tool、Loop 和错误过滤；点击活动可查看安全详情。</p></div></div><TraceTimeline :steps="trace?.steps ?? []" :tools="trace?.toolCalls ?? []" :loops="trace?.loopEvents ?? []" :run="trace?.run ?? run" /></section>
+    <section class="content-panel run-timeline-panel"><div class="section-heading"><div><p class="eyebrow">技术详情</p><h2>活动记录</h2><p>可按智能体、工具、循环和错误筛选；点击活动查看安全详情。</p></div></div><TraceTimeline :steps="trace?.steps ?? []" :tools="trace?.toolCalls ?? []" :loops="trace?.loopEvents ?? []" :run="trace?.run ?? run" /></section>
   </AppShell>
 </template>
 

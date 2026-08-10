@@ -21,7 +21,7 @@
               v-else-if="row.error || findSlot(row, slotStart) === undefined"
               class="resource-timeline__cell resource-timeline__cell--unknown"
               :title="row.error || '未返回该槽位'"
-            >不可用</div>
+            >待查询</div>
             <button
               v-else-if="findSlot(row, slotStart)?.available"
               class="resource-timeline__cell resource-timeline__cell--free"
@@ -45,7 +45,7 @@
       <span>调整筛选或时间窗口后重新查询。</span>
     </div>
     <p v-if="normalizedRows.some((row) => row.error)" class="resource-timeline__warning" role="status">
-      部分会议室可用性查询失败，对应槽位已明确标为不可用。
+      部分会议室可用性查询失败，请稍后重试。
     </p>
   </div>
 </template>

@@ -42,15 +42,13 @@ svg { display: block; }
 }
 .ui-input:focus, input:focus, select:focus, textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgb(79 70 229 / 12%); }
 textarea { resize: vertical; }
-.ui-badge, .status-badge, .preview-badge { display: inline-flex; align-items: center; gap: 6px; width: fit-content; border-radius: 999px; padding: 3px 8px; font-size: 11px; font-weight: 650; white-space: nowrap; }
+.ui-badge, .status-badge { display: inline-flex; align-items: center; gap: 6px; width: fit-content; border-radius: 999px; padding: 3px 8px; font-size: 11px; font-weight: 650; white-space: nowrap; }
 .status-badge--success { color: var(--success); background: var(--success-bg); }
 .status-badge--warning { color: var(--warning); background: var(--warning-bg); }
 .status-badge--destructive { color: var(--danger); background: var(--danger-bg); }
 .status-badge--info { color: var(--info); background: var(--info-bg); }
 .status-badge--secondary { color: var(--muted); background: var(--accent); }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.preview-badge { border: 1px solid #ddd6fe; color: #6d28d9; background: #f5f3ff; }
-
 .auth-page { display: grid; min-height: 100vh; place-items: center; padding: 24px; background: var(--background); }
 .auth-grid { display: none; }
 .auth-card { width: min(100%, 400px); border: 1px solid var(--border); border-radius: var(--radius-card); padding: 32px; background: var(--surface); box-shadow: 0 18px 45px rgb(24 24 27 / 7%); }

@@ -26,7 +26,6 @@
           <span>
             <b>{{ blocker.resourceName ?? resourceFallback(blocker.resourceType, blocker.resourceId) }}</b>
             {{ formatRange(blocker.startAt, blocker.endAt) }}：{{ blocker.reason }}
-            <code v-if="blocker.meetingId">会议 {{ blocker.meetingId }}</code>
           </span>
         </li>
       </ul>

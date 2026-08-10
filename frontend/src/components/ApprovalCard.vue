@@ -7,14 +7,14 @@
           <span>{{ operationLabel }}</span>
         </div>
         <h2 :id="`approval-${runId}`">{{ title }}</h2>
-        <p>这是一份当前标签页可恢复的真实草案，确认前不会改变正式会议或占用槽位。</p>
+        <p>确认前不会改变会议或占用会议室。</p>
       </div>
       <RouterLink
         class="ui-button ui-button--outline ui-button--sm"
         :to="{ name: 'agent-run', params: { runId } }"
       >
         <Activity :size="15" aria-hidden="true" />
-        查看 Run
+        查看运行记录
       </RouterLink>
     </header>
 

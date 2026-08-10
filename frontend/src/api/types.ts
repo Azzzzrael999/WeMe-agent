@@ -71,6 +71,17 @@ export interface EmployeeListResult {
   total: number
 }
 
+export interface EmployeeDirectoryItem {
+  id: number
+  displayName: string
+  departmentId: number | null
+  departmentName: string | null
+}
+
+export interface EmployeeDirectoryResult {
+  items: EmployeeDirectoryItem[]
+}
+
 export interface EmployeeCreateMutation {
   username: string
   initialPassword: string
@@ -105,6 +116,11 @@ export type NotificationType =
   | 'MEETING_CANCELLED'
   | 'RESOURCE_UNAVAILABLE'
   | 'RESOURCE_RESTORED'
+  | 'MEETING_REMINDER_24H'
+  | 'MEETING_REMINDER_30M'
+  | 'PREPARATION_MISSING'
+  | 'ACTION_ITEM_DUE_SOON'
+  | 'ACTION_ITEM_OVERDUE'
 
 export interface NotificationItem {
   id: number
@@ -220,6 +236,164 @@ export interface Meeting {
 export interface MeetingListResult {
   items: Meeting[]
   total: number
+}
+
+export type PreparationChecklistStatus = 'READY' | 'NEEDS_ATTENTION'
+export type MeetingMaterialStatus = 'MISSING' | 'READY'
+export type PostMeetingDraftStatus =
+  | 'PROCESSING'
+  | 'PENDING_REVIEW'
+  | 'ACCEPTED'
+  | 'REJECTED'
+  | 'FAILED'
+export type MeetingActionItemStatus = 'OPEN' | 'IN_PROGRESS' | 'DONE'
+
+export interface MeetingLifecyclePermissions {
+  canEditPreparation: boolean
+  canSubmitRecord: boolean
+  canReviewDraft: boolean
+}
+
+export interface MeetingAgendaItem {
+  id: number
+  sequenceNo: number
+  topic: string
+  ownerEmployeeId: number
+  ownerName: string
+  plannedMinutes: number
+}
+
+export interface MeetingMaterial {
+  id: number
+  sequenceNo: number
+  title: string
+  ownerEmployeeId: number
+  ownerName: string
+  required: boolean
+  status: MeetingMaterialStatus
+  versionLabel: string | null
+  note: string | null
+}
+
+export interface PreparationChecklistItem {
+  code: string
+  passed: boolean
+  message: string
+}
+
+export interface PreparationChecklist {
+  status: PreparationChecklistStatus
+  generatedAt: string
+  items: PreparationChecklistItem[]
+}
+
+export interface MeetingPreparation {
+  version: number
+  agendaItems: MeetingAgendaItem[]
+  materials: MeetingMaterial[]
+  checklist: PreparationChecklist
+}
+
+export interface PostMeetingMinutesDraft {
+  background: string
+  discussionSummary: string
+  conclusion: string
+}
+
+export interface PostMeetingDecisionDraft {
+  content: string
+  rationale: string | null
+}
+
+export interface PostMeetingActionItemDraft {
+  title: string
+  description: string | null
+  assigneeEmployeeId: number | null
+  assigneeName?: string | null
+  dueAt: string | null
+}
+
+export interface PostMeetingDraftContent {
+  minutes: PostMeetingMinutesDraft
+  decisions: PostMeetingDecisionDraft[]
+  actionItems: PostMeetingActionItemDraft[]
+}
+
+export interface PostMeetingDraft {
+  id: number
+  status: PostMeetingDraftStatus
+  version: number
+  agentRunId: string | null
+  errorCode: string | null
+  content: PostMeetingDraftContent | null
+}
+
+export interface MeetingMinutes {
+  background: string
+  discussionSummary: string
+  conclusion: string
+  confirmedBy: number
+  confirmedAt: string
+}
+
+export interface MeetingDecision {
+  id: number
+  sequenceNo: number
+  content: string
+  rationale: string | null
+}
+
+export interface MeetingActionItem {
+  id: number
+  sequenceNo: number
+  title: string
+  description: string | null
+  assigneeEmployeeId: number
+  assigneeName: string
+  dueAt: string
+  status: MeetingActionItemStatus
+  version: number
+  completedAt: string | null
+}
+
+export interface MeetingLifecycle {
+  meeting: Meeting
+  permissions: MeetingLifecyclePermissions
+  preparation: MeetingPreparation
+  postMeeting: {
+    draft: PostMeetingDraft | null
+    minutes: MeetingMinutes | null
+    decisions: MeetingDecision[]
+    actionItems: MeetingActionItem[]
+  }
+}
+
+export interface MeetingPreparationMutation {
+  expectedVersion: number
+  agendaItems: Array<{
+    topic: string
+    ownerEmployeeId: number
+    plannedMinutes: number
+  }>
+  materials: Array<{
+    title: string
+    ownerEmployeeId: number
+    required: boolean
+    status: MeetingMaterialStatus
+    versionLabel: string | null
+    note: string | null
+  }>
+}
+
+export interface PostMeetingDraftReviewMutation {
+  action: 'ACCEPT' | 'EDIT' | 'REJECT'
+  expectedVersion: number
+  editedDraft?: PostMeetingDraftContent
+}
+
+export interface MeetingActionItemMutation {
+  status: MeetingActionItemStatus
+  expectedVersion: number
 }
 
 export type ReplanCaseStatus = 'OPEN' | 'RESOLVED' | 'RESTORED' | 'CANCELLED'

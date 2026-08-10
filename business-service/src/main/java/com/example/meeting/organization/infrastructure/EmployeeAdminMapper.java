@@ -35,6 +35,19 @@ public interface EmployeeAdminMapper {
           + """
       FROM sys_user u
       LEFT JOIN department d ON d.id = u.department_id
+      WHERE u.status = 'ACTIVE'
+      ORDER BY d.name, u.display_name, u.id
+      """)
+  List<EmployeeAdminRow> findDirectoryEmployees();
+
+  @Select(
+      """
+      SELECT
+      """
+          + SELECT_COLUMNS
+          + """
+      FROM sys_user u
+      LEFT JOIN department d ON d.id = u.department_id
       WHERE u.id = #{id}
       """)
   Optional<EmployeeAdminRow> findById(@Param("id") long id);

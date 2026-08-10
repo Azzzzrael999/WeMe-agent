@@ -6,6 +6,7 @@ Java服务是业务系统的唯一事实和安全边界，负责：
 
 - JWT与RBAC。
 - 员工、部门、会议室和设备。
+- 面向所有已登录用户的安全在职员工目录只返回显示名与部门信息，用于前端人员选择；管理员账户字段继续只由 `/api/v1/admin/**` 返回。
 - 会议CRUD和状态机。
 - 参与者忙闲和会议室可用性。
 - 预约草案、确认令牌和最终确认。
@@ -16,6 +17,8 @@ Java服务是业务系统的唯一事实和安全边界，负责：
 - 站内通知。
 - Agent Tool白名单、参数校验和审计。
 - Python SSE代理。
+- 会前议程、材料元数据、动态准备清单和独立乐观版本。
+- 会议自动完成、会前提醒、会后草案审核、正式纪要/决策/行动项和催办去重。
 
 ## 2. 模块结构
 
@@ -107,6 +110,30 @@ com.example.meeting
 - 快速处理复用 `MeetingApplicationService.update`，只接收替代 `roomId` 与双 `expectedVersion`，其余会议字段从 Java 当前事实重建，禁止信任浏览器回传的人员或时长。
 - 通用会议修改写入成功时关闭仍受影响的开放异常单；通用取消写入时标记 `CANCELLED`。房间恢复时，只把仍在原房间的开放单标记 `RESTORED`。
 - 发起人只能读取和处理自己的异常单；ADMIN 可查看和代处理，但仍经过既有会议写权限、槽位唯一约束和通知事务。
+
+### 3.8 会前准备
+
+- 会前准备只允许尚未开始的 `CONFIRMED` 会议；发起人或 ADMIN 可写，其他可见参会者只读。
+- 议程和材料使用一次请求原子替换，并以 `meeting_lifecycle_profile.preparation_version` 做乐观并发控制；失败不得留下部分替换结果。
+- 议题负责人和材料负责人必须属于当前会议参与者或组织者。议题总预计时长不能超过会议时长；单项时长为 5 至 240 分钟。
+- 材料只保存元数据和 `MISSING/READY`，不保存文件内容、访问凭证或外部平台对象 ID。
+- 准备清单每次基于当前会议室、参与者、议程和材料计算，不持久化可能过期的 READY 结论。
+
+### 3.9 自动完成与提醒
+
+- 定时扫描使用应用 `Clock` 和 `Asia/Shanghai`，每批数量有上限；自动完成只做 `CONFIRMED -> COMPLETED` 条件更新。
+- 24 小时与 30 分钟提醒的接收人为组织者和当前参会者去重；缺失项通知只发给组织者。
+- `(meeting_id, meeting_start_at, recipient_id, reminder_type)` 是会前投递最终去重键；改期后新的 `meeting_start_at` 可产生新提醒。
+- 行动项提醒以 `(action_item_id, due_at, recipient_id, reminder_type)` 去重；`DONE` 项不得继续催办。
+
+### 3.10 会后草案与行动项
+
+- 只有 `COMPLETED` 会议的发起人或 ADMIN 可以提交文本记录；正文长度为 1 至 20000 字符。
+- 创建动作先在短事务中写 `PROCESSING`，再在事务外调用 Python，最后在新事务中更新 `PENDING_REVIEW` 或 `FAILED`；禁止把外部 HTTP 放入数据库事务。
+- Python 输出仍是不可信输入。Java 必须验证字段长度、数量、负责人白名单、截止时间和会议状态，正式业务表只由 Java 写入。
+- `EDIT` 仅替换草案 JSON 并递增版本；`REJECT` 不写正式表；`ACCEPT` 锁定草案并在同一事务中写正式纪要、决策、行动项和草案终态。
+- 一个会议最多 20 条决策和 50 条行动项；行动项负责人必须来自会议参与者或组织者，截止时间必须晚于会议结束。
+- 行动项状态只允许 `OPEN/IN_PROGRESS/DONE`；负责人、会议发起人或 ADMIN 可更新，使用 `expectedVersion` 防止覆盖。
 
 ## 4. 普通同步预约算法
 
@@ -373,6 +400,10 @@ Day 3 冻结的内部鉴权语义：
 | EMPLOYEE_STATE_CONFLICT | 409 | 员工版本、状态或自我管理规则冲突 |
 | DEPARTMENT_NOT_FOUND | 404 | 部门不存在或已停用 |
 | NOTIFICATION_NOT_FOUND | 404 | 通知不存在或不属于当前用户 |
+| MEETING_CONTENT_STATE_CONFLICT | 409 | 会前内容版本、会议状态或开始时间不允许当前修改 |
+| POST_MEETING_DRAFT_STATE_CONFLICT | 409 | 会后草案版本或审核状态不允许当前操作 |
+| ACTION_ITEM_NOT_FOUND | 404 | 行动项不存在或当前用户不可见 |
+| ACTION_ITEM_STATE_CONFLICT | 409 | 行动项版本、权限或状态转换冲突 |
 | DEPENDENCY_UNAVAILABLE | 503 | Redis、MQ等依赖不可用 |
 
 统一错误响应：
@@ -398,3 +429,6 @@ Day 3 冻结的内部鉴权语义：
 - SSE事件映射测试。
 - ADMIN 员工生命周期、唯一约束、乐观版本、自我停用/降权和密码重置测试。
 - 通知用户隔离、未读统计、单条/全部已读及会议事务接收人测试。
+- 会前准备权限、乐观版本、动态清单和原子替换测试。
+- 自动完成、两级会前提醒、缺失项通知、行动项临期/逾期提醒的重复扫描幂等测试。
+- 会后 Agent 调用事务边界、草案 `ACCEPT/EDIT/REJECT`、负责人白名单和正式写入原子性测试。

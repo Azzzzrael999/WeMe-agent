@@ -7,12 +7,17 @@
       <div v-if="!hasConversation" class="conversation-empty">
         <span class="conversation-empty__mark" aria-hidden="true"><Sparkles :size="25" /></span>
         <h2>把会议协调交给 MeetOps</h2>
-        <p>用自然语言说明目标。我会查询真实资源、验证硬约束，并在任何写入发生前请你确认。</p>
         <div class="quick-task-grid" aria-label="快捷编排任务">
-          <button v-for="task in quickTasks" :key="task.label" type="button" @click="selectExample(task.prompt)">
-            <component :is="task.icon" :size="17" aria-hidden="true" />
-            <span><strong>{{ task.label }}</strong><small>{{ task.description }}</small></span>
-          </button>
+          <template v-for="task in quickTasks" :key="task.label">
+            <RouterLink v-if="task.to" :to="task.to">
+              <component :is="task.icon" :size="17" aria-hidden="true" />
+              <span><strong>{{ task.label }}</strong><small>{{ task.description }}</small></span>
+            </RouterLink>
+            <button v-else type="button" @click="selectExample(task.prompt ?? '')">
+              <component :is="task.icon" :size="17" aria-hidden="true" />
+              <span><strong>{{ task.label }}</strong><small>{{ task.description }}</small></span>
+            </button>
+          </template>
         </div>
       </div>
 
@@ -44,16 +49,15 @@
             <span>MeetOps</span>
             <p v-if="answerSummary">{{ answerSummary }}</p>
             <p v-else-if="streaming" class="streaming-copy"><LoaderCircle :size="15" aria-hidden="true" />正在理解需求并查询可验证的业务事实…</p>
-            <p v-else>已保存当前 Run，可继续查看结构化编排结果。</p>
+            <p v-else>已保存当前任务，可继续查看编排结果。</p>
             <UnsatAnalysisCard v-if="unsatAnalysis" :analysis="unsatAnalysis" />
             <footer v-if="bookingRequest">
               <StatusBadge :status="bookingRequest.status" />
-              <span>请求号 {{ bookingRequest.requestNo }}</span>
             </footer>
           </div>
         </article>
 
-        <LoadingState v-if="recoveryLoading && !streaming" title="正在恢复当前任务" description="正在加载 Run、候选与安全运行轨迹。" />
+        <LoadingState v-if="recoveryLoading && !streaming" title="正在恢复当前任务" description="正在加载候选方案与运行记录。" />
         <ErrorState v-if="errorMessage" :message="errorMessage" />
       </div>
     </div>
@@ -61,7 +65,7 @@
 </template>
 
 <script setup lang="ts">
-import { ArrowUpRight, Ban, Building2, CalendarPlus, LoaderCircle, RefreshCw, ScrollText, Sparkles, Users } from '@lucide/vue'
+import { ArrowUpRight, Building2, CalendarPlus, ListChecks, LoaderCircle, RotateCcw, ScrollText, Sparkles, Users } from '@lucide/vue'
 import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 
@@ -103,8 +107,8 @@ const quickTasks = [
   { label: '多人协调', description: '寻找必需参会者共同空闲', icon: Users, prompt: '帮我找下周三下午张三、李四和王五都有空的 1 小时时间' },
   { label: '推荐会议室', description: '按容量、设备和位置筛选', icon: Building2, prompt: '找一个能坐 10 个人、有视频会议设备的会议室' },
   { label: '查询制度', description: '只回答带可验证依据的政策', icon: ScrollText, prompt: '客户会议能不能使用 VIP 会议室？' },
-  { label: '调整安排', description: '先展示 Before / After 草案', icon: RefreshCw, prompt: '把刚才那个会议延长半小时，换一个有白板的会议室' },
-  { label: '取消会议', description: '先核对目标并生成取消预览', icon: Ban, prompt: '取消刚才创建的那个会议' },
+  { label: '异常重排', description: '处理会议室失效与约束变化', icon: RotateCcw, to: { name: 'replan' } },
+  { label: '会前会后', description: '维护议程、材料和会后行动项', icon: ListChecks, to: { name: 'meeting-lifecycle' } },
 ]
 
 function selectExample(prompt: string): void {

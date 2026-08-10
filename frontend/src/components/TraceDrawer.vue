@@ -14,7 +14,7 @@
         <ActivityTimeline :steps="steps" :tools="tools" :loops="loops" :run="run" />
         <RouterLink v-if="runId" class="ui-button ui-button--outline trace-drawer__full-link" :to="{ name: 'agent-run', params: { runId } }">
           <ExternalLink :size="16" aria-hidden="true" />
-          打开完整 Run 详情
+          打开完整运行记录
         </RouterLink>
       </aside>
     </div>

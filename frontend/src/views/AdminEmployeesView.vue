@@ -1,5 +1,5 @@
 <template>
-  <AppShell title="员工管理" description="管理账户、组织归属和访问状态。所有变更由 Java RBAC 与乐观版本再次校验。" eyebrow="管理 / 员工">
+  <AppShell title="员工管理" description="管理账户、组织归属和访问状态。" eyebrow="管理 / 员工">
     <template #actions>
       <button class="ui-button ui-button--default" type="button" @click="openCreate">
         <UserPlus :size="16" aria-hidden="true" />新增员工
@@ -54,7 +54,7 @@
         <button class="drawer-overlay" type="button" aria-label="关闭员工编辑" @click="closeEditor" />
         <aside class="trace-drawer product-sheet" role="dialog" aria-modal="true" aria-labelledby="employee-editor-title">
           <header class="product-sheet__header"><div><p>{{ editingEmployee ? `员工 #${editingEmployee.id}` : '新账户' }}</p><h2 id="employee-editor-title">{{ editingEmployee ? '编辑员工' : '新增员工' }}</h2></div><button class="icon-button" type="button" aria-label="关闭" @click="closeEditor"><X :size="18" aria-hidden="true" /></button></header>
-          <p class="product-sheet__notice">用户名创建后不可修改；部门列表仅包含当前 ACTIVE 部门。</p>
+          <p class="product-sheet__notice">用户名创建后不可修改。</p>
           <form class="form-grid product-sheet__form" @submit.prevent="saveEmployee">
             <label><span>用户名</span><input v-model.trim="employeeForm.username" :disabled="editingEmployee !== null || submitting" minlength="3" maxlength="64" pattern="[A-Za-z0-9._-]{3,64}" autocomplete="off" required /></label>
             <label v-if="editingEmployee === null"><span>初始密码</span><input v-model="employeeForm.initialPassword" :disabled="submitting" type="password" minlength="8" maxlength="72" autocomplete="new-password" required /></label>
@@ -80,7 +80,7 @@
     <Teleport to="body">
       <div v-if="passwordTarget" class="dialog-layer">
         <button class="drawer-overlay" type="button" aria-label="关闭密码重置" @click="closePassword" />
-        <form class="ui-dialog ui-dialog--sm" role="dialog" aria-modal="true" aria-labelledby="employee-password-title" @submit.prevent="resetPassword"><h2 id="employee-password-title">重置“{{ passwordTarget.displayName }}”的密码</h2><p>新密码只会提交到 Java 服务，本页面不会保存或回显。</p><label><span>新密码</span><input v-model="newPassword" type="password" minlength="8" maxlength="72" autocomplete="new-password" :disabled="submitting" required /></label><p v-if="passwordError" class="error-message" role="alert">{{ passwordError }}</p><footer><button class="ui-button ui-button--outline" type="button" :disabled="submitting" @click="closePassword">返回</button><button class="ui-button ui-button--default" type="submit" :disabled="submitting">{{ submitting ? '正在重置…' : '确认重置' }}</button></footer></form>
+        <form class="ui-dialog ui-dialog--sm" role="dialog" aria-modal="true" aria-labelledby="employee-password-title" @submit.prevent="resetPassword"><h2 id="employee-password-title">重置“{{ passwordTarget.displayName }}”的密码</h2><p>新密码不会在页面保存或回显。</p><label><span>新密码</span><input v-model="newPassword" type="password" minlength="8" maxlength="72" autocomplete="new-password" :disabled="submitting" required /></label><p v-if="passwordError" class="error-message" role="alert">{{ passwordError }}</p><footer><button class="ui-button ui-button--outline" type="button" :disabled="submitting" @click="closePassword">返回</button><button class="ui-button ui-button--default" type="submit" :disabled="submitting">{{ submitting ? '正在重置…' : '确认重置' }}</button></footer></form>
       </div>
     </Teleport>
   </AppShell>

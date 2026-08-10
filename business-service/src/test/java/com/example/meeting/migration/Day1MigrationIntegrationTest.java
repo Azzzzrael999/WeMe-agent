@@ -40,6 +40,15 @@ class Day1MigrationIntegrationTest {
     assertThat(tableCount("notification")).isEqualTo(1);
     assertThat(tableCount("meeting_replan_case")).isEqualTo(1);
     assertThat(tableCount("agent_tool_audit")).isEqualTo(1);
+    assertThat(tableCount("meeting_lifecycle_profile")).isEqualTo(1);
+    assertThat(tableCount("meeting_agenda_item")).isEqualTo(1);
+    assertThat(tableCount("meeting_material")).isEqualTo(1);
+    assertThat(tableCount("meeting_reminder_delivery")).isEqualTo(1);
+    assertThat(tableCount("post_meeting_draft")).isEqualTo(1);
+    assertThat(tableCount("meeting_minutes")).isEqualTo(1);
+    assertThat(tableCount("meeting_decision")).isEqualTo(1);
+    assertThat(tableCount("meeting_action_item")).isEqualTo(1);
+    assertThat(tableCount("action_item_reminder_delivery")).isEqualTo(1);
     assertThat(tableCount("agent_run")).isZero();
   }
 
@@ -47,9 +56,8 @@ class Day1MigrationIntegrationTest {
   void demoSeedContainsVariedPeopleDepartmentsRoomsAndFeatureTypes() {
     assertThat(
             jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM sys_user WHERE id IN (1001,1002,1003,1010,1011,1012,1013,1014,1015,1016,1017,1018,1019,1020,1021,1022,1023)",
-                Integer.class))
-        .isEqualTo(17);
+                "SELECT COUNT(*) FROM sys_user WHERE id BETWEEN 1001 AND 1111", Integer.class))
+        .isEqualTo(29);
     assertThat(jdbcTemplate.queryForList("SELECT role FROM sys_user ORDER BY role", String.class))
         .contains("ADMIN", "EMPLOYEE");
     assertThat(
@@ -80,11 +88,11 @@ class Day1MigrationIntegrationTest {
             java.util.Map.of(
                 "id", 1003L, "username", "lisi", "display_name", "李四", "department_id", 10L));
     assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM meeting_room", Integer.class))
-        .isEqualTo(13);
+        .isEqualTo(21);
     assertThat(
             jdbcTemplate.queryForObject(
                 "SELECT COUNT(DISTINCT room_type) FROM meeting_room", Integer.class))
-        .isEqualTo(8);
+        .isEqualTo(12);
     assertThat(
             jdbcTemplate.queryForObject(
                 "SELECT COUNT(DISTINCT building) FROM meeting_room", Integer.class))
@@ -92,14 +100,35 @@ class Day1MigrationIntegrationTest {
     assertThat(
             jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM meeting_room WHERE is_hot = TRUE", Integer.class))
-        .isEqualTo(5);
+        .isEqualTo(9);
     assertThat(
             jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM meeting_room WHERE code = 'HQ-MAINT-702' AND room_type = 'STANDARD'",
                 Integer.class))
         .isEqualTo(1);
     assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM room_feature", Integer.class))
-        .isEqualTo(4);
+        .isEqualTo(8);
+  }
+
+  @Test
+  void lifecycleLongTextColumnsCanStoreWorstCaseUtf8ContractLengths() {
+    assertThat(characterCapacity("post_meeting_draft", "transcript")).isGreaterThan(65535L);
+    assertThat(characterCapacity("post_meeting_draft", "payload_json")).isGreaterThan(65535L);
+    assertThat(characterCapacity("meeting_minutes", "discussion_summary")).isGreaterThan(65535L);
+  }
+
+  private long characterCapacity(String tableName, String columnName) {
+    Long capacity =
+        jdbcTemplate.queryForObject(
+            """
+                        SELECT character_maximum_length
+                        FROM information_schema.columns
+                        WHERE LOWER(table_name) = ? AND LOWER(column_name) = ?
+                        """,
+            Long.class,
+            tableName,
+            columnName);
+    return capacity == null ? 0 : capacity;
   }
 
   private int tableCount(String tableName) {

@@ -62,7 +62,8 @@
 .conversation-empty h2 { margin: 0; font-size: 22px; letter-spacing: -.02em; }
 .conversation-empty > p { max-width: 600px; margin: 8px 0 24px; color: var(--muted); }
 .quick-task-grid { display: grid; width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.quick-task-grid button {
+.quick-task-grid button,
+.quick-task-grid a {
   display: flex;
   min-height: 64px;
   align-items: center;
@@ -72,11 +73,16 @@
   padding: 12px 14px;
   color: var(--foreground);
   background: var(--surface);
+  color: inherit;
+  text-decoration: none;
   text-align: left;
 }
-.quick-task-grid button > svg { flex: 0 0 auto; color: var(--primary); }
-.quick-task-grid button:hover { border-color: #c7d2fe; background: var(--primary-soft); }
-.quick-task-grid button > span { display: grid; }
+.quick-task-grid button > svg,
+.quick-task-grid a > svg { flex: 0 0 auto; color: var(--primary); }
+.quick-task-grid button:hover,
+.quick-task-grid a:hover { border-color: #c7d2fe; background: var(--primary-soft); }
+.quick-task-grid button > span,
+.quick-task-grid a > span { display: grid; }
 .quick-task-grid strong { font-size: 12px; }
 .quick-task-grid small { margin-top: 2px; color: var(--muted); font-size: 10px; }
 

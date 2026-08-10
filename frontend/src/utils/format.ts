@@ -60,7 +60,7 @@ export function toShanghaiDateTimeLocal(value: string | null | undefined): strin
   return `${readPart('year')}-${readPart('month')}-${readPart('day')}T${readPart('hour')}:${readPart('minute')}`
 }
 
-/** The browser form is explicitly labelled Asia/Shanghai and accepts 30-minute values. */
+/** Convert a local business-time form value to the API's required +08:00 offset. */
 export function toShanghaiOffset(value: string): string {
   return value.length === 16 ? `${value}:00+08:00` : `${value}+08:00`
 }

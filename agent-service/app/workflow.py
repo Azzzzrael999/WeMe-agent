@@ -16,7 +16,7 @@ import uuid
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -71,6 +71,8 @@ from app.schemas.agent import (
     Participant,
     PolicyResult,
     PolicySelection,
+    PostMeetingDraft,
+    PostMeetingDraftRequest,
     RequirementDraft,
     RequirementExtraction,
     RequirementFeedbackState,
@@ -102,6 +104,10 @@ logger = logging.getLogger(__name__)
 
 PROMPT_VERSION = "meeting-agent-prompts-v8"
 SCHEMA_VERSION = "meeting-agent-state-v6"
+POST_MEETING_PROMPT_VERSION: Literal["post-meeting-analysis-v1"] = (
+    "post-meeting-analysis-v1"
+)
+POST_MEETING_SCHEMA_VERSION: Literal["post-meeting-draft-v1"] = "post-meeting-draft-v1"
 
 SUPERVISOR_PROMPT = """You are the Supervisor Agent for an enterprise meeting scheduler.
 Only classify the current objective. Initial routes are POLICY, REQUIREMENT, or CLARIFICATION.
@@ -137,6 +143,17 @@ substring of USER_MESSAGE. Do not call tools, create drafts, confirm, or expose 
 REQUIREMENT_REPAIR_PROMPT = """Repair RequirementDraft using only USER_MESSAGE,
 SERVER_REQUEST_TIME, and EVALUATOR_FEEDBACK. Correct only rejected fields. Unsupported facts must
 be null/empty. Return only the corrected schema JSON; no reasoning."""
+
+POST_MEETING_ANALYSIS_PROMPT = """You are the existing Requirement Agent operating in the
+isolated POST_MEETING_ANALYSIS mode. Convert only the authenticated meeting snapshot and submitted
+transcript into a PostMeetingDraft. Summarize the meeting background, discussion, and conclusion;
+extract at most 20 explicit decisions and at most 50 concrete action items. Do not invent facts,
+decisions, deadlines, or employee IDs. assigneeEmployeeId may only be copied from the participant
+allowlist in POST_MEETING_INPUT; use null whenever the transcript does not identify exactly one
+allowlisted participant. dueAt must be null unless the transcript provides a concrete deadline,
+and any populated timestamp must use the +08:00 offset. This mode must not plan scheduling, call
+tools, or claim that the draft has been accepted or written. Return only the schema JSON; no
+reasoning."""
 
 CLARIFICATION_PROMPT = """You are the existing Supervisor Agent. Turn the supplied verified
 clarification contract into concise, friendly Chinese for a non-technical user. Explain what is
@@ -240,6 +257,30 @@ class RequirementAgent:
     evaluator: RequirementEvaluator = field(default_factory=RequirementEvaluator)
     fidelity: SourceFidelityEvaluator = field(default_factory=SourceFidelityEvaluator)
     normalizer: RequirementNormalizer = field(default_factory=RequirementNormalizer)
+
+    def analyze_post_meeting(
+        self, request: PostMeetingDraftRequest
+    ) -> tuple[PostMeetingDraft, list[ModelCompletion]]:
+        """Run the same Requirement Agent in an isolated structured-analysis mode."""
+
+        return self.runner.invoke_with_count(
+            provider=self.provider,
+            request=ModelRequest(
+                agent_name="requirement",
+                system_prompt=POST_MEETING_ANALYSIS_PROMPT,
+                user_prompt=(
+                    "POST_MEETING_INPUT="
+                    + json.dumps(
+                        request.model_dump(by_alias=True, mode="json"),
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
+                ),
+                schema_name=PostMeetingDraft.__name__,
+                schema=PostMeetingDraft.model_json_schema(by_alias=True),
+            ),
+            output_type=PostMeetingDraft,
+        )
 
     def execute(self, state: AgentState) -> tuple[AgentState, str, int, list[ToolOutcome]]:
         prompt = _requirement_prompt(state)
