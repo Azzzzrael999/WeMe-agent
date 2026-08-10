@@ -33,6 +33,18 @@ export const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/notifications',
+      name: 'notifications',
+      component: () => import('../views/NotificationsView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/admin/employees',
+      name: 'admin-employees',
+      component: () => import('../views/AdminEmployeesView.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
+    {
       path: '/agent/runs/:runId',
       name: 'agent-run',
       component: () => import('../views/AgentRunView.vue'),
@@ -92,6 +104,10 @@ router.beforeEach(async (to, from) => {
         return { name: 'login', query: { redirect: to.fullPath } }
       }
     }
+  }
+
+  if (to.meta.requiresAdmin && authStore.state.user?.roles.includes('ADMIN') !== true) {
+    return { name: 'chat' }
   }
 
   if (to.meta.guestOnly && authStore.isAuthenticated.value) {

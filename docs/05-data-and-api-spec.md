@@ -37,9 +37,10 @@ role VARCHAR(32)                 # EMPLOYEE/ADMIN
 status VARCHAR(16)               # ACTIVE/DISABLED
 created_at DATETIME(3)
 updated_at DATETIME(3)
+version INT
 ```
 
-索引：`department_id`、`display_name`。
+约束与索引：`UNIQUE(username)`、`UNIQUE(email)`、`department_id`、`display_name`。用户名创建后不可修改；`version` 用于管理员编辑、启停和密码重置的乐观并发控制。
 
 ### 2.2 department
 
@@ -235,6 +236,8 @@ read_at DATETIME(3) NULL
 created_at DATETIME(3)
 ```
 
+索引：`(user_id, created_at)`、`(user_id, read_at, created_at)`。
+
 ### 2.15 agent_tool_audit
 
 ```text
@@ -428,6 +431,77 @@ GET  /api/v1/auth/me
 ```json
 {"username": "zhangsan", "password": "demo-password"}
 ```
+
+### 5.1.1 管理员员工管理
+
+```text
+GET   /api/v1/admin/departments
+GET   /api/v1/admin/employees?keyword=&departmentId=&role=&status=&page=&size=
+GET   /api/v1/admin/employees/{employeeId}
+POST  /api/v1/admin/employees
+PUT   /api/v1/admin/employees/{employeeId}
+PATCH /api/v1/admin/employees/{employeeId}/status
+POST  /api/v1/admin/employees/{employeeId}/password
+```
+
+部门选项只返回 ACTIVE 部门：
+
+```json
+{
+  "items": [
+    {"id": 10, "name": "支付组", "defaultBuilding": "研发楼", "defaultFloor": "3F"}
+  ]
+}
+```
+
+员工列表和详情使用同一 item 结构，列表外层为 `{"items":[],"total":0}`：
+
+```json
+{
+  "id": 1001,
+  "username": "zhangsan",
+  "displayName": "张三",
+  "email": "zhangsan@example.com",
+  "departmentId": 10,
+  "departmentName": "支付组",
+  "role": "EMPLOYEE",
+  "status": "ACTIVE",
+  "version": 0,
+  "createdAt": "2026-08-11T10:00:00+08:00",
+  "updatedAt": "2026-08-11T10:00:00+08:00"
+}
+```
+
+- `keyword` 同时匹配用户名、展示名和邮箱；`departmentId/role/status` 可选，`page` 默认 1，`size` 默认 20、最大 100。
+- 所有路径仅允许 ADMIN。员工不存在返回 `EMPLOYEE_NOT_FOUND`；同名或同邮箱分别返回 `EMPLOYEE_USERNAME_CONFLICT`、`EMPLOYEE_EMAIL_CONFLICT`；版本过期、自我停用或自我降权返回 `EMPLOYEE_STATE_CONFLICT`。
+- 创建请求如下。用户名规范化为小写并在创建后不可修改；`departmentId` 可为 null，非空时必须指向 ACTIVE 部门：
+
+```json
+{
+  "username": "lisi",
+  "initialPassword": "temporary-password",
+  "displayName": "李四",
+  "email": "lisi@example.com",
+  "departmentId": 10,
+  "role": "EMPLOYEE",
+  "status": "ACTIVE"
+}
+```
+
+- 编辑请求不接受用户名和密码：
+
+```json
+{
+  "displayName": "李四",
+  "email": "lisi@example.com",
+  "departmentId": 20,
+  "role": "EMPLOYEE",
+  "expectedVersion": 0
+}
+```
+
+- 状态请求为 `{"status":"ACTIVE|DISABLED","expectedVersion":0}`。
+- 密码重置请求为 `{"newPassword":"new-temporary-password","expectedVersion":0}`。密码长度为 8–72，服务端只保存 BCrypt 哈希，响应仍为员工 item，绝不返回密码或哈希。
 
 ### 5.2 会议室
 
@@ -731,9 +805,37 @@ data: {"runId":"run_uuid","status":"SUCCESS","meetingId":9001}
 ### 5.5 通知
 
 ```text
-GET   /api/v1/notifications
-PATCH /api/v1/notifications/{id}/read
+GET   /api/v1/notifications?unreadOnly=&type=&page=&size=
+GET   /api/v1/notifications/unread-count
+PATCH /api/v1/notifications/{notificationId}/read
+PATCH /api/v1/notifications/read-all
 ```
+
+列表响应：
+
+```json
+{
+  "items": [
+    {
+      "id": 501,
+      "type": "MEETING_CHANGED",
+      "title": "会议已变更",
+      "content": "会议“支付网关架构评审”的时间或参会信息已更新。",
+      "relatedMeetingId": 9001,
+      "readAt": null,
+      "createdAt": "2026-08-19T10:00:00+08:00"
+    }
+  ],
+  "total": 1,
+  "unreadCount": 1
+}
+```
+
+- 类型只允许 `MEETING_CONFIRMED|MEETING_CHANGED|MEETING_CANCELLED`；`unreadOnly` 默认 false，`page` 默认 1，`size` 默认 20、最大 100。
+- `GET /unread-count` 返回 `{"unreadCount":1}`。单条已读返回更新后的通知 item；重复标记幂等。
+- `PATCH /read-all` 返回 `{"updatedCount":1,"readAt":"2026-08-19T10:05:00+08:00"}`，只更新当前用户未读通知。
+- 所有通知接口仅使用认证用户 ID。不存在或属于其他用户的通知统一返回 `NOTIFICATION_NOT_FOUND`，ADMIN 没有跨用户读取特权。
+- 会议确认、变更、取消通知与对应业务记录同事务写入；变更接收人为修改前后组织者/参与者并集。草案、HOT PENDING、CONFLICT、业务回滚和幂等重放不产生重复成功通知。
 
 ## 6. Java内部Tool API
 

@@ -38,6 +38,8 @@
 | IdempotencyService | 首次、重复、不同payload复用key |
 | OutboxPublisher | 状态转换和重试时间 |
 | ToolAuthorization | 风险等级和用户权限 |
+| EmployeeAdministration | 字段规范化、自我停用/降权和乐观版本 |
+| NotificationService | 用户隔离、读状态幂等和接收人并集 |
 
 ### 2.2 集成测试
 
@@ -50,6 +52,8 @@
 - MQ消费后创建会议。
 - Outbox重复发布时消费者幂等。
 - Agent Tool Gateway鉴权和参数校验。
+- ADMIN 员工新增、编辑、启停、密码重置和 EMPLOYEE 越权拒绝。
+- 会议创建、修改、取消与 HOT 成功的通知事务、隔离和重复消费幂等。
 
 ### 2.3 并发正确性测试
 
@@ -295,6 +299,8 @@
 - 模型伪造的userId被忽略，以令牌subject为准。
 - Tool参数超出时间范围或返回上限被拒绝。
 - Trace接口只能查看当前用户Run，ADMIN除外。
+- 当前 ADMIN 不能停用或降权自己，员工密码/哈希不会出现在 API 与日志中。
+- ADMIN 也不能读取或标记其他用户的通知。
 
 ## 10. 不做的测试
 

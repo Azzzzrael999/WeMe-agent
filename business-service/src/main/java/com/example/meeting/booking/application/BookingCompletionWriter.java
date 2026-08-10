@@ -1,5 +1,6 @@
 package com.example.meeting.booking.application;
 
+import com.example.meeting.meeting.infrastructure.MeetingMapper;
 import com.example.meeting.meeting.infrastructure.MeetingParticipantMapper;
 import com.example.meeting.mq.BookingResultPayload;
 import com.example.meeting.mq.MeetingConfirmedPayload;
@@ -9,6 +10,7 @@ import com.example.meeting.outbox.MessageOutboxMapper;
 import com.example.meeting.outbox.OutboxEventFactory;
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import org.slf4j.MDC;
@@ -21,6 +23,7 @@ public class BookingCompletionWriter {
 
   private final NotificationMapper notificationMapper;
   private final MeetingParticipantMapper participantMapper;
+  private final MeetingMapper meetingMapper;
   private final MessageOutboxMapper outboxMapper;
   private final OutboxEventFactory eventFactory;
   private final Clock clock;
@@ -28,11 +31,13 @@ public class BookingCompletionWriter {
   public BookingCompletionWriter(
       NotificationMapper notificationMapper,
       MeetingParticipantMapper participantMapper,
+      MeetingMapper meetingMapper,
       MessageOutboxMapper outboxMapper,
       OutboxEventFactory eventFactory,
       Clock clock) {
     this.notificationMapper = notificationMapper;
     this.participantMapper = participantMapper;
+    this.meetingMapper = meetingMapper;
     this.outboxMapper = outboxMapper;
     this.eventFactory = eventFactory;
     this.clock = clock;
@@ -47,13 +52,7 @@ public class BookingCompletionWriter {
       String runId,
       boolean includeBookingResult) {
     writeMeetingEvent(
-        "MEETING_CONFIRMED",
-        "Meeting confirmed",
-        meetingId,
-        requestNo,
-        organizerId,
-        traceId,
-        runId);
+        "MEETING_CONFIRMED", meetingId, requestNo, organizerId, traceId, runId, Set.of());
     if (includeBookingResult) {
       outboxMapper.insert(
           eventFactory.bookingEvent(
@@ -66,15 +65,15 @@ public class BookingCompletionWriter {
   }
 
   @Transactional(propagation = Propagation.MANDATORY)
-  public void writeChanged(long meetingId, long organizerId) {
+  public void writeChanged(
+      long meetingId, long organizerId, Collection<Long> previousParticipantIds) {
     writeMeetingEvent(
-        "MEETING_CHANGED", "Meeting changed", meetingId, null, organizerId, null, null);
+        "MEETING_CHANGED", meetingId, null, organizerId, null, null, previousParticipantIds);
   }
 
   @Transactional(propagation = Propagation.MANDATORY)
   public void writeCancelled(long meetingId, long organizerId) {
-    writeMeetingEvent(
-        "MEETING_CANCELLED", "Meeting cancelled", meetingId, null, organizerId, null, null);
+    writeMeetingEvent("MEETING_CANCELLED", meetingId, null, organizerId, null, null, Set.of());
   }
 
   @Transactional(propagation = Propagation.MANDATORY)
@@ -96,22 +95,24 @@ public class BookingCompletionWriter {
 
   private void writeMeetingEvent(
       String eventType,
-      String title,
       long meetingId,
       String requestNo,
       long organizerId,
       String traceId,
-      String runId) {
+      String runId,
+      Collection<Long> previousParticipantIds) {
     LocalDateTime now = LocalDateTime.now(clock);
-    Set<Long> recipients =
-        new LinkedHashSet<>(participantMapper.findEmployeeIdsByMeetingId(meetingId));
+    Set<Long> recipients = new LinkedHashSet<>(previousParticipantIds);
+    recipients.addAll(participantMapper.findEmployeeIdsByMeetingId(meetingId));
     recipients.add(organizerId);
+    String meetingTitle = meetingMapper.selectById(meetingId).getTitle();
+    String notificationTitle = notificationTitle(eventType);
     for (Long recipient : recipients) {
       NotificationRecord notification = new NotificationRecord();
       notification.setUserId(recipient);
       notification.setType(eventType);
-      notification.setTitle(title);
-      notification.setContent(title + ", meetingId=" + meetingId);
+      notification.setTitle(notificationTitle);
+      notification.setContent(notificationContent(eventType, meetingTitle));
       notification.setRelatedMeetingId(meetingId);
       notification.setCreatedAt(now);
       notificationMapper.insert(notification);
@@ -123,6 +124,24 @@ public class BookingCompletionWriter {
             resolveTraceId(traceId),
             runId,
             new MeetingConfirmedPayload(meetingId, requestNo, organizerId)));
+  }
+
+  private String notificationTitle(String eventType) {
+    return switch (eventType) {
+      case "MEETING_CONFIRMED" -> "会议已确认";
+      case "MEETING_CHANGED" -> "会议已变更";
+      case "MEETING_CANCELLED" -> "会议已取消";
+      default -> throw new IllegalArgumentException("Unsupported meeting event: " + eventType);
+    };
+  }
+
+  private String notificationContent(String eventType, String meetingTitle) {
+    return switch (eventType) {
+      case "MEETING_CONFIRMED" -> "会议“" + meetingTitle + "”已确认。";
+      case "MEETING_CHANGED" -> "会议“" + meetingTitle + "”的时间或参会信息已更新。";
+      case "MEETING_CANCELLED" -> "会议“" + meetingTitle + "”已取消。";
+      default -> throw new IllegalArgumentException("Unsupported meeting event: " + eventType);
+    };
   }
 
   private String resolveTraceId(String traceId) {

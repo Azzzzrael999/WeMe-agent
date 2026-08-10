@@ -63,6 +63,11 @@
           >
             <component :is="item.icon" :size="18" aria-hidden="true" />
             <span class="nav-label">{{ item.label }}</span>
+            <span
+              v-if="item.to.name === 'notifications' && notificationStore.state.unreadCount > 0"
+              class="nav-unread-badge"
+              :aria-label="`${notificationStore.state.unreadCount} 条未读消息`"
+            >{{ unreadBadgeLabel }}</span>
           </RouterLink>
         </section>
 
@@ -167,12 +172,15 @@ import {
   RotateCcw,
   Search,
   Sparkles,
+  UserRoundCog,
+  Bell,
   X,
 } from '@lucide/vue'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, type Component } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import { authStore } from '@/auth/store'
+import { notificationStore } from '@/notifications/store'
 
 const CHAT_ACTIVE_RUN_STORAGE_KEY = 'meetops.chat-active-run.v1'
 const CHAT_ACTIVE_THREAD_STORAGE_KEY = 'meetops.chat-active-thread.v1'
@@ -208,7 +216,7 @@ const searchQuery = ref('')
 const recentTasks = ref<RecentTask[]>([])
 const activeRunId = ref<string | null>(null)
 
-const navigationGroups: { label: string; items: NavigationItem[] }[] = [
+const navigationGroups = computed<{ label: string; items: NavigationItem[] }[]>(() => [
   {
     label: '工作台',
     items: [
@@ -221,9 +229,14 @@ const navigationGroups: { label: string; items: NavigationItem[] }[] = [
     items: [
       { label: '我的会议', icon: CalendarDays, to: { name: 'meetings' } },
       { label: '会议室', icon: DoorOpen, to: { name: 'rooms' } },
+      { label: '消息中心', icon: Bell, to: { name: 'notifications' } },
     ],
   },
-]
+  ...(authStore.state.user?.roles.includes('ADMIN') === true ? [{
+    label: '管理',
+    items: [{ label: '员工管理', icon: UserRoundCog, to: { name: 'admin-employees' } }],
+  }] : []),
+])
 
 const previewItems: NavigationItem[] = [
   { label: '异常重排', icon: RotateCcw, to: { name: 'preview-replan' } },
@@ -232,6 +245,7 @@ const previewItems: NavigationItem[] = [
 
 const roleLabel = computed(() => authStore.state.user?.roles.includes('ADMIN') ? '管理员' : '员工')
 const initials = computed(() => authStore.state.user?.displayName.slice(0, 1) ?? 'M')
+const unreadBadgeLabel = computed(() => notificationStore.state.unreadCount > 99 ? '99+' : String(notificationStore.state.unreadCount))
 const filteredRecentTasks = computed(() => {
   const keyword = searchQuery.value.toLocaleLowerCase('zh-CN')
   if (keyword.length === 0) {
@@ -248,6 +262,8 @@ const currentSectionTitle = computed(() => {
     approvals: '待我确认',
     meetings: '我的会议',
     rooms: '会议室',
+    notifications: '消息中心',
+    'admin-employees': '员工管理',
     'agent-run': '运行记录',
     'preview-replan': '异常重排',
     'preview-lifecycle': '会前会后',
@@ -366,6 +382,7 @@ function handleNavigationKeydown(event: KeyboardEvent): void {
 
 async function logout(): Promise<void> {
   authStore.clearSession()
+  notificationStore.setUnreadCount(0)
   for (const key of Object.keys(window.sessionStorage)) {
     if (key.startsWith(CHAT_SESSION_STORAGE_PREFIX)) {
       window.sessionStorage.removeItem(key)
@@ -385,6 +402,7 @@ onMounted(() => {
   window.addEventListener('storage', readRecentTasks)
   window.addEventListener('resize', updateViewport)
   document.addEventListener('keydown', handleNavigationKeydown)
+  void notificationStore.refresh().catch(() => undefined)
 })
 
 onUnmounted(() => {

@@ -6,5 +6,6 @@
 @import "./styles/calendar-resource.css";
 @import "./styles/trace.css";
 @import "./styles/preview.css";
+@import "./styles/operations.css";
 
 /* Page-level styles live in the imported modules above. */

@@ -84,6 +84,21 @@ com.example.meeting
 - 修改失败时原会议保持不变。
 - 取消使用条件更新防止重复状态转换。
 
+### 3.5 员工账户管理
+
+- 员工账户不物理删除，只允许 `ACTIVE/DISABLED`；历史会议外键和通知永久保留。
+- ADMIN 创建员工时设置初始密码，服务端只持久化 BCrypt 哈希。用户名创建后不可修改；用户名和邮箱由数据库唯一约束最终裁决。
+- 编辑、启停和密码重置都携带 `expectedVersion`，以 `WHERE id=? AND version=?` 条件更新并将版本加一。
+- 部门可为空；非空部门必须存在且为 ACTIVE。角色只允许 `EMPLOYEE/ADMIN`。
+- 当前 ADMIN 不得停用自己或将自己降权为 EMPLOYEE。JWT Filter 每次请求复核活动账户，因此停用在下一请求生效。
+
+### 3.6 站内通知
+
+- 通知查询和读状态更新始终使用当前认证用户 ID，ADMIN 无跨用户读取特权。
+- `MEETING_CONFIRMED/CHANGED/CANCELLED` 通知与会议写入处于同一事务；任何业务回滚都必须同时回滚通知。
+- 创建/取消接收人为组织者和当前参与者并集；修改接收人为修改前后参与者并集，避免被移除人员收不到变更通知。
+- 单条已读使用条件更新且幂等；全部已读只更新当前用户的 `read_at IS NULL` 记录。
+
 ## 4. 普通同步预约算法
 
 ### 4.1 输入
@@ -343,6 +358,12 @@ Day 3 冻结的内部鉴权语义：
 | TOOL_NOT_ALLOWED | 403 | Agent工具不在白名单 |
 | AGENT_UNAVAILABLE | 503 | Python服务不可用 |
 | AGENT_RUN_STATE_CONFLICT | 409 | Run等待状态、需求revision或补充请求幂等状态已经变化 |
+| EMPLOYEE_NOT_FOUND | 404 | 员工不存在 |
+| EMPLOYEE_USERNAME_CONFLICT | 409 | 员工用户名已存在 |
+| EMPLOYEE_EMAIL_CONFLICT | 409 | 员工邮箱已存在 |
+| EMPLOYEE_STATE_CONFLICT | 409 | 员工版本、状态或自我管理规则冲突 |
+| DEPARTMENT_NOT_FOUND | 404 | 部门不存在或已停用 |
+| NOTIFICATION_NOT_FOUND | 404 | 通知不存在或不属于当前用户 |
 | DEPENDENCY_UNAVAILABLE | 503 | Redis、MQ等依赖不可用 |
 
 统一错误响应：
@@ -366,3 +387,5 @@ Day 3 冻结的内部鉴权语义：
 - 热门请求从PENDING进入SUCCESS/CONFLICT测试。
 - Tool Gateway越权、参数越界和重复调用测试。
 - SSE事件映射测试。
+- ADMIN 员工生命周期、唯一约束、乐观版本、自我停用/降权和密码重置测试。
+- 通知用户隔离、未读统计、单条/全部已读及会议事务接收人测试。

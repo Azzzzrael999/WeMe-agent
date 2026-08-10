@@ -1,23 +1,19 @@
-package com.example.meeting.auth.domain;
+package com.example.meeting.organization.infrastructure;
 
-import com.baomidou.mybatisplus.annotation.TableId;
-import com.baomidou.mybatisplus.annotation.TableName;
 import java.time.LocalDateTime;
 
-@TableName("sys_user")
-public class UserAccount {
-
-  @TableId private Long id;
+public class EmployeeAdminRow {
+  private Long id;
   private String username;
-  private String passwordHash;
   private String displayName;
   private String email;
   private Long departmentId;
+  private String departmentName;
   private String role;
   private String status;
+  private Integer version;
   private LocalDateTime createdAt;
   private LocalDateTime updatedAt;
-  private Integer version;
 
   public Long getId() {
     return id;
@@ -33,14 +29,6 @@ public class UserAccount {
 
   public void setUsername(String username) {
     this.username = username;
-  }
-
-  public String getPasswordHash() {
-    return passwordHash;
-  }
-
-  public void setPasswordHash(String passwordHash) {
-    this.passwordHash = passwordHash;
   }
 
   public String getDisplayName() {
@@ -67,6 +55,14 @@ public class UserAccount {
     this.departmentId = departmentId;
   }
 
+  public String getDepartmentName() {
+    return departmentName;
+  }
+
+  public void setDepartmentName(String departmentName) {
+    this.departmentName = departmentName;
+  }
+
   public String getRole() {
     return role;
   }
@@ -83,8 +79,12 @@ public class UserAccount {
     this.status = status;
   }
 
-  public boolean isActive() {
-    return "ACTIVE".equals(status);
+  public Integer getVersion() {
+    return version;
+  }
+
+  public void setVersion(Integer version) {
+    this.version = version;
   }
 
   public LocalDateTime getCreatedAt() {
@@ -101,13 +101,5 @@ public class UserAccount {
 
   public void setUpdatedAt(LocalDateTime updatedAt) {
     this.updatedAt = updatedAt;
-  }
-
-  public Integer getVersion() {
-    return version;
-  }
-
-  public void setVersion(Integer version) {
-    this.version = version;
   }
 }

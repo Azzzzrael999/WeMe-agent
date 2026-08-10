@@ -44,7 +44,10 @@ class Day1MigrationIntegrationTest {
 
   @Test
   void demoSeedContainsVariedPeopleDepartmentsRoomsAndFeatureTypes() {
-    assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM sys_user", Integer.class))
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM sys_user WHERE id IN (1001,1002,1003,1010,1011,1012,1013,1014,1015,1016,1017,1018,1019,1020,1021,1022,1023)",
+                Integer.class))
         .isEqualTo(17);
     assertThat(jdbcTemplate.queryForList("SELECT role FROM sys_user ORDER BY role", String.class))
         .contains("ADMIN", "EMPLOYEE");
@@ -60,8 +63,13 @@ class Day1MigrationIntegrationTest {
         .isEqualTo(2);
     assertThat(
             jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM sys_user WHERE status = 'INACTIVE'", Integer.class))
+                "SELECT COUNT(*) FROM sys_user WHERE id = 1023 AND username = 'former' AND status = 'DISABLED'",
+                Integer.class))
         .isEqualTo(1);
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM sys_user WHERE status = 'INACTIVE'", Integer.class))
+        .isZero();
     assertThat(
             jdbcTemplate.queryForList(
                 "SELECT id, username, display_name, department_id FROM sys_user WHERE id IN (1001,1003) ORDER BY id"))

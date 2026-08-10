@@ -38,6 +38,97 @@ export interface LoginResult {
   user: CurrentUser
 }
 
+export type EmployeeRole = 'EMPLOYEE' | 'ADMIN'
+export type EmployeeStatus = 'ACTIVE' | 'DISABLED'
+
+export interface DepartmentOption {
+  id: number
+  name: string
+  defaultBuilding: string
+  defaultFloor: string
+}
+
+export interface DepartmentListResult {
+  items: DepartmentOption[]
+}
+
+export interface Employee {
+  id: number
+  username: string
+  displayName: string
+  email: string
+  departmentId: number | null
+  departmentName: string | null
+  role: EmployeeRole
+  status: EmployeeStatus
+  version: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface EmployeeListResult {
+  items: Employee[]
+  total: number
+}
+
+export interface EmployeeCreateMutation {
+  username: string
+  initialPassword: string
+  displayName: string
+  email: string
+  departmentId: number | null
+  role: EmployeeRole
+  status: EmployeeStatus
+}
+
+export interface EmployeeUpdateMutation {
+  displayName: string
+  email: string
+  departmentId: number | null
+  role: EmployeeRole
+  expectedVersion: number
+}
+
+export interface EmployeeStatusMutation {
+  status: EmployeeStatus
+  expectedVersion: number
+}
+
+export interface EmployeePasswordMutation {
+  newPassword: string
+  expectedVersion: number
+}
+
+export type NotificationType =
+  | 'MEETING_CONFIRMED'
+  | 'MEETING_CHANGED'
+  | 'MEETING_CANCELLED'
+
+export interface NotificationItem {
+  id: number
+  type: NotificationType
+  title: string
+  content: string
+  relatedMeetingId: number | null
+  readAt: string | null
+  createdAt: string
+}
+
+export interface NotificationListResult {
+  items: NotificationItem[]
+  total: number
+  unreadCount: number
+}
+
+export interface NotificationUnreadCountResult {
+  unreadCount: number
+}
+
+export interface NotificationReadAllResult {
+  updatedCount: number
+  readAt: string
+}
+
 export interface RoomFeature {
   code: string
   name: string

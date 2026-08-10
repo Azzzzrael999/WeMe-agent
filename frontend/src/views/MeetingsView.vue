@@ -222,7 +222,8 @@ import {
   UserRound,
   X,
 } from '@lucide/vue'
-import { computed, defineComponent, h, onMounted, reactive, ref, type PropType } from 'vue'
+import { computed, defineComponent, h, onMounted, reactive, ref, watch, type PropType } from 'vue'
+import { useRoute } from 'vue-router'
 
 import { ApiError, apiRequest } from '../api/client'
 import type { Meeting, MeetingListResult, MeetingMutation, MeetingRoom, MeetingUpdateMutation, RoomListResult } from '../api/types'
@@ -284,6 +285,7 @@ type WindowMode = 'day' | 'week'
 type ViewMode = 'calendar' | 'list'
 
 const rooms = ref<MeetingRoom[]>([])
+const route = useRoute()
 const activeMeetingRooms = computed(() => rooms.value.filter((room) => room.status === 'ACTIVE'))
 const editableMeetingRooms = computed(() => {
   const currentRoomId = editingMeeting.value?.roomId
@@ -439,6 +441,17 @@ async function openMeetingDetails(meeting: Meeting): Promise<void> {
   finally { detailLoading.value = false }
 }
 
+async function openMeetingFromQuery(value: unknown): Promise<void> {
+  if (typeof value !== 'string' || !/^\d{1,18}$/.test(value)) return
+  detailLoading.value = true
+  detailError.value = ''
+  try { selectedMeeting.value = await apiRequest<Meeting>(`/meetings/${value}`) }
+  catch (error) {
+    selectedMeeting.value = null
+    listError.value = error instanceof ApiError ? error.message : '关联会议加载失败。'
+  } finally { detailLoading.value = false }
+}
+
 function beginEdit(meeting: Meeting): void {
   selectedMeeting.value = null
   editingMeeting.value = meeting
@@ -483,6 +496,9 @@ function closeAllOverlays(): void { createSheetOpen.value = false; selectedMeeti
 
 onMounted(() => {
   if (window.matchMedia('(max-width: 520px)').matches) windowMode.value = 'day'
-  void Promise.all([loadRooms(), loadMeetings()])
+  void Promise.all([loadRooms(), loadMeetings()]).then(() => openMeetingFromQuery(route.query.meetingId))
+})
+watch(() => route.query.meetingId, (value, previous) => {
+  if (value !== previous) void openMeetingFromQuery(value)
 })
 </script>

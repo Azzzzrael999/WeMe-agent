@@ -118,6 +118,28 @@
   font-size: 9px;
   font-weight: 700;
 }
+.nav-unread-badge {
+  display: grid;
+  min-width: 20px;
+  height: 20px;
+  margin-left: auto;
+  place-items: center;
+  border-radius: 999px;
+  padding: 0 6px;
+  color: #fff;
+  background: var(--danger);
+  font-size: 10px;
+  font-weight: 750;
+}
+.workspace-shell--collapsed .nav-unread-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 8px;
+}
 
 .workspace-user {
   display: flex;

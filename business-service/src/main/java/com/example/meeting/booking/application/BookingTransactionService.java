@@ -94,6 +94,7 @@ public class BookingTransactionService {
     }
 
     bookingValidator.validate(command);
+
     MeetingRecord meeting = createMeeting(command, organizerId, "MANUAL", null, null, now);
     meetingMapper.insert(meeting);
     writeParticipantsAndSlots(meeting.getId(), command);
@@ -131,6 +132,7 @@ public class BookingTransactionService {
       throw new BusinessException(ErrorCode.MEETING_STATE_CONFLICT);
     }
     bookingValidator.validate(command);
+    List<Long> previousParticipantIds = participantMapper.findEmployeeIdsByMeetingId(meetingId);
 
     LocalDateTime now = LocalDateTime.now(clock);
     int updated =
@@ -151,7 +153,7 @@ public class BookingTransactionService {
     busySlotMapper.deleteByMeetingId(meetingId);
     participantMapper.deleteByMeetingId(meetingId);
     writeParticipantsAndSlots(meetingId, command);
-    completionWriter.writeChanged(meetingId, meeting.getOrganizerId());
+    completionWriter.writeChanged(meetingId, meeting.getOrganizerId(), previousParticipantIds);
     return meetingId;
   }
 
