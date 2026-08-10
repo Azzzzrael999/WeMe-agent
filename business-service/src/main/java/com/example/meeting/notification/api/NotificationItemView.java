@@ -8,5 +8,6 @@ public record NotificationItemView(
     String title,
     String content,
     Long relatedMeetingId,
+    Long relatedReplanCaseId,
     OffsetDateTime readAt,
     OffsetDateTime createdAt) {}

@@ -100,7 +100,7 @@ from app.tools.java import (
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "meeting-agent-prompts-v7"
+PROMPT_VERSION = "meeting-agent-prompts-v8"
 SCHEMA_VERSION = "meeting-agent-state-v6"
 
 SUPERVISOR_PROMPT = """You are the Supervisor Agent for an enterprise meeting scheduler.
@@ -128,6 +128,9 @@ For MODIFY_MEETING, targetMeetingReference identifies the existing meeting (for 
 date/time/title before 改到), while pendingStartAt/timeWindow describe the destination. Never put
 the old target selector into the destination. “27号同一时间” means the destination date is the
 27th and its clock is inherited from the explicit old target clock; set pendingStartAt accordingly.
+“异常重排/资源失效/会议室不可用” is MODIFY_MEETING. Preserve an explicit 会议 ID/meetingId as
+targetMeetingId. Unless the user explicitly changes a constraint, inherit the original time,
+duration, required/optional participants and room features; the failed original room is excluded.
 Every populated user-derived field needs fieldEvidence whose source is a continuous verbatim
 substring of USER_MESSAGE. Do not call tools, create drafts, confirm, or expose reasoning."""
 
@@ -306,6 +309,7 @@ class RequirementAgent:
         previous_draft = state.requirement_draft if state.continuation_turn else None
         draft = _resolve_ambiguous_pending_start(previous_draft, draft, state.message)
         draft = _apply_participant_delta(previous_draft, draft, state.message)
+        draft = _apply_constraint_delta(previous_draft, draft, state.message)
         draft = _apply_unsat_recommended_time(
             previous_draft,
             draft,
@@ -871,6 +875,18 @@ class SchedulingAgent:
             )
         assert free_busy_data is not None and rooms_data is not None
         snapshot = _snapshot_from_java(free_busy_data, rooms_data)
+        if _is_exception_replanning_context(state):
+            target_meeting = _recent_meeting(recent_data, request.target_meeting_id)
+            if target_meeting is not None:
+                snapshot = snapshot.model_copy(
+                    update={
+                        "rooms": [
+                            room
+                            for room in snapshot.rooms
+                            if room.room_id != target_meeting.room_id
+                        ]
+                    }
+                )
         required_ids = sorted(
             {context.user_id, *(item.employee_id for item in resolved if item.employee_id)}
         )
@@ -1300,6 +1316,16 @@ def _apply_explicit_meeting_defaults(
     draft: RequirementDraft, source: str, *, request_time: datetime
 ) -> RequirementDraft:
     updates: dict[str, object] = {}
+    if _is_exception_replanning(source):
+        updates["intent"] = Intent.MODIFY_MEETING
+        if not draft.target_meeting_reference:
+            updates["target_meeting_reference"] = source[:240]
+    explicit_meeting_id = _explicit_meeting_id(source)
+    if explicit_meeting_id is not None and (
+        draft.intent in {Intent.MODIFY_MEETING, Intent.CANCEL_MEETING}
+        or _is_exception_replanning(source)
+    ):
+        updates["target_meeting_id"] = explicit_meeting_id
     normalized_source = _normalize_chinese_clock_tokens(source)
     time_source = normalized_source
     if draft.intent is Intent.MODIFY_MEETING:
@@ -1673,6 +1699,52 @@ def _apply_participant_delta(
     )
 
 
+def _apply_constraint_delta(
+    previous: RequirementDraft | None,
+    current: RequirementDraft,
+    source: str,
+) -> RequirementDraft:
+    """Apply explicit relaxation deltas to the last verified requirement.
+
+    Exception replanning starts from inherited Java facts.  A continuation may
+    relax one device or extend the original candidate window, but it must not
+    accidentally replace the inherited meeting duration just because the
+    relaxation itself contains a number of minutes.
+    """
+
+    if previous is None:
+        return current
+    updates: dict[str, object] = {}
+    features = list(previous.required_features)
+    removed_features = {
+        canonical
+        for canonical, aliases in SourceFidelityEvaluator._FEATURE_ALIASES.items()
+        if any(_feature_removal_requested(source, alias) for alias in aliases)
+    }
+    if removed_features:
+        features = [item for item in features if item not in removed_features]
+        additions = [
+            item for item in current.required_features if item not in removed_features
+        ]
+        updates["required_features"] = list(dict.fromkeys([*features, *additions]))
+
+    delay = re.search(r"(?:允许)?(?:顺延|延后|推迟)\s*(30|60|90|120)\s*分钟", source)
+    if delay is not None and previous.time_window is not None:
+        delay_minutes = int(delay.group(1))
+        updates.update(
+            {
+                "duration_minutes": previous.duration_minutes,
+                "time_window": TimeWindow(
+                    start=previous.time_window.start,
+                    end=previous.time_window.end + timedelta(minutes=delay_minutes),
+                ),
+                "pending_start_at": None,
+                "pending_start_ambiguous": False,
+            }
+        )
+    return current.model_copy(update=updates) if updates else current
+
+
 def _source_changes_intent(source: str) -> bool:
     return bool(
         re.search(
@@ -1759,8 +1831,12 @@ def _merge_requirement_drafts(
             "optional_groups": list(
                 dict.fromkeys([*previous.optional_groups, *current.optional_groups])
             ),
-            "required_features": list(
-                dict.fromkeys([*previous.required_features, *current.required_features])
+            "required_features": (
+                current.required_features
+                if _source_changes_feature_constraints(source)
+                else list(
+                    dict.fromkeys([*previous.required_features, *current.required_features])
+                )
             ),
             "minimum_capacity": current.minimum_capacity or previous.minimum_capacity,
             "preferred_buildings": list(
@@ -1941,6 +2017,8 @@ def _requirement_items(
         status = (
             RequirementSlotStatus.CONFLICT
             if time_issue
+            else RequirementSlotStatus.EXPLICIT
+            if _source_changes_time_constraints(source)
             else previous_time.status
             if soft_preference_only and previous_time is not None
             else RequirementSlotStatus.DEFAULTED
@@ -1980,7 +2058,7 @@ def _requirement_items(
             )
         )
     else:
-        duration_is_current = bool(re.search(r"\d+\s*(?:分钟|个?小时)", source))
+        duration_is_current = _source_changes_meeting_duration(source)
         items.append(
             RequirementItem(
                 field="durationMinutes",
@@ -2056,6 +2134,7 @@ def _requirement_items(
             )
         )
     features = "、".join(draft.required_features)
+    feature_constraints_changed = _source_changes_feature_constraints(source)
     items.append(
         RequirementItem(
             field="optionalRequirements",
@@ -2063,7 +2142,7 @@ def _requirement_items(
                 RequirementSlotStatus.CLOSED
                 if optional_closed
                 else RequirementSlotStatus.EXPLICIT
-                if features
+                if features or feature_constraints_changed
                 else RequirementSlotStatus.UNSPECIFIED
             ),
             summary=(
@@ -2073,6 +2152,8 @@ def _requirement_items(
                 if optional_closed
                 else f"硬性设备：{features}；可继续补充其他要求"
                 if features
+                else "已明确放宽设备要求；可继续补充其他要求"
+                if feature_constraints_changed
                 else "可选：投屏、白板、视频会议设备、地点等硬性要求"
             ),
             source=source if features or optional_closed else None,
@@ -2430,8 +2511,11 @@ def _hydrate_mutation_target(
             start=draft.pending_start_at,
             end=draft.pending_start_at + timedelta(minutes=duration),
         )
-    elif destination is None or _window_only_selects_target(
-        destination, meeting, request.target_meeting_reference
+    elif destination is None or (
+        _window_only_selects_target(
+            destination, meeting, request.target_meeting_reference
+        )
+        and not _source_changes_time_constraints(state.message)
     ):
         destination = TimeWindow(start=meeting.start_at, end=meeting.end_at)
     required = [
@@ -2439,8 +2523,14 @@ def _hydrate_mutation_target(
         for item in meeting.participants
         if item.participant_type == "REQUIRED"
     ]
+    preserve_existing = _preserves_existing_requirements(state.message) or (
+        draft is not None
+        and _is_exception_replanning(draft.target_meeting_reference or "")
+    )
     required_features = request.required_features
-    if not required_features and _preserves_existing_requirements(state.message):
+    if not required_features and preserve_existing and not _source_changes_feature_constraints(
+        state.message
+    ):
         required_features = _meeting_room_features(recent_data, meeting.id)
     hydrated = request.model_copy(
         update={
@@ -2478,8 +2568,22 @@ def _hydrate_mutation_target(
             previous_items=state.requirement_items,
             optional_closed=state.optional_requirements_closed,
         )
-        inherited_fields = {"durationMinutes", "requiredParticipants"}
-        if required_features and _preserves_existing_requirements(state.message):
+        inherited_fields: set[str] = set()
+        if not _source_changes_meeting_duration(state.message):
+            inherited_fields.add("durationMinutes")
+        if not _source_has_participant_mutation(state.message):
+            inherited_fields.add("requiredParticipants")
+        if (
+            destination.start == meeting.start_at
+            and destination.end == meeting.end_at
+            and not _source_changes_time_constraints(state.message)
+        ):
+            inherited_fields.add("timeWindow")
+        if (
+            required_features
+            and preserve_existing
+            and not _source_changes_feature_constraints(state.message)
+        ):
             inherited_fields.add("optionalRequirements")
         hydrated_items = [
             item.model_copy(
@@ -2516,8 +2620,93 @@ def _window_only_selects_target(
 def _preserves_existing_requirements(message: str) -> bool:
     return any(
         marker in message
-        for marker in ("其他都不变", "其它都不变", "要求不变", "设备不变", "保持不变")
+        for marker in (
+            "其他都不变",
+            "其它都不变",
+            "要求不变",
+            "设备不变",
+            "保持不变",
+            "默认保留",
+        )
     )
+
+
+def _explicit_meeting_id(source: str) -> int | None:
+    match = re.search(
+        r"(?:会议\s*(?:ID)?|meeting\s*id|meetingId|#)\s*[:：#]?\s*(\d{1,9})",
+        source,
+        re.IGNORECASE,
+    )
+    return int(match.group(1)) if match is not None else None
+
+
+def _is_exception_replanning(source: str) -> bool:
+    return any(
+        marker in source
+        for marker in (
+            "异常重排",
+            "资源失效",
+            "会议室不可用",
+            "会议室已失效",
+            "原会议室已失效",
+            "房间不可用",
+        )
+    )
+
+
+def _is_exception_replanning_context(state: AgentState) -> bool:
+    if _is_exception_replanning(state.message):
+        return True
+    draft = state.requirement_draft
+    return draft is not None and _is_exception_replanning(
+        draft.target_meeting_reference or ""
+    )
+
+
+def _feature_removal_requested(source: str, alias: str) -> bool:
+    escaped = re.escape(alias)
+    return bool(
+        re.search(
+            rf"(?:不再要求|不需要|不要|去掉|取消)(?:使用)?\s*{escaped}|"
+            rf"{escaped}\s*(?:不再要求|不需要|不要)",
+            source,
+        )
+    )
+
+
+def _source_changes_feature_constraints(source: str) -> bool:
+    return any(
+        alias in source
+        and (
+            _feature_removal_requested(source, alias)
+            or not any(
+                _feature_removal_requested(source, other)
+                for aliases in SourceFidelityEvaluator._FEATURE_ALIASES.values()
+                for other in aliases
+            )
+        )
+        for aliases in SourceFidelityEvaluator._FEATURE_ALIASES.values()
+        for alias in aliases
+    )
+
+
+def _source_changes_time_constraints(source: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:顺延|延后|推迟)\s*(?:30|60|90|120)\s*分钟|"
+            r"(?:改到|调整到|移到|改为)",
+            source,
+        )
+    )
+
+
+def _source_changes_meeting_duration(source: str) -> bool:
+    scrubbed = re.sub(
+        r"(?:允许)?(?:顺延|延后|推迟)\s*(?:30|60|90|120)\s*分钟",
+        "",
+        source,
+    )
+    return bool(re.search(r"\d+\s*(?:分钟|个?小时)", scrubbed))
 
 
 def _meeting_room_features(data: dict[str, Any], meeting_id: int) -> list[str]:

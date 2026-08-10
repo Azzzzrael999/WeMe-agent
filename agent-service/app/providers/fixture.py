@@ -182,13 +182,38 @@ class FixtureModelProvider:
                 "summary": "识别为会议规则查询。",
             }
         intent = "CANCEL_MEETING" if "取消" in message else (
-            "MODIFY_MEETING" if any(term in message for term in ("改期", "调整", "修改", "改到"))
+            "MODIFY_MEETING" if any(
+                term in message
+                for term in (
+                    "改期",
+                    "调整",
+                    "修改",
+                    "改到",
+                    "异常重排",
+                    "资源失效",
+                    "会议室不可用",
+                    "会议室已失效",
+                )
+            )
             else "CREATE_MEETING"
         )
         evidence = next(
             (
                 term
-                for term in ("取消", "改期", "调整", "修改", "改到", "安排", "预约", "帮")
+                for term in (
+                    "取消",
+                    "改期",
+                    "调整",
+                    "修改",
+                    "改到",
+                    "异常重排",
+                    "资源失效",
+                    "会议室不可用",
+                    "会议室已失效",
+                    "安排",
+                    "预约",
+                    "帮",
+                )
                 if term in message
             ),
             message[:1],
@@ -223,7 +248,19 @@ class FixtureModelProvider:
         intent = "CREATE_MEETING"
         if "取消" in message:
             intent = "CANCEL_MEETING"
-        elif any(term in message for term in ("改期", "调整", "修改", "改到")):
+        elif any(
+            term in message
+            for term in (
+                "改期",
+                "调整",
+                "修改",
+                "改到",
+                "异常重排",
+                "资源失效",
+                "会议室不可用",
+                "会议室已失效",
+            )
+        ):
             intent = "MODIFY_MEETING"
         elif any(term in message for term in ("共同空闲", "共同时间", "大家有空")):
             intent = "FIND_COMMON_TIME"
@@ -373,7 +410,11 @@ class FixtureModelProvider:
 
     @staticmethod
     def _target_meeting_id(message: str) -> int | None:
-        target = re.search(r"(?:会议\s*(?:ID)?\s*|#)(\d{1,9})", message, re.IGNORECASE)
+        target = re.search(
+            r"(?:会议\s*(?:ID)?|meeting\s*id|meetingId|#)\s*[:：#]?\s*(\d{1,9})",
+            message,
+            re.IGNORECASE,
+        )
         return int(target.group(1)) if target is not None else None
 
     def _time_window(self, message: str) -> tuple[datetime, datetime] | None:

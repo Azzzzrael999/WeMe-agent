@@ -277,6 +277,15 @@
 2. 用户仍可通过表单创建会议。
 3. Java并发规则仍生效。
 
+### E2E-06 资源失效与异常重排
+
+1. ADMIN 停用含未来已确认会议的房间并填写原因。
+2. 断言一次停用事件只生成一张异常单和一条发起人 `RESOURCE_UNAVAILABLE` 通知，参与者不会在尚未改期时收到会议变更通知。
+3. 断言固定时段候选全部满足 ACTIVE、容量、设备和槽位硬约束；过期双版本提交被拒绝。
+4. 快速换房成功后断言会议槽位、全员 `MEETING_CHANGED` 通知和异常单 `RESOLVED` 同时成立。
+5. 从异常页进入智能编排，断言 RESCHEDULE、事实继承、失效房间排除、Top 3/无解证据、HITL 前零写入与 ACCEPT 后 `RESOLVED`。
+6. 分别验证 REJECT 保持 OPEN、会议取消转 CANCELLED、资源恢复转 RESTORED，以及非发起人隔离。
+
 ## 8. Docker Smoke Test
 
 从空数据卷启动：

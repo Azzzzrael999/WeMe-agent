@@ -15,7 +15,8 @@ public interface NotificationMapper extends BaseMapper<NotificationRecord> {
   @Select(
       """
       <script>
-      SELECT id, user_id, type, title, content, related_meeting_id, read_at, created_at
+      SELECT id, user_id, type, title, content, related_meeting_id,
+             related_replan_case_id, read_at, created_at
       FROM notification
       WHERE user_id = #{userId}
       <if test="unreadOnly">AND read_at IS NULL</if>
@@ -50,7 +51,8 @@ public interface NotificationMapper extends BaseMapper<NotificationRecord> {
 
   @Select(
       """
-      SELECT id, user_id, type, title, content, related_meeting_id, read_at, created_at
+      SELECT id, user_id, type, title, content, related_meeting_id,
+             related_replan_case_id, read_at, created_at
       FROM notification
       WHERE id = #{id} AND user_id = #{userId}
       """)

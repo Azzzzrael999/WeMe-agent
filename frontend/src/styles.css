@@ -7,5 +7,6 @@
 @import "./styles/trace.css";
 @import "./styles/preview.css";
 @import "./styles/operations.css";
+@import "./styles/replan.css";
 
 /* Page-level styles live in the imported modules above. */

@@ -99,6 +99,15 @@ com.example.meeting
 - 创建/取消接收人为组织者和当前参与者并集；修改接收人为修改前后参与者并集，避免被移除人员收不到变更通知。
 - 单条已读使用条件更新且幂等；全部已读只更新当前用户的 `read_at IS NULL` 记录。
 
+### 3.7 资源失效与异常单
+
+- `ACTIVE -> INACTIVE` 房间状态更新、受影响 `CONFIRMED` 会议扫描、幂等异常单和 `RESOURCE_UNAVAILABLE` 发起人通知必须处于同一事务；停用原因必填。
+- 一次停用事件以房间更新后的 `version` 标识，`(meeting_id, failed_room_id, room_status_version)` 数据库唯一约束是重复建单的最终裁决。
+- 快速候选只过滤原 `[start,end)` 内的 ACTIVE 房间，并强制容量不小于当前参会人数、设备能力包含原房间能力、没有房间槽位占用；最多返回 3 个并解释排序，不在 Java 实现跨时段优化。
+- 快速处理复用 `MeetingApplicationService.update`，只接收替代 `roomId` 与双 `expectedVersion`，其余会议字段从 Java 当前事实重建，禁止信任浏览器回传的人员或时长。
+- 通用会议修改写入成功时关闭仍受影响的开放异常单；通用取消写入时标记 `CANCELLED`。房间恢复时，只把仍在原房间的开放单标记 `RESTORED`。
+- 发起人只能读取和处理自己的异常单；ADMIN 可查看和代处理，但仍经过既有会议写权限、槽位唯一约束和通知事务。
+
 ## 4. 普通同步预约算法
 
 ### 4.1 输入

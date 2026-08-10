@@ -77,6 +77,10 @@
           @refresh="runId && loadRecovery(runId)"
           @trace="traceOpen = true"
         />
+        <p v-if="replanPrefillLoaded" class="replan-prefill-notice" role="status">
+          <Sparkles :size="16" aria-hidden="true" />
+          已从异常重排单预填处理要求，尚未发送。你可以先补充允许变化的时间、地点、设备或参会人约束。
+        </p>
         <AgentComposer
           v-model="message"
           :disabled="streaming || decisionBusy"
@@ -118,9 +122,9 @@
 </template>
 
 <script setup lang="ts">
-import { ChevronRight, PanelRightOpen, Plus, ShieldCheck } from '@lucide/vue'
+import { ChevronRight, PanelRightOpen, Plus, ShieldCheck, Sparkles } from '@lucide/vue'
 import { onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
 
 import { ApiError, apiRequest, apiSseRequest, type SseMessage } from '../api/client'
 import { readHitlDraft, readLoopEvent } from '../api/agent-view'
@@ -182,6 +186,7 @@ const runMetrics = ref<Partial<AgentRunSummary> | null>(null)
 const requirementRevision = ref(0)
 const requirementItems = ref<AgentRequirementItem[]>([])
 const requirementBaselineAvailable = ref(false)
+const replanPrefillLoaded = ref(false)
 
 interface ConversationTurn {
   id: string
@@ -214,6 +219,7 @@ const CHAT_SHEET_DISMISSED_STORAGE_KEY = 'meetops.chat-sheet-dismissed.v1'
 const CHAT_CONTEXT_EVENT = 'meetops:chat-context-updated'
 const NEW_CONVERSATION_EVENT = 'meetops:new-conversation'
 const SAFE_RUN_ID = /^[A-Za-z0-9_-]{1,64}$/
+const MAX_PREFILL_LENGTH = 2000
 const conversationHistory = ref<ConversationTurn[]>([])
 const sheetAutoOpenedRuns = readStoredRunSet(CHAT_SHEET_OPENED_STORAGE_KEY)
 const sheetDismissedRuns = readStoredRunSet(CHAT_SHEET_DISMISSED_STORAGE_KEY)
@@ -245,6 +251,31 @@ function readStoredRunSet(key: string): Set<string> {
   } catch {
     return new Set()
   }
+}
+
+function readReplanPrefill(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim()
+  if (
+    normalized.length === 0
+    || normalized.length > MAX_PREFILL_LENGTH
+    || /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(normalized)
+  ) {
+    return null
+  }
+  return normalized
+}
+
+function activateReplanPrefill(prompt: string): void {
+  activeAbort?.abort()
+  archiveCurrentTurn()
+  threadId.value = null
+  conversationHistory.value = []
+  submittedMessage.value = ''
+  errorMessage.value = ''
+  clearRunState()
+  message.value = prompt
+  replanPrefillLoaded.value = true
 }
 
 function persistStoredRunSet(key: string, values: Set<string>): void {
@@ -681,6 +712,7 @@ async function startRun(): Promise<void> {
   threadId.value ??= `thread_${crypto.randomUUID().replaceAll('-', '')}`
   submittedMessage.value = submitted
   message.value = ''
+  replanPrefillLoaded.value = false
   if (continuingRequirement && continuingRunId !== null) {
     await consumeStream(`/agent/runs/${continuingRunId}/input`, {
       message: submitted,
@@ -912,11 +944,14 @@ function resetConversation(): void {
   conversationHistory.value = []
   errorMessage.value = ''
   submittedMessage.value = ''
+  replanPrefillLoaded.value = false
   clearRunState()
   window.sessionStorage.removeItem(CHAT_ACTIVE_RUN_STORAGE_KEY)
   window.sessionStorage.removeItem(CHAT_ACTIVE_THREAD_STORAGE_KEY)
   const query = { ...route.query }
   delete query.runId
+  delete query.prefill
+  delete query.sourceCaseId
   void router.replace({ query })
   window.dispatchEvent(new CustomEvent(CHAT_CONTEXT_EVENT))
 }
@@ -1066,7 +1101,10 @@ watch(runId, (nextRunId) => {
     window.sessionStorage.setItem(CHAT_ACTIVE_RUN_STORAGE_KEY, nextRunId)
   }
   if (nextRunId !== null && currentRunId !== nextRunId) {
-    void router.replace({ query: { ...route.query, runId: nextRunId } })
+    const query: LocationQueryRaw = { ...route.query, runId: nextRunId }
+    delete query.prefill
+    delete query.sourceCaseId
+    void router.replace({ query })
   }
   if (nextRunId === null && currentRunId !== undefined) {
     const query = { ...route.query }
@@ -1077,6 +1115,30 @@ watch(runId, (nextRunId) => {
     persistRunContext(nextRunId)
   }
 })
+
+watch(
+  () => route.query.prefill,
+  (value) => {
+    const prompt = readReplanPrefill(value)
+    if (prompt !== null && (!replanPrefillLoaded.value || message.value !== prompt)) {
+      activateReplanPrefill(prompt)
+    }
+  },
+)
+
+watch(
+  () => route.query.runId,
+  (value) => {
+    if (typeof value !== 'string' || !SAFE_RUN_ID.test(value) || value === runId.value) return
+    message.value = ''
+    replanPrefillLoaded.value = false
+    clearRunState()
+    runId.value = value
+    restoreRunContext(value)
+    runStatus.value ||= 'RUNNING'
+    void loadRecovery(value)
+  },
+)
 
 watch(threadId, (nextThreadId) => {
   if (nextThreadId !== null) {
@@ -1110,6 +1172,12 @@ function handleNewConversation(): void {
 
 onMounted(() => {
   window.addEventListener(NEW_CONVERSATION_EVENT, handleNewConversation)
+  const replanPrefill = readReplanPrefill(route.query.prefill)
+  if (replanPrefill !== null) {
+    window.sessionStorage.removeItem(CHAT_SUPPRESS_RESTORE_STORAGE_KEY)
+    activateReplanPrefill(replanPrefill)
+    return
+  }
   const suppressRestore = window.sessionStorage.getItem(CHAT_SUPPRESS_RESTORE_STORAGE_KEY) === 'true'
   if (suppressRestore) {
     window.sessionStorage.removeItem(CHAT_SUPPRESS_RESTORE_STORAGE_KEY)

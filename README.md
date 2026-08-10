@@ -12,6 +12,7 @@
 - DeepSeek 路径使用原生 `tools/tool_calls/tool` 协议。Pydantic 参数校验、Java 签发上下文、风险门禁、调用指纹去重和稳定 `toolCallId` 位于确定性 Tool Gate，模型不能伪造身份或直接执行写操作。
 - Requirement 使用 Evaluator–Optimizer：确定性评估器只返回结构化反馈，并最多触发一次语义修复；同步 409 和异步 `BOOKING_RESULT(CONFLICT)` 共享同一冲突证据与排除失败候选的重规划路径。
 - 默认 `AGENT_MODEL_PROVIDER=fixture`，所有 Smoke、评测和自动测试均不调用真实 DeepSeek；切换为 `deepseek` 时仅在本机 `.env` 填入真实 Key。
+- 会议室停用会原子创建异常重排单并通知会议发起人；系统不自动移动会议。异常页支持同一时段硬约束不降级的快速换房，跨时间或约束变化继续由 OR-Tools + RESCHEDULE HITL 处理。
 
 ```mermaid
 flowchart LR
@@ -87,6 +88,7 @@ docker compose -f compose.yaml -f compose.dev.yaml up -d --build --wait
 2. 观察 Java 代理的 SSE 时间线、结构化候选、政策引用和安全 Trace；选择 ACCEPT、EDIT 或 REJECT。EDIT 会重新求解，不能绕过确认写入。
 3. 输入 `下周三下午帮张三安排一个90分钟架构评审，10人，要大屏`，可演示 HOT 房间的异步预约、冲突回调和恢复草案。
 4. 在“我的会议”创建、修改、取消手动会议；以 `admin` 登录后可在“会议室”创建、编辑或启停会议室。员工只能读取 ACTIVE 房间。
+5. 以 `admin` 停用一间承载未来会议的房间并填写原因；发起人从资源失效通知进入“异常重排”，可快速换房，或把带 meetingId 和约束继承要求的开场白带入智能编排后再发送。
 
 自动 Smoke（均使用虚构数据，成功写入的 Smoke 会议会被取消）：
 
@@ -99,6 +101,9 @@ python .\scripts\smoke-day5.py --public-trace
 
 # Day 6：浏览器所用 public API、手动会议、房间管理、SSE/Trace
 python .\scripts\smoke-day6.py
+
+# 资源失效：异常单/通知隔离、同一时段候选、双版本与快速换房
+python .\scripts\smoke-exception-replan.py
 
 # Day 7：全新项目/全新命名卷，完整 Golden Path 连续 3 次；不删除任何卷
 .\scripts\Test-Day7EmptyVolume.ps1

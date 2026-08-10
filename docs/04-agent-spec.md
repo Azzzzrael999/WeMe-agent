@@ -505,6 +505,13 @@ totalCost =
 - “设备不变”保留原房间设备要求，其他字段只接受用户明确增量；
 - `get_free_busy` 与 `search_available_rooms` 由 Tool Gate 注入同一 `excludeMeetingId`；Java 验证当前用户确实可管理该会议后，只排除该会议产生的占用。
 
+### 10.8 异常重排对话
+
+- Supervisor 将“异常重排”“资源失效”“会议室不可用”稳定映射为 `RESCHEDULE`；异常单号只用于用户可见关联，目标会议仍必须由 Java 可管理会议事实中的显式 meetingId 唯一命中。
+- 默认继承原会议时间、时长、必需/可选参会人和设备要求，失效房间加入排除项。先尝试原时段，不能把失效房间或 INACTIVE 房间返回为候选。
+- 用户未明确同意前不得放宽任何硬约束。用户后续提出“顺延 30 分钟”“不要求白板”“换楼”等变化时，Requirement 必须把改变项标为 `EXPLICIT`、未变项标为 `INHERITED`，并重新执行事实读取、OR-Tools 求解和独立验证。
+- 无解时沿用 `UnsatAnalysis` 和 `WAITING_USER_INPUT`；选中方案后沿用 RESCHEDULE Before/After 草案及 `ACCEPT/EDIT/REJECT`。REJECT 不关闭 Java 异常单，ACCEPT 后由 Java 会议事务自动关闭。
+
 ## 11. 简化RAG
 
 ### 11.1 文档范围

@@ -935,6 +935,142 @@ def test_reschedule_separates_target_selector_and_destination_and_inherits_facts
     assert hydrated_by_field["requiredParticipants"]["summary"] == "3人：张三、李四、王五"
 
 
+def test_exception_replan_opener_inherits_facts_excludes_failed_room_and_rejects_safely(
+    configured_app: None,
+    fixture_tools: FakeJavaTools,
+) -> None:
+    fixture_tools.room_sequences = [[
+        {
+            **ROOM_103,
+            "features": ["LARGE_SCREEN", "WHITEBOARD", "VIDEO_CONFERENCE"],
+        },
+        {
+            **ROOM_102,
+            "features": ["LARGE_SCREEN", "WHITEBOARD", "VIDEO_CONFERENCE"],
+        },
+    ]]
+    run_id = f"run_{uuid.uuid4().hex}"
+    message = (
+        "请处理异常重排单 RP-20260814-0001。会议 ID 122 的原会议室"
+        "“研发楼403”已失效，原因是空调漏水。请先读取我可管理的会议事实；"
+        "默认保留原会议时长、必需/可选参会人和设备要求，优先保持原时段，"
+        "给出 Top 3，并在任何写入前让我确认。"
+    )
+
+    with TestClient(app) as client:
+        events = _start_with_message(
+            client,
+            run_id,
+            f"trc_{uuid.uuid4().hex}",
+            message,
+        )
+        required = next(payload for name, payload in events if name == "hitl.required")
+        response = client.post(
+            f"/internal/v1/agent-runs/{run_id}/resume",
+            headers=_headers(run_id=run_id, trace_id=f"trc_{uuid.uuid4().hex}"),
+            json={
+                "action": "REJECT",
+                "confirmationToken": required["confirmationToken"],
+            },
+        )
+
+    assert events[-1][0] == "hitl.required"
+    assert required["actionType"] == "RESCHEDULE"
+    assert fixture_tools.calls.index("get_recent_meeting") < fixture_tools.calls.index(
+        "get_employee_free_busy"
+    )
+    assert fixture_tools.free_busy_windows == [
+        (
+            datetime.fromisoformat("2026-08-25T14:00:00+08:00"),
+            datetime.fromisoformat("2026-08-25T15:30:00+08:00"),
+        )
+    ]
+    assert fixture_tools.free_busy_exclusions == [122]
+    assert fixture_tools.room_search_exclusions == [122]
+    assert fixture_tools.room_search_features == [
+        ["LARGE_SCREEN", "WHITEBOARD", "VIDEO_CONFERENCE"]
+    ]
+    assert len(fixture_tools.reschedule_payloads) == 1
+    payload = fixture_tools.reschedule_payloads[0]
+    assert payload.meeting_id == 122
+    assert payload.room_id == 102
+    assert payload.start_at == datetime.fromisoformat("2026-08-25T14:00:00+08:00")
+    assert payload.end_at == datetime.fromisoformat("2026-08-25T15:30:00+08:00")
+    assert payload.required_participant_ids == [1001, 1002, 1010]
+    assert payload.optional_participant_ids == [1011]
+    hydrated = [payload for name, payload in events if name == "requirement.updated"][-1]
+    by_field = {item["field"]: item for item in hydrated["items"]}
+    assert by_field["timeWindow"]["status"] == "INHERITED"
+    assert by_field["durationMinutes"]["status"] == "INHERITED"
+    assert by_field["requiredParticipants"]["status"] == "INHERITED"
+    assert by_field["optionalRequirements"]["status"] == "INHERITED"
+    assert "confirm_reschedule" not in fixture_tools.calls
+    assert response.status_code == 200
+    assert _events(response.text)[-1][1]["status"] == "CANCELLED"
+    assert "confirm_reschedule" not in fixture_tools.calls
+
+
+def test_exception_replan_constraint_delta_requeries_and_preserves_other_facts(
+    configured_app: None,
+    fixture_tools: FakeJavaTools,
+) -> None:
+    relaxed_room = {
+        **ROOM_102,
+        "features": ["LARGE_SCREEN", "VIDEO_CONFERENCE"],
+    }
+    fixture_tools.room_sequences = [[], [relaxed_room]]
+    run_id = f"run_{uuid.uuid4().hex}"
+    opener = (
+        "请处理异常重排单 RP-20260814-0001。meetingId 122 的原会议室已失效。"
+        "默认保留原会议时长、必需/可选参会人和设备要求，优先保持原时段。"
+    )
+
+    with TestClient(app) as client:
+        initial_events = _start_with_message(
+            client,
+            run_id,
+            f"trc_{uuid.uuid4().hex}",
+            opener,
+        )
+        response = client.post(
+            f"/internal/v1/agent-runs/{run_id}/input",
+            headers=_headers(run_id=run_id, trace_id=f"trc_{uuid.uuid4().hex}"),
+            json={
+                "message": "不再要求白板，允许顺延30分钟，其他约束保持不变。",
+                "clientRequestId": f"input_{uuid.uuid4().hex}",
+                "expectedRevision": 1,
+            },
+        )
+
+    assert initial_events[-1][0] == "run.completed"
+    assert initial_events[-1][1]["status"] == "WAITING_USER_INPUT"
+    assert response.status_code == 200
+    events = _events(response.text)
+    assert events[-1][0] == "hitl.required"
+    assert fixture_tools.room_search_features == [
+        ["LARGE_SCREEN", "WHITEBOARD", "VIDEO_CONFERENCE"],
+        ["LARGE_SCREEN", "VIDEO_CONFERENCE"],
+    ]
+    assert fixture_tools.room_search_windows[-1] == (
+        datetime.fromisoformat("2026-08-25T14:00:00+08:00"),
+        datetime.fromisoformat("2026-08-25T16:00:00+08:00"),
+    )
+    assert fixture_tools.free_busy_exclusions == [122, 122]
+    payload = fixture_tools.reschedule_payloads[-1]
+    assert payload.meeting_id == 122
+    assert payload.room_id == 102
+    assert payload.end_at - payload.start_at == timedelta(minutes=90)
+    assert payload.required_participant_ids == [1001, 1002, 1010]
+    assert payload.optional_participant_ids == [1011]
+    hydrated = [payload for name, payload in events if name == "requirement.updated"][-1]
+    by_field = {item["field"]: item for item in hydrated["items"]}
+    assert by_field["timeWindow"]["status"] == "EXPLICIT"
+    assert by_field["durationMinutes"]["status"] == "INHERITED"
+    assert by_field["requiredParticipants"]["status"] == "INHERITED"
+    assert by_field["optionalRequirements"]["status"] == "EXPLICIT"
+    assert "confirm_reschedule" not in fixture_tools.calls
+
+
 def test_reschedule_and_cancel_each_require_hitl_before_their_write_tool(
     configured_app: None,
     fixture_tools: FakeJavaTools,

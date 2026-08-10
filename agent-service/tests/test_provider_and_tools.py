@@ -596,6 +596,10 @@ def test_route_evaluator_distinguishes_mutation_rules_from_mutation_request() ->
         Route.REQUIREMENT,
         Intent.CANCEL_MEETING,
     )
+    assert evaluator.fallback("请处理异常重排，会议室已失效。") == (
+        Route.REQUIREMENT,
+        Intent.MODIFY_MEETING,
+    )
 
 
 def test_requirement_preserves_recent_meeting_reference_after_model_omission() -> None:

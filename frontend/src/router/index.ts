@@ -57,8 +57,9 @@ export const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
-      path: '/preview/replan',
-      name: 'preview-replan',
+      path: '/replan',
+      alias: '/preview/replan',
+      name: 'replan',
       component: () => import('../views/ReplanPreviewView.vue'),
       meta: { requiresAuth: true },
     },
@@ -84,7 +85,7 @@ router.beforeEach(async (to, from) => {
     window.sessionStorage.setItem(CHAT_ACTIVE_RUN_STORAGE_KEY, leavingRunId)
   }
 
-  if (to.name === 'chat' && to.query.runId === undefined) {
+  if (to.name === 'chat' && to.query.runId === undefined && to.query.prefill === undefined) {
     const activeRunId = window.sessionStorage.getItem(CHAT_ACTIVE_RUN_STORAGE_KEY)
     if (activeRunId !== null && SAFE_RUN_ID.test(activeRunId)) {
       return { name: 'chat', query: { ...to.query, runId: activeRunId } }

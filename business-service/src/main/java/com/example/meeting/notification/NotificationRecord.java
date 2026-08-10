@@ -12,6 +12,7 @@ public class NotificationRecord {
   private String title;
   private String content;
   private Long relatedMeetingId;
+  private Long relatedReplanCaseId;
   private LocalDateTime readAt;
   private LocalDateTime createdAt;
 
@@ -61,6 +62,14 @@ public class NotificationRecord {
 
   public void setRelatedMeetingId(Long relatedMeetingId) {
     this.relatedMeetingId = relatedMeetingId;
+  }
+
+  public Long getRelatedReplanCaseId() {
+    return relatedReplanCaseId;
+  }
+
+  public void setRelatedReplanCaseId(Long relatedReplanCaseId) {
+    this.relatedReplanCaseId = relatedReplanCaseId;
   }
 
   public LocalDateTime getReadAt() {

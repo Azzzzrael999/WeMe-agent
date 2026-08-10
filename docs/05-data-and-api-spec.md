@@ -232,11 +232,40 @@ type VARCHAR(32)
 title VARCHAR(128)
 content VARCHAR(1000)
 related_meeting_id BIGINT NULL
+related_replan_case_id BIGINT NULL
 read_at DATETIME(3) NULL
 created_at DATETIME(3)
 ```
 
 索引：`(user_id, created_at)`、`(user_id, read_at, created_at)`。
+
+### 2.14.1 meeting_replan_case
+
+```text
+id BIGINT PK
+case_no VARCHAR(40) UNIQUE
+meeting_id BIGINT
+organizer_id BIGINT
+failed_room_id BIGINT
+failed_room_name VARCHAR(64)
+failure_reason VARCHAR(255)
+room_status_version INT
+original_start_at DATETIME(3)
+original_end_at DATETIME(3)
+constraint_snapshot JSON/TEXT
+status VARCHAR(24)              # OPEN/RESOLVED/RESTORED/CANCELLED
+resolution_type VARCHAR(32) NULL
+resolved_room_id BIGINT NULL
+resolved_start_at DATETIME(3) NULL
+resolved_end_at DATETIME(3) NULL
+version INT
+created_at DATETIME(3)
+updated_at DATETIME(3)
+resolved_at DATETIME(3) NULL
+UNIQUE(meeting_id, failed_room_id, room_status_version)
+```
+
+索引：`(organizer_id,status,created_at)`、`(status,created_at)`、`meeting_id`。异常单只保存结构化约束快照，不保存 Prompt 或隐藏推理。
 
 ### 2.15 agent_tool_audit
 
@@ -822,6 +851,7 @@ PATCH /api/v1/notifications/read-all
       "title": "会议已变更",
       "content": "会议“支付网关架构评审”的时间或参会信息已更新。",
       "relatedMeetingId": 9001,
+      "relatedReplanCaseId": null,
       "readAt": null,
       "createdAt": "2026-08-19T10:00:00+08:00"
     }
@@ -831,11 +861,67 @@ PATCH /api/v1/notifications/read-all
 }
 ```
 
-- 类型只允许 `MEETING_CONFIRMED|MEETING_CHANGED|MEETING_CANCELLED`；`unreadOnly` 默认 false，`page` 默认 1，`size` 默认 20、最大 100。
+- 类型只允许 `MEETING_CONFIRMED|MEETING_CHANGED|MEETING_CANCELLED|RESOURCE_UNAVAILABLE|RESOURCE_RESTORED`；`unreadOnly` 默认 false，`page` 默认 1，`size` 默认 20、最大 100。
 - `GET /unread-count` 返回 `{"unreadCount":1}`。单条已读返回更新后的通知 item；重复标记幂等。
 - `PATCH /read-all` 返回 `{"updatedCount":1,"readAt":"2026-08-19T10:05:00+08:00"}`，只更新当前用户未读通知。
 - 所有通知接口仅使用认证用户 ID。不存在或属于其他用户的通知统一返回 `NOTIFICATION_NOT_FOUND`，ADMIN 没有跨用户读取特权。
 - 会议确认、变更、取消通知与对应业务记录同事务写入；变更接收人为修改前后组织者/参与者并集。草案、HOT PENDING、CONFLICT、业务回滚和幂等重放不产生重复成功通知。
+
+### 5.6 异常重排
+
+```text
+GET  /api/v1/replan-cases?status=&page=&size=
+GET  /api/v1/replan-cases/{caseId}
+GET  /api/v1/replan-cases/{caseId}/alternatives?limit=3
+POST /api/v1/replan-cases/{caseId}/resolve
+```
+
+`POST /resolve` 请求：
+
+```json
+{
+  "roomId": 102,
+  "expectedMeetingVersion": 3,
+  "expectedCaseVersion": 0
+}
+```
+
+异常单详情/resolve 响应字段固定为：
+
+```json
+{
+  "id": 701,
+  "caseNo": "RP-20260814-0001",
+  "meetingId": 127,
+  "organizerId": 1001,
+  "status": "OPEN",
+  "failureReason": "空调漏水",
+  "failedRoom": {"id": 101, "name": "研发楼 301"},
+  "roomStatusVersion": 4,
+  "originalStartAt": "2026-08-25T14:00:00+08:00",
+  "originalEndAt": "2026-08-25T15:00:00+08:00",
+  "currentMeeting": {},
+  "changedConstraints": ["会议室资源不可用"],
+  "preservedConstraints": ["原时间与时长", "必需与可选参会人", "原房间设备能力"],
+  "resolutionType": null,
+  "resolvedRoomId": null,
+  "resolvedStartAt": null,
+  "resolvedEndAt": null,
+  "version": 0,
+  "createdAt": "2026-08-14T10:00:00+08:00",
+  "updatedAt": "2026-08-14T10:00:00+08:00",
+  "resolvedAt": null
+}
+```
+
+列表为 `{"items":[<上述详情>],"total":1}`。alternatives 固定为 `caseId/caseVersion/meetingVersion/sameTime/changedConstraints/preservedConstraints/items`；每个 item 使用 `roomId/roomCode/roomName/building/floor/capacity/features/reason`，其中 `features` 与会议室 API 的 `RoomFeatureView[]` 一致。
+
+- 详情返回异常单、当前会议快照、`changedConstraints`、`preservedConstraints` 和版本。OPEN 以外状态只读。
+- alternatives 只返回原时段内通过 ACTIVE、容量、原房间设备能力和占用硬约束的最多 3 个房间；返回 `sameTime=true`、排序摘要和约束解释。
+- resolve 不接受标题、人员、开始/结束时间或设备字段；服务端使用当前会议事实保留这些字段并调用统一修改服务。
+- EMPLOYEE 只能访问本人作为 organizer 的异常单；ADMIN 可以访问全部并代处理。不可见统一为 `REPLAN_CASE_NOT_FOUND`。
+- 状态/版本过期返回 `REPLAN_CASE_STATE_CONFLICT`；提交时候选已失效返回 `REPLAN_CANDIDATE_STALE` 或既有 `BOOKING_CONFLICT`。
+- `PATCH /api/v1/admin/rooms/{roomId}/status` 的请求扩展为 `{"status":"ACTIVE|INACTIVE","expectedVersion":0,"reason":"..."}`；INACTIVE 时 reason 必填且最长 200 字，ACTIVE 时可省略。
 
 ## 6. Java内部Tool API
 

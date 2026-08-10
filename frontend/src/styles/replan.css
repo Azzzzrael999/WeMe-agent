@@ -1,0 +1,92 @@
+.replan-open-count,
+.replan-same-time,
+.replan-only-room {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 11px;
+  font-weight: 680;
+}
+.replan-open-count { color: var(--danger); background: var(--danger-bg); }
+.replan-same-time { color: var(--info); background: var(--info-bg); }
+.replan-only-room { color: var(--primary); background: var(--primary-soft); }
+.replan-toolbar { display: flex; align-items: end; gap: 16px; margin-bottom: 16px; padding: 14px 16px; }
+.replan-toolbar label { display: grid; width: min(220px, 100%); flex: 0 0 auto; gap: 4px; }
+.replan-toolbar label span { color: var(--muted); font-size: 11px; font-weight: 650; }
+.replan-toolbar p { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
+.replan-notice { margin-bottom: 16px; border: 1px solid #bbf7d0; border-radius: 10px; padding: 10px 12px; color: var(--success); background: var(--success-bg); }
+.replan-action-error { margin-bottom: 16px; }
+.replan-layout { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); align-items: start; gap: 16px; }
+.replan-case-list { position: sticky; top: 72px; max-height: calc(100vh - 96px); overflow: auto; padding: 16px; }
+.replan-case-buttons { display: grid; gap: 8px; }
+.replan-case-button { display: grid; width: 100%; gap: 5px; border: 1px solid var(--border); border-radius: 11px; padding: 12px; color: var(--foreground); background: var(--surface); text-align: left; }
+.replan-case-button:hover { border-color: var(--border-strong); background: var(--accent); }
+.replan-case-button--active { border-color: #c7d2fe; background: var(--primary-soft); box-shadow: 0 0 0 2px rgb(79 70 229 / 8%); }
+.replan-case-button__heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.replan-case-button > span:not(.replan-case-button__heading) { overflow: hidden; font-size: 12px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.replan-case-button small { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 10px; }
+.replan-case-button__reason { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.replan-list-loading { display: flex; min-height: 96px; align-items: center; justify-content: center; gap: 9px; color: var(--muted); }
+.replan-pagination { margin: 12px -16px -16px; }
+.replan-detail-column { display: grid; min-width: 0; gap: 16px; }
+.replan-detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.replan-detail-heading h2 { margin: 0; font-size: 20px; }
+.replan-fact-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 18px; }
+.replan-fact { display: grid; gap: 5px; border: 1px solid var(--border); border-radius: 11px; padding: 13px; }
+.replan-fact > span { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; font-weight: 650; }
+.replan-fact strong { font-size: 13px; }
+.replan-fact p, .replan-fact small { margin: 0; color: var(--muted); font-size: 11px; }
+.replan-fact--danger { border-color: #fecaca; background: var(--danger-bg); }
+.replan-fact--danger > span { color: var(--danger); }
+.replan-fact--readonly { border-color: #bbf7d0; background: var(--success-bg); }
+.replan-fact--readonly > span { color: var(--success); }
+.replan-constraint-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
+.replan-constraint-grid section { border: 1px solid var(--border); border-radius: 11px; padding: 13px; }
+.replan-constraint-grid h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: 12px; }
+.replan-constraint-grid ul { display: grid; gap: 5px; margin: 0; padding-left: 18px; color: var(--muted); font-size: 11px; }
+.replan-alternative-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.replan-alternative { display: grid; min-width: 0; gap: 11px; border: 1px solid var(--border); border-radius: 12px; padding: 14px; color: var(--foreground); background: var(--surface); text-align: left; }
+.replan-alternative:hover { border-color: var(--border-strong); }
+.replan-alternative--selected { border-color: var(--primary); box-shadow: 0 0 0 3px rgb(79 70 229 / 10%); }
+.replan-alternative__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.replan-alternative__heading > span:first-child { display: grid; min-width: 0; }
+.replan-alternative__heading strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.replan-alternative__heading small, .replan-alternative__reason { color: var(--muted); font-size: 10px; }
+.replan-alternative__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; color: var(--muted); font-size: 10px; }
+.replan-alternative__meta > span { border-radius: 999px; padding: 2px 6px; background: var(--accent); }
+.replan-hard-evidence { display: flex; flex-wrap: wrap; gap: 5px; }
+.replan-hard-evidence > span { display: inline-flex; align-items: center; gap: 3px; border-radius: 999px; padding: 3px 6px; color: var(--success); background: var(--success-bg); font-size: 9px; font-weight: 650; }
+.replan-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.replan-no-alternative, .replan-readonly-callout { display: flex; align-items: center; gap: 14px; border: 1px dashed var(--border-strong); border-radius: 12px; padding: 16px; color: var(--muted); }
+.replan-no-alternative > div, .replan-readonly-callout > div { min-width: 0; flex: 1; }
+.replan-no-alternative strong, .replan-readonly-callout h2 { color: var(--foreground); }
+.replan-no-alternative p, .replan-readonly-callout p { margin: 3px 0 0; font-size: 11px; }
+.replan-readonly-callout { border-style: solid; color: var(--success); }
+.replan-readonly-callout h2 { margin: 0; font-size: 15px; }
+.replan-confirm-summary { display: grid; gap: 8px; margin: 0; }
+.replan-confirm-summary div { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 8px; }
+.replan-confirm-summary dt { color: var(--muted); font-size: 11px; }
+.replan-confirm-summary dd { margin: 0; font-weight: 620; }
+.replan-prefill-notice { display: flex; align-items: flex-start; gap: 8px; margin: 0; border: 1px solid #c7d2fe; border-radius: 10px; padding: 9px 11px; color: var(--primary); background: var(--primary-soft); font-size: 11px; }
+.ui-dialog label small { color: var(--muted); font-size: 10px; font-weight: 500; }
+
+@media (max-width: 1180px) {
+  .replan-alternative-list { grid-template-columns: 1fr; }
+}
+@media (max-width: 900px) {
+  .replan-layout { grid-template-columns: 1fr; }
+  .replan-case-list { position: static; max-height: none; }
+  .replan-case-buttons { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 620px) {
+  .replan-toolbar { align-items: stretch; flex-direction: column; }
+  .replan-toolbar label { width: 100%; }
+  .replan-toolbar p { margin: 0; }
+  .replan-case-buttons, .replan-fact-grid, .replan-constraint-grid { grid-template-columns: 1fr; }
+  .replan-detail-heading, .replan-alternative__heading { align-items: flex-start; flex-direction: column; }
+  .replan-actions { display: grid; }
+  .replan-no-alternative { align-items: flex-start; flex-direction: column; }
+}

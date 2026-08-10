@@ -744,7 +744,7 @@ class AgentState(AgentSchema):
     model_provider: str | None = Field(default=None, max_length=32)
     configured_model: str | None = Field(default=None, max_length=128)
     response_models: list[str] = Field(default_factory=list, max_length=12)
-    prompt_version: str = Field(default="meeting-agent-prompts-v7", max_length=64)
+    prompt_version: str = Field(default="meeting-agent-prompts-v8", max_length=64)
     schema_version: str = Field(default="meeting-agent-state-v6", max_length=64)
     input_tokens: int = Field(default=0, ge=0)
     output_tokens: int = Field(default=0, ge=0)

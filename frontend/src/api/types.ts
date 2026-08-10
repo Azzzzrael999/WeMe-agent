@@ -103,6 +103,8 @@ export type NotificationType =
   | 'MEETING_CONFIRMED'
   | 'MEETING_CHANGED'
   | 'MEETING_CANCELLED'
+  | 'RESOURCE_UNAVAILABLE'
+  | 'RESOURCE_RESTORED'
 
 export interface NotificationItem {
   id: number
@@ -110,6 +112,7 @@ export interface NotificationItem {
   title: string
   content: string
   relatedMeetingId: number | null
+  relatedReplanCaseId: number | null
   readAt: string | null
   createdAt: string
 }
@@ -184,6 +187,7 @@ export interface RoomUpdateMutation extends RoomMutation {
 export interface RoomStatusMutation {
   status: string
   expectedVersion: number
+  reason?: string
 }
 
 export interface MeetingParticipant {
@@ -216,6 +220,75 @@ export interface Meeting {
 export interface MeetingListResult {
   items: Meeting[]
   total: number
+}
+
+export type ReplanCaseStatus = 'OPEN' | 'RESOLVED' | 'RESTORED' | 'CANCELLED'
+
+export type ReplanResolutionType =
+  | 'QUICK_ROOM_CHANGE'
+  | 'AGENT_RESCHEDULE'
+  | 'MEETING_CANCELLED'
+  | 'RESOURCE_RESTORED'
+
+export interface ReplanFailedRoom {
+  id: number
+  name: string
+}
+
+export interface ReplanCase {
+  id: number
+  caseNo: string
+  meetingId: number
+  organizerId: number
+  status: ReplanCaseStatus
+  failureReason: string
+  failedRoom: ReplanFailedRoom
+  roomStatusVersion: number
+  originalStartAt: string
+  originalEndAt: string
+  currentMeeting: Meeting
+  changedConstraints: string[]
+  preservedConstraints: string[]
+  resolutionType: ReplanResolutionType | null
+  resolvedRoomId: number | null
+  resolvedStartAt: string | null
+  resolvedEndAt: string | null
+  version: number
+  createdAt: string
+  updatedAt: string
+  resolvedAt: string | null
+}
+
+export interface ReplanCaseListResult {
+  items: ReplanCase[]
+  total: number
+}
+
+export interface ReplanAlternative {
+  roomId: number
+  roomCode: string
+  roomName: string
+  building: string
+  floor: string
+  capacity: number
+  features: RoomFeature[]
+  reason: string
+}
+
+export interface ReplanAlternatives {
+  caseId: number
+  caseVersion: number
+  meetingVersion: number
+  sameTime: true
+  changedConstraints: string[]
+  preservedConstraints: string[]
+  items: ReplanAlternative[]
+}
+
+export interface ReplanResolveMutation {
+  roomId: number
+  expectedMeetingVersion: number
+  expectedCaseVersion: number
 }
 
 export interface MeetingMutation {

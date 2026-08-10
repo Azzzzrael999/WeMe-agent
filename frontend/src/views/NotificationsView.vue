@@ -1,5 +1,5 @@
 <template>
-  <AppShell title="消息中心" description="查看会议确认、变更与取消通知。消息仅对当前登录用户可见。" eyebrow="协作 / 消息">
+  <AppShell title="消息中心" description="查看会议与资源异常通知。消息仅对当前登录用户可见。" eyebrow="协作 / 消息">
     <template #actions>
       <button class="ui-button ui-button--outline" type="button" :disabled="markingAll || unreadCount === 0" @click="markAllRead">
         <CheckCheck :size="16" aria-hidden="true" />{{ markingAll ? '正在处理…' : '全部标为已读' }}
@@ -11,21 +11,21 @@
         <button type="button" :class="{ active: !unreadOnly }" :aria-pressed="!unreadOnly" @click="setUnreadOnly(false)">全部</button>
         <button type="button" :class="{ active: unreadOnly }" :aria-pressed="unreadOnly" @click="setUnreadOnly(true)">未读 <span v-if="unreadCount > 0">{{ unreadCount }}</span></button>
       </div>
-      <label><span>消息类型</span><select v-model="typeFilter" @change="applyTypeFilter"><option value="">全部类型</option><option value="MEETING_CONFIRMED">会议已确认</option><option value="MEETING_CHANGED">会议已变更</option><option value="MEETING_CANCELLED">会议已取消</option></select></label>
+      <label><span>消息类型</span><select v-model="typeFilter" @change="applyTypeFilter"><option value="">全部类型</option><option value="MEETING_CONFIRMED">会议已确认</option><option value="MEETING_CHANGED">会议已变更</option><option value="MEETING_CANCELLED">会议已取消</option><option value="RESOURCE_UNAVAILABLE">会议室已失效</option><option value="RESOURCE_RESTORED">会议室已恢复</option></select></label>
       <button class="icon-button" type="button" title="刷新消息" aria-label="刷新消息" :disabled="loading" @click="loadNotifications"><RefreshCw :size="17" aria-hidden="true" /></button>
     </section>
 
     <p v-if="actionError" class="error-message notification-action-error" role="alert">{{ actionError }}</p>
     <ErrorState v-if="listError" :message="listError" retryable @retry="loadNotifications" />
     <div v-else-if="loading" class="feedback-state" aria-live="polite"><span class="spinner" aria-hidden="true" />正在加载消息…</div>
-    <EmptyState v-else-if="notifications.length === 0" :title="unreadOnly ? '没有未读消息' : '消息中心还是空的'" :description="unreadOnly ? '当前消息都已处理，可以切换到“全部”查看历史。' : '会议确认、变更或取消后，相关通知会显示在这里。'" icon="check" />
+    <EmptyState v-else-if="notifications.length === 0" :title="unreadOnly ? '没有未读消息' : '消息中心还是空的'" :description="unreadOnly ? '当前消息都已处理，可以切换到“全部”查看历史。' : '会议变更或会议室资源异常后，相关通知会显示在这里。'" icon="check" />
     <section v-else class="notification-list" aria-label="消息列表">
       <article v-for="notification in notifications" :key="notification.id" class="notification-card" :class="{ 'notification-card--unread': notification.readAt === null }">
         <div class="notification-icon" :class="`notification-icon--${notificationTone(notification.type)}`" aria-hidden="true"><component :is="notificationIcon(notification.type)" :size="18" /></div>
         <div class="notification-card__body">
           <header><div><p class="eyebrow">{{ notificationTypeLabel(notification.type) }}</p><h2>{{ notification.title }}</h2></div><span v-if="notification.readAt === null" class="unread-dot"><span class="sr-only">未读</span></span></header>
           <p>{{ notification.content }}</p>
-          <footer><time :datetime="notification.createdAt">{{ formatDateTime(notification.createdAt) }}</time><div class="notification-actions"><button v-if="notification.readAt === null" class="text-button" type="button" :disabled="pendingIds.has(notification.id)" @click="markRead(notification)">标为已读</button><button v-if="notification.relatedMeetingId !== null" class="text-button" type="button" @click="openMeeting(notification)">查看会议<ArrowUpRight :size="14" aria-hidden="true" /></button></div></footer>
+          <footer><time :datetime="notification.createdAt">{{ formatDateTime(notification.createdAt) }}</time><div class="notification-actions"><button v-if="notification.readAt === null" class="text-button" type="button" :disabled="pendingIds.has(notification.id)" @click="markRead(notification)">标为已读</button><button v-if="notification.relatedReplanCaseId != null" class="text-button" type="button" @click="openRelated(notification)">处理异常<ArrowUpRight :size="14" aria-hidden="true" /></button><button v-else-if="notification.relatedMeetingId != null" class="text-button" type="button" @click="openRelated(notification)">查看会议<ArrowUpRight :size="14" aria-hidden="true" /></button></div></footer>
         </div>
       </article>
 
@@ -38,7 +38,7 @@
 </template>
 
 <script setup lang="ts">
-import { ArrowUpRight, CalendarCheck2, CalendarClock, CalendarX2, CheckCheck, ChevronLeft, ChevronRight, RefreshCw } from '@lucide/vue'
+import { ArrowUpRight, CalendarCheck2, CalendarClock, CalendarX2, CheckCheck, ChevronLeft, ChevronRight, RefreshCw, RotateCcw, TriangleAlert } from '@lucide/vue'
 import { computed, onMounted, ref, type Component } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -66,9 +66,27 @@ const pendingIds = ref(new Set<number>())
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
 
 function message(error: unknown, fallback: string): string { return error instanceof ApiError ? error.message : fallback }
-function notificationTypeLabel(type: NotificationType): string { return ({ MEETING_CONFIRMED: '会议已确认', MEETING_CHANGED: '会议已变更', MEETING_CANCELLED: '会议已取消' })[type] }
-function notificationTone(type: NotificationType): string { return type === 'MEETING_CONFIRMED' ? 'success' : type === 'MEETING_CHANGED' ? 'info' : 'danger' }
-function notificationIcon(type: NotificationType): Component { return type === 'MEETING_CONFIRMED' ? CalendarCheck2 : type === 'MEETING_CHANGED' ? CalendarClock : CalendarX2 }
+function notificationTypeLabel(type: NotificationType): string {
+  return ({
+    MEETING_CONFIRMED: '会议已确认',
+    MEETING_CHANGED: '会议已变更',
+    MEETING_CANCELLED: '会议已取消',
+    RESOURCE_UNAVAILABLE: '会议室已失效',
+    RESOURCE_RESTORED: '会议室已恢复',
+  })[type]
+}
+function notificationTone(type: NotificationType): string {
+  if (type === 'MEETING_CONFIRMED' || type === 'RESOURCE_RESTORED') return 'success'
+  if (type === 'MEETING_CHANGED') return 'info'
+  return 'danger'
+}
+function notificationIcon(type: NotificationType): Component {
+  if (type === 'MEETING_CONFIRMED') return CalendarCheck2
+  if (type === 'MEETING_CHANGED') return CalendarClock
+  if (type === 'RESOURCE_UNAVAILABLE') return TriangleAlert
+  if (type === 'RESOURCE_RESTORED') return RotateCcw
+  return CalendarX2
+}
 
 async function loadNotifications(): Promise<void> {
   loading.value = true; listError.value = ''; actionError.value = ''
@@ -108,9 +126,13 @@ async function markAllRead(): Promise<void> {
   } catch (error) { actionError.value = message(error, '全部标记已读失败。') }
   finally { markingAll.value = false }
 }
-async function openMeeting(notification: NotificationItem): Promise<void> {
+async function openRelated(notification: NotificationItem): Promise<void> {
   if (notification.readAt === null) await markRead(notification)
-  if (notification.relatedMeetingId !== null) await router.push({ name: 'meetings', query: { meetingId: String(notification.relatedMeetingId) } })
+  if (notification.relatedReplanCaseId != null) {
+    await router.push({ name: 'replan', query: { caseId: String(notification.relatedReplanCaseId) } })
+  } else if (notification.relatedMeetingId != null) {
+    await router.push({ name: 'meetings', query: { meetingId: String(notification.relatedMeetingId) } })
+  }
 }
 
 onMounted(() => { void loadNotifications() })

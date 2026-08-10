@@ -105,7 +105,7 @@ class RoomManagementIntegrationTest {
             patch("/api/v1/admin/rooms/{roomId}/status", roomId)
                 .header("Authorization", bearer(adminToken))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"status\":\"INACTIVE\",\"expectedVersion\":1}"))
+                .content("{\"status\":\"INACTIVE\",\"expectedVersion\":1,\"reason\":\"测试维护\"}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.data.status").value("INACTIVE"))
         .andExpect(jsonPath("$.data.version").value(2));

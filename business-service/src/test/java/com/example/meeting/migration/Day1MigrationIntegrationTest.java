@@ -38,6 +38,7 @@ class Day1MigrationIntegrationTest {
     assertThat(tableCount("message_outbox")).isEqualTo(1);
     assertThat(tableCount("event_consume_record")).isEqualTo(1);
     assertThat(tableCount("notification")).isEqualTo(1);
+    assertThat(tableCount("meeting_replan_case")).isEqualTo(1);
     assertThat(tableCount("agent_tool_audit")).isEqualTo(1);
     assertThat(tableCount("agent_run")).isZero();
   }

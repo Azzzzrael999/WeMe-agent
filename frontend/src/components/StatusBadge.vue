@@ -9,12 +9,13 @@ const labels: Record<string, string> = {
   RUNNING: '运行中', PENDING: '等待中', PROCESSING: '处理中', WAITING_CONFIRMATION: '待确认',
   WAITING_BUSINESS_RESULT: '业务处理中', WAITING_USER_INPUT: '待补充', FAILED: '失败',
   CONFLICT: '冲突', CANCELLED: '已取消', ACTIVE: '启用', INACTIVE: '停用', DISABLED: '停用',
+  OPEN: '待处理', RESOLVED: '已解决', RESTORED: '资源已恢复',
 }
 const label = computed(() => props.label ?? labels[props.status] ?? props.status)
 const tone = computed(() => {
-  if (['SUCCESS', 'CONFIRMED', 'COMPLETED', 'SUCCEEDED', 'ACTIVE'].includes(props.status)) return 'success'
+  if (['SUCCESS', 'CONFIRMED', 'COMPLETED', 'SUCCEEDED', 'ACTIVE', 'RESOLVED', 'RESTORED'].includes(props.status)) return 'success'
   if (props.status === 'RUNNING') return 'info'
-  if (props.status.startsWith('WAITING') || ['PENDING', 'PROCESSING'].includes(props.status)) return 'warning'
+  if (props.status.startsWith('WAITING') || ['PENDING', 'PROCESSING', 'OPEN'].includes(props.status)) return 'warning'
   if (['FAILED', 'CONFLICT', 'CANCELLED', 'INACTIVE', 'DISABLED'].includes(props.status)) return 'destructive'
   return 'secondary'
 })

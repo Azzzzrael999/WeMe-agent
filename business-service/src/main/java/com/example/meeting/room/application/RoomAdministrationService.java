@@ -3,6 +3,7 @@ package com.example.meeting.room.application;
 import com.example.meeting.common.error.BusinessException;
 import com.example.meeting.common.error.ErrorCode;
 import com.example.meeting.common.web.ApiErrorDetail;
+import com.example.meeting.replan.application.ReplanCaseLifecycleService;
 import com.example.meeting.room.api.CreateRoomRequest;
 import com.example.meeting.room.api.RoomItemView;
 import com.example.meeting.room.api.UpdateRoomRequest;
@@ -26,11 +27,15 @@ public class RoomAdministrationService {
 
   private final MeetingRoomMapper meetingRoomMapper;
   private final RoomQueryService roomQueryService;
+  private final ReplanCaseLifecycleService replanCaseLifecycleService;
 
   public RoomAdministrationService(
-      MeetingRoomMapper meetingRoomMapper, RoomQueryService roomQueryService) {
+      MeetingRoomMapper meetingRoomMapper,
+      RoomQueryService roomQueryService,
+      ReplanCaseLifecycleService replanCaseLifecycleService) {
     this.meetingRoomMapper = meetingRoomMapper;
     this.roomQueryService = roomQueryService;
+    this.replanCaseLifecycleService = replanCaseLifecycleService;
   }
 
   @Transactional
@@ -74,19 +79,30 @@ public class RoomAdministrationService {
 
   @Transactional
   public RoomItemView updateStatus(long roomId, UpdateRoomStatusRequest request) {
-    requireRoom(roomId);
+    MeetingRoom room = requireRoom(roomId);
+    String reason = request.reason() == null ? null : request.reason().trim();
+    if ("INACTIVE".equals(request.status()) && (reason == null || reason.isBlank())) {
+      throw validation("reason", "REQUIRED", "停用会议室时必须填写原因");
+    }
     if (meetingRoomMapper.updateStatusWithVersion(
             roomId, request.status(), request.expectedVersion())
         != 1) {
       throw new BusinessException(ErrorCode.ROOM_STATE_CONFLICT);
     }
+    if ("ACTIVE".equals(room.getStatus()) && "INACTIVE".equals(request.status())) {
+      replanCaseLifecycleService.createForRoomFailure(room, reason, request.expectedVersion() + 1);
+    } else if ("INACTIVE".equals(room.getStatus()) && "ACTIVE".equals(request.status())) {
+      replanCaseLifecycleService.restoreForRoom(roomId);
+    }
     return roomQueryService.findRoomForAdministration(roomId);
   }
 
-  private void requireRoom(long roomId) {
-    if (meetingRoomMapper.selectById(roomId) == null) {
+  private MeetingRoom requireRoom(long roomId) {
+    MeetingRoom room = meetingRoomMapper.selectById(roomId);
+    if (room == null) {
       throw new BusinessException(ErrorCode.ROOM_NOT_FOUND);
     }
+    return room;
   }
 
   private List<RoomFeatureReference> resolveFeatures(List<String> rawCodes) {

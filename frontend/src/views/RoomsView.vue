@@ -159,12 +159,17 @@
 
     <Teleport to="body">
       <div v-if="pendingStatusRoom" class="dialog-layer">
-        <button class="drawer-overlay" aria-label="关闭状态确认" @click="pendingStatusRoom = null" />
+        <button class="drawer-overlay" aria-label="关闭状态确认" @click="closeRoomStatusDialog" />
         <section class="ui-dialog ui-dialog--sm" role="alertdialog" aria-modal="true" aria-labelledby="room-status-title">
           <h2 id="room-status-title">{{ pendingStatusRoom.status === 'ACTIVE' ? '停用' : '启用' }}“{{ pendingStatusRoom.name }}”？</h2>
-          <p>{{ pendingStatusRoom.status === 'ACTIVE' ? '停用后员工无法查询或预约此会议室。' : '启用后会议室将重新对员工可见。' }}</p>
+          <p>{{ pendingStatusRoom.status === 'ACTIVE' ? '停用后系统会为尚未开始的已确认会议创建异常单，并通知会议发起人；不会自动移动会议。' : '启用后会议室将重新对员工可见，仍引用原房间的开放异常单会按服务端事实进入恢复状态。' }}</p>
+          <label v-if="pendingStatusRoom.status === 'ACTIVE'">
+            <span>失效原因</span>
+            <textarea v-model.trim="roomStatusReason" rows="3" maxlength="200" required placeholder="例如：空调漏水，预计今日不可用" :disabled="statusSubmitting" />
+            <small>{{ roomStatusReason.length }} / 200 · 将展示给受影响会议的发起人</small>
+          </label>
           <p v-if="adminError" class="error-message" role="alert">{{ adminError }}</p>
-          <footer><button class="ui-button ui-button--outline" type="button" @click="pendingStatusRoom = null">返回</button><button class="ui-button ui-button--destructive" type="button" @click="confirmRoomStatus">确认{{ pendingStatusRoom.status === 'ACTIVE' ? '停用' : '启用' }}</button></footer>
+          <footer><button class="ui-button ui-button--outline" type="button" :disabled="statusSubmitting" @click="closeRoomStatusDialog">返回</button><button class="ui-button ui-button--destructive" type="button" :disabled="statusSubmitting || (pendingStatusRoom.status === 'ACTIVE' && roomStatusReason.length === 0)" @click="confirmRoomStatus">{{ statusSubmitting ? '正在提交…' : `确认${pendingStatusRoom.status === 'ACTIVE' ? '停用' : '启用'}` }}</button></footer>
         </section>
       </div>
     </Teleport>
@@ -232,6 +237,8 @@ const detailError = ref('')
 const adminPanelOpen = ref(false)
 const editingRoom = ref<MeetingRoom | null>(null)
 const pendingStatusRoom = ref<MeetingRoom | null>(null)
+const roomStatusReason = ref('')
+const statusSubmitting = ref(false)
 const adminSubmitting = ref(false)
 const adminError = ref('')
 const meetingSheetOpen = ref(false)
@@ -394,19 +401,38 @@ async function saveRoom(): Promise<void> {
   } catch (error) { adminError.value = error instanceof ApiError ? error.message : '会议室保存失败。' }
   finally { adminSubmitting.value = false }
 }
-function requestRoomStatus(room: MeetingRoom): void { selectedRoom.value = null; adminError.value = ''; pendingStatusRoom.value = room }
+function requestRoomStatus(room: MeetingRoom): void { selectedRoom.value = null; adminError.value = ''; roomStatusReason.value = ''; pendingStatusRoom.value = room }
+function closeRoomStatusDialog(): void {
+  if (statusSubmitting.value) return
+  pendingStatusRoom.value = null
+  roomStatusReason.value = ''
+}
 async function confirmRoomStatus(): Promise<void> {
   const room = pendingStatusRoom.value
-  if (!room) return
+  if (!room || statusSubmitting.value) return
+  const nextStatus = room.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'
+  const reason = roomStatusReason.value.trim()
+  if (nextStatus === 'INACTIVE' && reason.length === 0) {
+    adminError.value = '停用会议室前请填写失效原因。'
+    return
+  }
+  statusSubmitting.value = true
+  adminError.value = ''
   try {
-    const request: RoomStatusMutation = { status: room.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE', expectedVersion: room.version }
+    const request: RoomStatusMutation = {
+      status: nextStatus,
+      expectedVersion: room.version,
+      ...(nextStatus === 'INACTIVE' ? { reason } : {}),
+    }
     await apiRequest<MeetingRoom>(`/admin/rooms/${room.id}/status`, { method: 'PATCH', body: JSON.stringify(request) })
     pendingStatusRoom.value = null
+    roomStatusReason.value = ''
     await refreshRooms()
   } catch (error) { adminError.value = error instanceof ApiError ? error.message : '会议室状态更新失败。' }
+  finally { statusSubmitting.value = false }
 }
 
-function closeAllOverlays(): void { selectedRoom.value = null; meetingSheetOpen.value = false; selectedBookingRoom.value = null; adminPanelOpen.value = false; pendingStatusRoom.value = null }
+function closeAllOverlays(): void { selectedRoom.value = null; meetingSheetOpen.value = false; selectedBookingRoom.value = null; adminPanelOpen.value = false; pendingStatusRoom.value = null; roomStatusReason.value = '' }
 
 onMounted(async () => { await loadRooms(); await loadAvailabilityMatrix() })
 </script>

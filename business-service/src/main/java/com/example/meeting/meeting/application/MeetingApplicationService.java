@@ -98,6 +98,45 @@ public class MeetingApplicationService {
   }
 
   public MeetingView update(long meetingId, UpdateMeetingRequest request, AuthenticatedUser actor) {
+    return updateInternal(meetingId, request, actor, null, null);
+  }
+
+  public MeetingView updateForReplan(
+      long meetingId,
+      long roomId,
+      int expectedMeetingVersion,
+      long caseId,
+      int expectedCaseVersion,
+      AuthenticatedUser actor) {
+    MeetingView current = queryService.getVisible(meetingId, actor);
+    if (!"CONFIRMED".equals(current.status()) || current.version() != expectedMeetingVersion) {
+      throw new BusinessException(ErrorCode.REPLAN_CASE_STATE_CONFLICT);
+    }
+    UpdateMeetingRequest request =
+        new UpdateMeetingRequest(
+            current.title(),
+            current.meetingType(),
+            roomId,
+            current.startAt(),
+            current.endAt(),
+            current.participants().stream()
+                .filter(participant -> "REQUIRED".equals(participant.participantType()))
+                .map(participant -> participant.employeeId())
+                .toList(),
+            current.participants().stream()
+                .filter(participant -> "OPTIONAL".equals(participant.participantType()))
+                .map(participant -> participant.employeeId())
+                .toList(),
+            expectedMeetingVersion);
+    return updateInternal(meetingId, request, actor, caseId, expectedCaseVersion);
+  }
+
+  private MeetingView updateInternal(
+      long meetingId,
+      UpdateMeetingRequest request,
+      AuthenticatedUser actor,
+      Long replanCaseId,
+      Integer expectedCaseVersion) {
     MeetingRecord snapshot = queryService.findManageableSnapshot(meetingId, actor);
     if (!"CONFIRMED".equals(snapshot.getStatus())
         || snapshot.getVersion() != request.expectedVersion()) {
@@ -119,7 +158,17 @@ public class MeetingApplicationService {
     try {
       try {
         runWrite(
-            () -> transactionService.update(meetingId, command, request.expectedVersion(), actor));
+            () ->
+                replanCaseId == null
+                    ? transactionService.update(
+                        meetingId, command, request.expectedVersion(), actor)
+                    : transactionService.updateForReplan(
+                        meetingId,
+                        command,
+                        request.expectedVersion(),
+                        actor,
+                        replanCaseId,
+                        expectedCaseVersion));
       } catch (BusinessException exception) {
         if (exception.errorCode() == ErrorCode.BOOKING_CONFLICT) {
           throw BookingConflictEvidence.exception(command);

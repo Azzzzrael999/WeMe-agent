@@ -230,6 +230,7 @@ const navigationGroups = computed<{ label: string; items: NavigationItem[] }[]>(
       { label: '我的会议', icon: CalendarDays, to: { name: 'meetings' } },
       { label: '会议室', icon: DoorOpen, to: { name: 'rooms' } },
       { label: '消息中心', icon: Bell, to: { name: 'notifications' } },
+      { label: '异常重排', icon: RotateCcw, to: { name: 'replan' } },
     ],
   },
   ...(authStore.state.user?.roles.includes('ADMIN') === true ? [{
@@ -239,7 +240,6 @@ const navigationGroups = computed<{ label: string; items: NavigationItem[] }[]>(
 ])
 
 const previewItems: NavigationItem[] = [
-  { label: '异常重排', icon: RotateCcw, to: { name: 'preview-replan' } },
   { label: '会前会后', icon: LayoutDashboard, to: { name: 'preview-lifecycle' } },
 ]
 
@@ -265,7 +265,7 @@ const currentSectionTitle = computed(() => {
     notifications: '消息中心',
     'admin-employees': '员工管理',
     'agent-run': '运行记录',
-    'preview-replan': '异常重排',
+    replan: '异常重排',
     'preview-lifecycle': '会前会后',
   }
   return typeof route.name === 'string' ? labels[route.name] ?? 'MeetOps' : 'MeetOps'

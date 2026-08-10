@@ -16,6 +16,7 @@ import com.example.meeting.meeting.domain.MeetingParticipantRecord;
 import com.example.meeting.meeting.domain.MeetingRecord;
 import com.example.meeting.meeting.infrastructure.MeetingMapper;
 import com.example.meeting.meeting.infrastructure.MeetingParticipantMapper;
+import com.example.meeting.replan.application.ReplanCaseLifecycleService;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -40,6 +41,7 @@ public class BookingTransactionService {
   private final BookingProperties bookingProperties;
   private final MeetingNumberGenerator meetingNumberGenerator;
   private final BookingCompletionWriter completionWriter;
+  private final ReplanCaseLifecycleService replanCaseLifecycleService;
   private final Clock clock;
 
   public BookingTransactionService(
@@ -53,6 +55,7 @@ public class BookingTransactionService {
       BookingProperties bookingProperties,
       MeetingNumberGenerator meetingNumberGenerator,
       BookingCompletionWriter completionWriter,
+      ReplanCaseLifecycleService replanCaseLifecycleService,
       Clock clock) {
     this.meetingMapper = meetingMapper;
     this.participantMapper = participantMapper;
@@ -64,6 +67,7 @@ public class BookingTransactionService {
     this.bookingProperties = bookingProperties;
     this.meetingNumberGenerator = meetingNumberGenerator;
     this.completionWriter = completionWriter;
+    this.replanCaseLifecycleService = replanCaseLifecycleService;
     this.clock = clock;
   }
 
@@ -126,6 +130,27 @@ public class BookingTransactionService {
       NormalizedMeetingCommand command,
       int expectedVersion,
       AuthenticatedUser actor) {
+    return updateInternal(meetingId, command, expectedVersion, actor, null, null);
+  }
+
+  @Transactional
+  public long updateForReplan(
+      long meetingId,
+      NormalizedMeetingCommand command,
+      int expectedVersion,
+      AuthenticatedUser actor,
+      long caseId,
+      int expectedCaseVersion) {
+    return updateInternal(meetingId, command, expectedVersion, actor, caseId, expectedCaseVersion);
+  }
+
+  private long updateInternal(
+      long meetingId,
+      NormalizedMeetingCommand command,
+      int expectedVersion,
+      AuthenticatedUser actor,
+      Long replanCaseId,
+      Integer expectedCaseVersion) {
     MeetingRecord meeting = findLocked(meetingId);
     assertManagePermission(meeting, actor);
     if (!"CONFIRMED".equals(meeting.getStatus()) || meeting.getVersion() != expectedVersion) {
@@ -154,6 +179,21 @@ public class BookingTransactionService {
     participantMapper.deleteByMeetingId(meetingId);
     writeParticipantsAndSlots(meetingId, command);
     completionWriter.writeChanged(meetingId, meeting.getOrganizerId(), previousParticipantIds);
+    if (replanCaseId == null) {
+      replanCaseLifecycleService.resolveAfterMeetingUpdate(
+          meetingId,
+          command.roomId(),
+          command.schedule().localStartAt(),
+          command.schedule().localEndAt());
+    } else {
+      replanCaseLifecycleService.resolveQuick(
+          replanCaseId,
+          meetingId,
+          expectedCaseVersion,
+          command.roomId(),
+          command.schedule().localStartAt(),
+          command.schedule().localEndAt());
+    }
     return meetingId;
   }
 
@@ -172,6 +212,7 @@ public class BookingTransactionService {
     roomSlotMapper.deleteByMeetingId(meetingId);
     busySlotMapper.deleteByMeetingId(meetingId);
     completionWriter.writeCancelled(meetingId, meeting.getOrganizerId());
+    replanCaseLifecycleService.cancelAfterMeetingCancellation(meetingId);
     return meetingId;
   }
 

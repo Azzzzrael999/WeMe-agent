@@ -26,6 +26,21 @@ public interface MeetingMapper extends BaseMapper<MeetingRecord> {
 
   @Select(
       """
+      SELECT id, meeting_no, title, meeting_type, organizer_id, room_id,
+             start_at, end_at, status, source, run_id, request_no, version,
+             created_at, updated_at, cancelled_at
+      FROM meeting
+      WHERE room_id = #{roomId}
+        AND status = 'CONFIRMED'
+        AND start_at > #{now}
+      ORDER BY start_at, id
+      FOR UPDATE
+      """)
+  List<MeetingRecord> findFutureConfirmedByRoom(
+      @Param("roomId") long roomId, @Param("now") LocalDateTime now);
+
+  @Select(
+      """
             SELECT m.id, m.meeting_no, m.title, m.meeting_type,
                    m.organizer_id, organizer.display_name AS organizer_name,
                    m.room_id, room.code AS room_code, room.name AS room_name,

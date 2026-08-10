@@ -21,7 +21,12 @@ import org.springframework.transaction.annotation.Transactional;
 public class NotificationService {
 
   private static final Set<String> TYPES =
-      Set.of("MEETING_CONFIRMED", "MEETING_CHANGED", "MEETING_CANCELLED");
+      Set.of(
+          "MEETING_CONFIRMED",
+          "MEETING_CHANGED",
+          "MEETING_CANCELLED",
+          "RESOURCE_UNAVAILABLE",
+          "RESOURCE_RESTORED");
 
   private final NotificationMapper mapper;
   private final Clock clock;
@@ -87,6 +92,7 @@ public class NotificationService {
         record.getTitle(),
         record.getContent(),
         record.getRelatedMeetingId(),
+        record.getRelatedReplanCaseId(),
         offset(record.getReadAt()),
         offset(record.getCreatedAt()));
   }
