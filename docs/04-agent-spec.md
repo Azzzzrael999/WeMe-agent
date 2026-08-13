@@ -539,9 +539,9 @@ totalCost =
 
 - 首版支持Markdown、文本型PDF。
 - 通过CLI或管理员接口触发。
-- 按标题层级切片，目标500至800 tokens，重叠约80 tokens。
-- 使用本地中文Embedding模型，模型名通过环境变量配置。
-- 不做OCR和Rerank。
+- 按标题层级切片，超长章节按段落拆分，正文上限 1200 字符；完整正文仍保存在 `rag_document.content_text` 供知识库页面浏览。
+- 生产检索统一使用只读挂载的本地 BGE-M3 稠密向量（1024 维、归一化），部署初始化、管理员上传/编辑和 Policy 查询复用同一进程缓存的 Embedding Provider；常驻 API 在启动期预热，避免首个用户请求承担模型冷启动。单元测试可显式选择确定性 fixture provider。
+- “RAG 测试问题”及其子章节只用于人工/后续评测，不进入 Qdrant；不做 OCR、稀疏混合检索、ColBERT 或 Rerank。
 - 管理员在线上传最大 5 MiB；Markdown 可在线编辑，文本型 PDF 只允许查看提取正文并通过重新上传替换。
 - 编辑、替换和恢复都按 documentId 全量重建 chunks；删除先清理 Qdrant points，再写 tombstone。
 
@@ -565,8 +565,10 @@ totalCost =
 
 采用两阶段读取：
 
-1. `search_meeting_policy`返回Top 5候选摘要和chunkId。
+1. `search_meeting_policy`以 BGE-M3 dense 向量召回并施加轻量标题/正文词项加分，返回Top 5候选摘要和chunkId。
 2. `open_policy_chunks`只允许打开本轮候选中的Top 2至3个正文。
+
+生产集合固定使用版本化新名称 `meeting_policies_bge_m3_v1`，不原地改写旧 64 维集合；运行时不自动注入内置 seed，4 条 `SEED_CHUNKS` 只供 `InMemoryPolicyRetriever` 测试使用。
 
 回答必须带文档名、标题路径和页码或chunkId。
 

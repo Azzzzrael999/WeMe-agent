@@ -14,7 +14,7 @@
 - 默认 `AGENT_MODEL_PROVIDER=fixture`，所有 Smoke、评测和自动测试均不调用真实 DeepSeek；切换为 `deepseek` 时仅在本机 `.env` 填入真实 Key。
 - 会议室停用会原子创建异常重排单并通知会议发起人；系统不自动移动会议。异常页支持同一时段硬约束不降级的快速换房，跨时间或约束变化继续由 OR-Tools + RESCHEDULE HITL 处理。
 - 会前会后页使用真实 Java 业务数据：议程、材料元数据、动态准备清单、24 小时/30 分钟提醒、自动完成，以及文本会议记录经现有 Requirement Agent 生成的纪要/决策/行动项草案。只有发起人 HITL 接受后行动项才正式写入并开始站内催办。
-- 知识库页向所有登录用户展示 Agent 实际检索的会议制度与完整正文；ADMIN 可经 Java 公共 API 上传 Markdown/文本型 PDF、编辑 Markdown 和显式删除，Python 负责重建 Qdrant 索引并保留删除 tombstone。
+- 知识库页向所有登录用户展示 Agent 实际检索的会议制度与完整正文；ADMIN 可经 Java 公共 API 上传 Markdown/文本型 PDF、编辑 Markdown 和显式删除，Python 以本地 BGE-M3 统一重建 Qdrant 索引并保留删除 tombstone。
 
 ```mermaid
 flowchart LR
@@ -60,7 +60,7 @@ sequenceDiagram
 
 ## 快速启动
 
-前置条件：Docker Desktop（Compose v2+）和 PowerShell。首次使用会生成被 Git 忽略的本地 `.env`，不会覆盖已有的非空安全配置，也不会输出秘密。
+前置条件：Docker Desktop（Compose v2+）、PowerShell，以及本地 BGE-M3 模型。首次使用会生成被 Git 忽略的本地 `.env`，不会覆盖已有的非空安全配置，也不会输出秘密。启动前确认 `.env` 中 `BGE_M3_HOST_PATH=D:/rag001/bge-m3`、`QDRANT_COLLECTION=meeting_policies_bge_m3_v1`；已有 `.env` 不会被脚本自动覆盖。
 
 ```powershell
 .\scripts\New-LocalEnv.ps1
@@ -178,8 +178,8 @@ python .\scripts\live-model-trajectory.py --public-base http://localhost --outpu
 
 - 无真实或 Mock 邮件、日历、视频会议链接或 IoT 供应商；`VIDEO_CONFERENCE` 只表示会议室设备特征。
 - 会前会后闭环不包含 RSVP、签到、附件二进制上传、政策检查结果绑定、统计复盘或外部任务平台同步。
-- Qdrant 使用确定性 hash embedding；4 条固定种子只保留为 fixture/兼容语料，生产会议制度由受控文件导入器索引。
-- `rag-init` 会把 `deploy/rag-documents/` 中的 UTF-8 Markdown 或文本型 PDF 幂等导入 Qdrant，并在 Python 自有 `rag_document` 表登记 checksum 与索引状态；ADMIN 可通过 Java 公共 API 管理文档，但不做 OCR、Rerank、富文本编辑、修订差异页或目录镜像删除。
+- Qdrant 生产集合使用本地 BGE-M3 的 1024 维归一化 dense embedding；4 条固定种子仅供单元测试，运行时不会自动注入。
+- `rag-init` 会把 `deploy/rag-documents/` 中的 UTF-8 Markdown 或文本型 PDF 幂等导入版本化新集合，并在 Python 自有 `rag_document` 表登记 checksum 与索引状态；“RAG 测试问题”保留给页面浏览但不索引。ADMIN 可通过 Java 公共 API 管理文档，但不做 OCR、混合稀疏检索、Rerank、富文本编辑、修订差异页或目录镜像删除。
 - 不包含 SSO、多租户、多级审批、复杂访客流程、自动移动他人会议、Kubernetes、服务网格、完整 OpenTelemetry/Grafana 或故障注入平台。
 - RocketMQ 采用至少一次投递与业务幂等，不宣称 exactly-once。
 - DeepSeek 是可替换的 OpenAI-compatible Provider；默认模型名由 `DEEPSEEK_MODEL` 配置，fixture 用于离线可复现验收，不代表真实模型质量或线上 E2E 成功率。

@@ -52,7 +52,24 @@ class Settings(BaseSettings):
     )
     qdrant_url: str = Field(default="http://qdrant:6333", validation_alias="QDRANT_URL")
     qdrant_collection: str = Field(
-        default="meeting_policies", validation_alias="QDRANT_COLLECTION", min_length=1
+        default="meeting_policies_bge_m3_v1",
+        validation_alias="QDRANT_COLLECTION",
+        min_length=1,
+    )
+    rag_embedding_provider: Literal["deterministic", "bge_m3"] = Field(
+        default="bge_m3", validation_alias="RAG_EMBEDDING_PROVIDER"
+    )
+    rag_embedding_model_path: str = Field(
+        default="/models/bge-m3", validation_alias="RAG_EMBEDDING_MODEL_PATH", min_length=1
+    )
+    rag_embedding_device: Literal["cpu", "cuda"] = Field(
+        default="cpu", validation_alias="RAG_EMBEDDING_DEVICE"
+    )
+    rag_embedding_batch_size: int = Field(
+        default=4, validation_alias="RAG_EMBEDDING_BATCH_SIZE", ge=1, le=32
+    )
+    rag_embedding_max_length: int = Field(
+        default=2048, validation_alias="RAG_EMBEDDING_MAX_LENGTH", ge=128, le=8192
     )
     rag_source_dir: str = Field(
         default="/app/rag-documents", validation_alias="RAG_SOURCE_DIR", min_length=1

@@ -1,4 +1,4 @@
-"""CLI entry point for deterministic RAG corpus ingestion."""
+"""CLI entry point for meeting-policy corpus ingestion."""
 
 from __future__ import annotations
 
@@ -11,10 +11,10 @@ from pathlib import Path
 from app.config import get_settings
 from app.database.engine import get_engine
 from app.rag.ingestion import (
-    QdrantVectorIndex,
     RagDocumentRepository,
     RagIngestionError,
     RagIngestionService,
+    build_vector_index,
 )
 
 
@@ -26,9 +26,7 @@ def main(argv: list[str] | None = None) -> int:
     source_dir = Path(args.source_dir or settings.rag_source_dir)
     service = RagIngestionService(
         repository=RagDocumentRepository(get_engine()),
-        vector_index=QdrantVectorIndex(
-            url=settings.qdrant_url, collection_name=settings.qdrant_collection
-        ),
+        vector_index=build_vector_index(settings),
     )
     try:
         results = service.ingest_directory(source_dir)

@@ -1,26 +1,18 @@
-"""A tiny, real Qdrant-backed policy retriever for Day 4.
-
-The deterministic hash embedding is intentionally small and local: it keeps
-fixture execution reproducible and avoids downloading a model.  It is only a
-retrieval implementation; it is not an extra Agent and it never produces a
-business decision on its own.
-"""
+"""Qdrant-backed meeting-policy retrieval with verifiable evidence payloads."""
 
 from __future__ import annotations
 
-import hashlib
-import math
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Protocol
 
-from qdrant_client import QdrantClient, models
+from qdrant_client import QdrantClient
 
 from app.config import Settings
+from app.rag.embeddings import EmbeddingError, EmbeddingProvider, build_embedding_provider
 from app.schemas.agent import Citation
 
-VECTOR_SIZE = 64
-MAX_RERANK_CANDIDATES = 200
+MAX_SEARCH_CANDIDATES = 200
 
 
 class PolicyRetrievalError(RuntimeError):
@@ -93,20 +85,6 @@ SEED_CHUNKS: tuple[PolicyChunk, ...] = (
 )
 
 
-def deterministic_embedding(text: str) -> list[float]:
-    """Stable signed hashing vector suitable only for the tiny Day 4 corpus."""
-
-    vector = [0.0] * VECTOR_SIZE
-    normalized = text.lower()
-    tokens = re.findall(r"[a-z0-9_]+|[\u4e00-\u9fff]{1,2}", normalized)
-    for token in tokens:
-        digest = hashlib.sha256(token.encode("utf-8")).digest()
-        index = digest[0] % VECTOR_SIZE
-        vector[index] += 1.0 if digest[1] & 1 else -1.0
-    norm = math.sqrt(sum(value * value for value in vector))
-    return vector if norm == 0 else [value / norm for value in vector]
-
-
 def _lexical_terms(text: str) -> set[str]:
     normalized = text.lower()
     terms = set(re.findall(r"[a-z0-9_]+", normalized))
@@ -132,10 +110,6 @@ def _lexical_score(query: str, chunk: PolicyChunk) -> float:
     heading_score = sum(term_weight(term) for term in query_terms & heading_terms)
     content_score = sum(term_weight(term) for term in query_terms & content_terms)
     return heading_score * 3.0 + content_score
-
-
-def _point_id(chunk_id: str) -> int:
-    return int.from_bytes(hashlib.sha256(chunk_id.encode("utf-8")).digest()[:8], "big") >> 1
 
 
 @dataclass
@@ -176,59 +150,29 @@ class InMemoryPolicyRetriever:
 @dataclass
 class QdrantPolicyRetriever:
     settings: Settings
+    embedding_provider: EmbeddingProvider | None = None
     client: QdrantClient | None = None
-    _seeded: bool = field(default=False, init=False)
 
     def _qdrant(self) -> QdrantClient:
         if self.client is None:
             self.client = QdrantClient(url=self.settings.qdrant_url, timeout=5)
         return self.client
 
-    def ensure_seeded(self) -> None:
-        if self._seeded:
-            return
-        client = self._qdrant()
-        try:
-            if not client.collection_exists(self.settings.qdrant_collection):
-                client.create_collection(
-                    collection_name=self.settings.qdrant_collection,
-                    vectors_config=models.VectorParams(
-                        size=VECTOR_SIZE, distance=models.Distance.COSINE
-                    ),
-                )
-            client.upsert(
-                collection_name=self.settings.qdrant_collection,
-                wait=True,
-                points=[
-                    models.PointStruct(
-                        id=_point_id(chunk.chunk_id),
-                        vector=deterministic_embedding(f"{chunk.title} {chunk.content}"),
-                        payload={
-                            "chunkId": chunk.chunk_id,
-                            "title": chunk.title,
-                            "headingPath": list(chunk.heading_path),
-                            "page": chunk.page,
-                            "content": chunk.content,
-                            "source": "BUILT_IN_SEED",
-                        },
-                    )
-                    for chunk in SEED_CHUNKS
-                ],
-            )
-        except Exception as exc:  # Qdrant client has several transport exception classes.
-            raise PolicyRetrievalError("Qdrant policy corpus is unavailable") from exc
-        self._seeded = True
-
     def search(self, query: str, limit: int = 5) -> list[PolicyChunk]:
-        self.ensure_seeded()
-        candidate_limit = min(MAX_RERANK_CANDIDATES, max(limit, limit * 20))
+        candidate_limit = min(MAX_SEARCH_CANDIDATES, max(limit, limit * 20))
         try:
+            provider = self._embedding()
+            self._validate_collection(provider.dimension)
             result = self._qdrant().query_points(
                 collection_name=self.settings.qdrant_collection,
-                query=deterministic_embedding(query),
+                query=provider.embed_query(query),
                 limit=candidate_limit,
                 with_payload=True,
             )
+        except EmbeddingError as exc:
+            raise PolicyRetrievalError("policy embedding model is unavailable") from exc
+        except PolicyRetrievalError:
+            raise
         except Exception as exc:  # Qdrant client has several transport exception classes.
             raise PolicyRetrievalError("Qdrant policy search failed") from exc
         chunks: list[PolicyChunk] = []
@@ -251,6 +195,22 @@ class QdrantPolicyRetriever:
         self, *, candidates: list[PolicyChunk], selected_chunk_ids: list[str]
     ) -> list[PolicyChunk]:
         return _open_candidates(candidates, selected_chunk_ids)
+
+    def _embedding(self) -> EmbeddingProvider:
+        if self.embedding_provider is None:
+            self.embedding_provider = build_embedding_provider(self.settings)
+        return self.embedding_provider
+
+    def _validate_collection(self, expected_dimension: int) -> None:
+        client = self._qdrant()
+        if not client.collection_exists(self.settings.qdrant_collection):
+            raise PolicyRetrievalError("Qdrant policy corpus is unavailable")
+        info = client.get_collection(self.settings.qdrant_collection)
+        vectors_config: Any = info.config.params.vectors
+        if getattr(vectors_config, "size", None) != expected_dimension:
+            raise PolicyRetrievalError(
+                "Qdrant policy collection does not match the embedding model"
+            )
 
 
 def _chunk_from_payload(payload: dict[str, Any], score: float) -> PolicyChunk | None:
@@ -300,4 +260,7 @@ def _open_candidates(
 
 
 def build_policy_retriever(settings: Settings) -> PolicyRetriever:
-    return QdrantPolicyRetriever(settings)
+    return QdrantPolicyRetriever(
+        settings=settings,
+        embedding_provider=build_embedding_provider(settings),
+    )

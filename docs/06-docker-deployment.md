@@ -74,7 +74,7 @@ agent_egress_net:
 - business-service通过Compose DNS名称访问agent-service。
 - agent-service通过Compose DNS名称访问business-service内部Tool API。
 - MySQL、Redis、RocketMQ和Qdrant不加入edge_net。
-- backend_net禁止直接访问外网；agent-service额外加入agent_egress_net以调用DeepSeek和首次下载Embedding模型。
+- backend_net禁止直接访问外网；agent-service额外加入agent_egress_net以调用DeepSeek。Embedding 模型只从宿主机只读挂载并以 offline 模式加载，不在容器内下载。
 - 其他业务和基础设施容器不加入agent_egress_net。
 
 ## 5. 命名卷
@@ -84,7 +84,6 @@ mysql_data
 redis_data
 rocketmq_broker_store
 qdrant_data
-agent_model_cache
 ```
 
 用途：
@@ -93,7 +92,7 @@ agent_model_cache
 - `redis_data`：Redis AOF和LangGraph checkpoint。
 - `rocketmq_broker_store`：Broker CommitLog和ConsumeQueue。
 - `qdrant_data`：向量索引。
-- `agent_model_cache`：本地Embedding模型缓存，避免重复下载。
+- `${BGE_M3_HOST_PATH}`：宿主机本地 BGE-M3 目录，只读挂载到 `rag-init` 与 `agent-service` 的 `/models/bge-m3`，不写入镜像或命名卷。
 
 不允许把API Key、JWT密钥或用户上传内容写入镜像层。
 
@@ -148,9 +147,15 @@ MODEL_MAX_RETRIES=2
 AGENT_MAX_MODEL_CALLS=12
 AGENT_MAX_TOOL_CALLS=16
 AGENT_MAX_GRAPH_NODES=20
-EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
 QDRANT_URL=http://qdrant:6333
-QDRANT_COLLECTION=meeting_policies
+QDRANT_COLLECTION=meeting_policies_bge_m3_v1
+RAG_SOURCE_DIR=/app/rag-documents
+RAG_EMBEDDING_PROVIDER=bge_m3
+BGE_M3_HOST_PATH=D:/rag001/bge-m3
+RAG_EMBEDDING_MODEL_PATH=/models/bge-m3
+RAG_EMBEDDING_DEVICE=cpu
+RAG_EMBEDDING_BATCH_SIZE=4
+RAG_EMBEDDING_MAX_LENGTH=2048
 
 # Service URLs
 BUSINESS_SERVICE_URL=http://business-service:8080
@@ -219,9 +224,10 @@ RAG 使用一次性 `rag-init` Compose 服务完成受控文件导入；`agent-s
 
 1. `deploy/rag-documents/` 只读挂载到 `/app/rag-documents`，支持 UTF-8 Markdown 与文本型 PDF；PDF 不做 OCR。
 2. `rag-init` 先执行 Alembic，再运行 `python -m app.rag.ingest --source-dir /app/rag-documents`，对 Front Matter、标题切片、checksum、`rag_document` 和 Qdrant payload 做校验与幂等写入。
-3. 相同 checksum 的重复启动跳过；同 documentId 内容变化时替换该文档的完整向量集合；源文件消失不会自动删除索引。
-4. Retriever 继续使用稳定 chunk ID 与确定性 hash embedding，不下载外部模型；版本内 4 条 `SEED_CHUNKS` 只保留为 fixture/向后兼容最小语料，真实文件 corpus 由 `rag-init` 写入同一 collection。
+3. 相同 checksum 且目标 collection 已含同模型 points 时跳过；若切到新 collection，则按既有 `rag_document` 记录重建向量且不改变管理版本。同 documentId 内容变化时替换该文档的完整向量集合；源文件消失不会自动删除索引。
+4. `rag-init` 和 API 使用同一个本地 BGE-M3 dense Provider；宿主路径只读挂载、禁止联网下载，输出 1024 维归一化向量到 `meeting_policies_bge_m3_v1`。4 条 `SEED_CHUNKS` 只保留为测试 fixture，运行时 Retriever 不自动写 seed。
 5. 任一文档导入失败使 `rag-init` 非零退出，`agent-service` 不在部分初始化状态下启动。Qdrant 运行期不可用时，Policy Agent 仍按既有降级规则返回无证据状态。
+6. `rag-init` 是 batch job，必须禁用 API 镜像继承的 HTTP healthcheck；Compose 以退出码和 `service_completed_successfully` 判断结果。
 
 ## 8. Compose骨架
 
@@ -331,7 +337,7 @@ services:
       business-service:
         condition: service_healthy
     volumes:
-      - agent_model_cache:/models
+      - "${BGE_M3_HOST_PATH:-D:/rag001/bge-m3}:/models/bge-m3:ro"
     networks: [backend_net, agent_egress_net]
     expose: ["8000"]
     healthcheck:
@@ -366,7 +372,6 @@ volumes:
   redis_data: {}
   rocketmq_broker_store: {}
   qdrant_data: {}
-  agent_model_cache: {}
 ```
 
 注意：某些基础镜像可能不包含 `wget` 或 `ps`。实现时必须基于实际固定镜像验证healthcheck，并使用镜像内可用命令或专用健康探针，不能原样复制后不测试。
@@ -416,8 +421,8 @@ docker compose -f compose.yaml -f compose.dev.yaml up -d --build
 - 先复制依赖锁文件，利用Docker layer cache。
 - 安装依赖后再复制源码。
 - 使用非root用户。
-- 模型缓存通过命名卷挂载，不打入镜像。
-- API 进程内的确定性 Retriever 在首次政策检索时执行幂等 Qdrant seed；不需要额外的 RAG init 容器。
+- 模型目录通过宿主机路径只读挂载，不打入镜像；Transformers/Hugging Face 以 offline 模式运行。
+- `rag-init` 负责完整语料的幂等初始化；API 进程不注入内置 seed，并在启动期预热、随后缓存复用 BGE-M3。
 
 ### 10.3 Frontend
 
@@ -517,10 +522,10 @@ docker compose config --quiet
 完整本地部署建议Docker Desktop至少：
 
 - 8 CPU线程。
-- 10 GB可用内存；本地Embedding首次加载时建议更多。
+- 12 GB可用内存；本地 BGE-M3 首次加载时建议更多。
 - 15 GB可用磁盘。
 
-当前 `compose.yaml` 还声明了可由 Docker Compose 在本地引擎执行的硬上限：常驻服务合计最多约 **4.1 GiB RAM / 5.5 CPU**；一次性 RocketMQ 初始化容器最多使用 **384 MiB / 0.75 CPU**，一次性 `rag-init` 最多使用 **384 MiB / 0.50 CPU**。关键单服务上限为 MySQL、RocketMQ Broker、Java 和 Python 各 768 MiB；Qdrant、NameServer 和 `rag-init` 各 384 MiB；Redis 192 MiB；前端 128 MiB。实际性能报告必须同时记录宿主机/Docker Desktop 分配，而不能把这些上限当作已测得使用量。
+当前 `compose.yaml` 为常驻 `agent-service` 声明 **5 GiB / 2 CPU**，为一次性 `rag-init` 声明 **5 GiB / 4 CPU**；两者受启动依赖约束不会同时常驻加载模型。其他服务维持原资源限制，完整常驻服务声明上限约 **8.3 GiB / 6.5 CPU**。实际性能报告必须同时记录宿主机/Docker Desktop 分配，而不能把这些上限当作已测得使用量。
 
 如果机器资源不足：
 

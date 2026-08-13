@@ -14,6 +14,7 @@ from sqlalchemy.pool import StaticPool
 from app.config import Settings
 from app.database.base import Base
 from app.models.metadata import RagDocument
+from app.rag.embeddings import DeterministicEmbeddingProvider
 from app.rag.ingestion import (
     IngestedChunk,
     QdrantVectorIndex,
@@ -23,7 +24,7 @@ from app.rag.ingestion import (
     chunk_document,
     parse_document,
 )
-from app.rag.policies import QdrantPolicyRetriever
+from app.rag.policies import PolicyRetrievalError, QdrantPolicyRetriever
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 POLICY_SOURCE_DIR = REPOSITORY_ROOT / "deploy" / "rag-documents"
@@ -41,7 +42,11 @@ class RecordingVectorIndex:
     def __init__(self, *, fail: bool = False) -> None:
         self.fail = fail
         self.documents: dict[str, tuple[IngestedChunk, ...]] = {}
+        self.current_documents: dict[str, str] = {}
         self.calls: list[str] = []
+
+    def document_is_current(self, *, document_id: str, checksum: str) -> bool:
+        return self.current_documents.get(document_id) == checksum
 
     def replace_document(
         self, *, document_id: str, chunks: tuple[IngestedChunk, ...]
@@ -50,12 +55,15 @@ class RecordingVectorIndex:
         if self.fail:
             raise RagIngestionError("fixture vector failure")
         self.documents[document_id] = chunks
+        if chunks:
+            self.current_documents[document_id] = chunks[0].checksum
 
     def delete_document(self, *, document_id: str) -> None:
         self.calls.append(f"delete:{document_id}")
         if self.fail:
             raise RagIngestionError("fixture vector failure")
         self.documents.pop(document_id, None)
+        self.current_documents.pop(document_id, None)
 
 
 @pytest.fixture
@@ -94,6 +102,8 @@ def test_all_repository_policy_documents_parse_and_chunk() -> None:
         assert all(chunk.heading_path[0] == document.metadata.title for chunk in chunks)
         assert all(chunk.page == 1 for chunk in chunks)
         assert all(chunk.content for chunk in chunks)
+        assert "RAG 测试问题" in document.content_text
+        assert all("RAG 测试问题" not in chunk.heading_path for chunk in chunks)
 
 
 def test_markdown_ingestion_registers_then_skips_same_checksum(rag_engine: Engine) -> None:
@@ -115,6 +125,28 @@ def test_markdown_ingestion_registers_then_skips_same_checksum(rag_engine: Engin
     assert records[0].status == "INDEXED"
     assert records[0].chunk_count == first.chunk_count
     assert records[0].indexed_at is not None
+
+
+def test_same_checksum_is_reindexed_when_target_collection_is_new(
+    rag_engine: Engine,
+) -> None:
+    index = RecordingVectorIndex()
+    service = _service(rag_engine, index)
+    source = POLICY_SOURCE_DIR / "07-vip-executive-room-policy.md"
+
+    first = service.ingest_file(source)
+    index.current_documents.clear()
+    migrated = service.ingest_file(source)
+
+    assert first.status == migrated.status == "INDEXED"
+    assert index.calls == [
+        "doc_vip_executive_room_policy",
+        "doc_vip_executive_room_policy",
+    ]
+    with Session(rag_engine) as session:
+        record = session.get(RagDocument, first.document_id)
+    assert record is not None
+    assert record.record_version == 0
 
 
 def test_same_checksum_under_second_document_id_does_not_duplicate_index(
@@ -246,14 +278,19 @@ def test_pdf_without_extractable_text_is_rejected(
 def test_qdrant_ingestion_retrieves_real_vip_chunk(rag_engine: Engine) -> None:
     client = QdrantClient(":memory:")
     collection = "meeting_policies_test"
+    embeddings = DeterministicEmbeddingProvider()
     vector_index = QdrantVectorIndex(
-        url="http://unused", collection_name=collection, client=client
+        url="http://unused",
+        collection_name=collection,
+        embedding_provider=embeddings,
+        client=client,
     )
     service = RagIngestionService(RagDocumentRepository(rag_engine), vector_index)
     service.ingest_file(POLICY_SOURCE_DIR / "07-vip-executive-room-policy.md")
     settings = Settings().model_copy(update={"qdrant_collection": collection})
-    retriever = QdrantPolicyRetriever(settings=settings, client=client)
-    retriever._seeded = True
+    retriever = QdrantPolicyRetriever(
+        settings=settings, embedding_provider=embeddings, client=client
+    )
 
     candidates = retriever.search("VIP会议室普通内部会议可以使用吗", limit=5)
 
@@ -270,17 +307,58 @@ def test_qdrant_ingestion_retrieves_real_vip_chunk(rag_engine: Engine) -> None:
     ) == [selected]
 
 
-def test_qdrant_reranking_finds_vip_policy_in_full_corpus(rag_engine: Engine) -> None:
+def test_runtime_retriever_does_not_seed_a_missing_collection() -> None:
+    client = QdrantClient(":memory:")
+    collection = "missing_runtime_policy_corpus"
+    settings = Settings().model_copy(update={"qdrant_collection": collection})
+    retriever = QdrantPolicyRetriever(
+        settings=settings,
+        embedding_provider=DeterministicEmbeddingProvider(),
+        client=client,
+    )
+
+    with pytest.raises(PolicyRetrievalError, match="corpus is unavailable"):
+        retriever.search("会议制度", limit=5)
+
+    assert not client.collection_exists(collection)
+
+
+def test_qdrant_collection_dimension_mismatch_is_rejected() -> None:
+    client = QdrantClient(":memory:")
+    collection = "wrong_vector_dimension"
+    client.create_collection(
+        collection_name=collection,
+        vectors_config=models.VectorParams(size=1024, distance=models.Distance.COSINE),
+    )
+    vector_index = QdrantVectorIndex(
+        url="http://unused",
+        collection_name=collection,
+        embedding_provider=DeterministicEmbeddingProvider(),
+        client=client,
+    )
+
+    with pytest.raises(RagIngestionError, match="vector dimension"):
+        vector_index.document_is_current(document_id="doc_fixture", checksum="checksum")
+
+
+def test_qdrant_lexical_boost_finds_vip_policy_in_full_corpus(rag_engine: Engine) -> None:
     client = QdrantClient(":memory:")
     collection = "meeting_policies_full_corpus_test"
+    embeddings = DeterministicEmbeddingProvider()
     service = RagIngestionService(
         RagDocumentRepository(rag_engine),
-        QdrantVectorIndex(url="http://unused", collection_name=collection, client=client),
+        QdrantVectorIndex(
+            url="http://unused",
+            collection_name=collection,
+            embedding_provider=embeddings,
+            client=client,
+        ),
     )
     service.ingest_directory(POLICY_SOURCE_DIR)
     settings = Settings().model_copy(update={"qdrant_collection": collection})
-    retriever = QdrantPolicyRetriever(settings=settings, client=client)
-    retriever._seeded = True
+    retriever = QdrantPolicyRetriever(
+        settings=settings, embedding_provider=embeddings, client=client
+    )
 
     candidates = retriever.search("VIP会议室普通内部会议可以使用吗", limit=5)
 
@@ -292,7 +370,10 @@ def test_qdrant_replacement_removes_stale_chunks(tmp_path: Path, rag_engine: Eng
     client = QdrantClient(":memory:")
     collection = "meeting_policies_replace_test"
     vector_index = QdrantVectorIndex(
-        url="http://unused", collection_name=collection, client=client
+        url="http://unused",
+        collection_name=collection,
+        embedding_provider=DeterministicEmbeddingProvider(),
+        client=client,
     )
     service = RagIngestionService(RagDocumentRepository(rag_engine), vector_index)
     source = tmp_path / "replace.md"

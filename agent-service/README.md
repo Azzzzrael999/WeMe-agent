@@ -25,18 +25,31 @@ Required runtime environment variables:
 - `AGENT_CONTEXT_AUDIENCE`
 - `BUSINESS_SERVICE_BASE_URL`
 - `QDRANT_URL`
-- `QDRANT_COLLECTION`
+- `QDRANT_COLLECTION` (production default: `meeting_policies_bge_m3_v1`)
 - `RAG_SOURCE_DIR` (Compose defaults to `/app/rag-documents`; Markdown and text PDF only)
+- `RAG_EMBEDDING_PROVIDER=bge_m3`
+- `BGE_M3_HOST_PATH` (Compose host path; for this workspace: `D:/rag001/bge-m3`)
+- `RAG_EMBEDDING_MODEL_PATH=/models/bge-m3`
+- `RAG_EMBEDDING_DEVICE=cpu`
+- `RAG_EMBEDDING_BATCH_SIZE=4`
+- `RAG_EMBEDDING_MAX_LENGTH=2048`
 
 ## RAG document ingestion
 
 The Compose `rag-init` one-shot service validates metadata, chunks Markdown/text PDFs,
 deduplicates normalized content by SHA-256, registers `rag_document`, and replaces each
-document's Qdrant points idempotently. It does not perform OCR or directory-mirror deletion.
+document's Qdrant points idempotently. Production ingestion, admin mutations, and policy queries
+share a process-cached local BGE-M3 dense provider (1024 dimensions); the API preloads it before
+reporting startup complete. The browsable source retains
+the `RAG 测试问题` section, but that section is excluded from Qdrant. Runtime retrieval does not
+inject built-in seed chunks. It does not perform OCR, hybrid sparse retrieval, reranking, or
+directory-mirror deletion.
 
 Run the importer directly after applying Alembic migrations:
 
 ```powershell
+$env:RAG_EMBEDDING_PROVIDER="bge_m3"
+$env:RAG_EMBEDDING_MODEL_PATH="D:\rag001\bge-m3"
 uv run python -m app.rag.ingest --source-dir ..\deploy\rag-documents
 ```
 - `LOG_LEVEL`

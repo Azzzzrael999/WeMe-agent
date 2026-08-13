@@ -1,4 +1,4 @@
-"""Deterministic ingestion for meeting-policy Markdown and text PDFs."""
+"""Meeting-policy Markdown/text-PDF ingestion backed by a shared vector model."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass, replace
 from datetime import date, datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -17,8 +17,9 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.config import Settings
 from app.models.metadata import RagDocument
-from app.rag.policies import VECTOR_SIZE, deterministic_embedding
+from app.rag.embeddings import EmbeddingError, EmbeddingProvider, build_embedding_provider
 
 ALLOWED_DOCUMENT_TYPES = {
     "MEETING_POLICY",
@@ -137,6 +138,8 @@ class IngestionResult:
 
 
 class VectorIndex(Protocol):
+    def document_is_current(self, *, document_id: str, checksum: str) -> bool: ...
+
     def replace_document(self, *, document_id: str, chunks: tuple[IngestedChunk, ...]) -> None: ...
 
     def delete_document(self, *, document_id: str) -> None: ...
@@ -146,6 +149,7 @@ class VectorIndex(Protocol):
 class QdrantVectorIndex:
     url: str
     collection_name: str
+    embedding_provider: EmbeddingProvider
     client: QdrantClient | None = None
 
     def _client(self) -> QdrantClient:
@@ -153,28 +157,57 @@ class QdrantVectorIndex:
             self.client = QdrantClient(url=self.url, timeout=10)
         return self.client
 
-    def replace_document(self, *, document_id: str, chunks: tuple[IngestedChunk, ...]) -> None:
+    def document_is_current(self, *, document_id: str, checksum: str) -> bool:
         client = self._client()
         try:
             if not client.collection_exists(self.collection_name):
-                client.create_collection(
-                    collection_name=self.collection_name,
-                    vectors_config=models.VectorParams(
-                        size=VECTOR_SIZE, distance=models.Distance.COSINE
-                    ),
-                )
+                return False
+            self._ensure_collection(client, create=False)
+            result = client.count(
+                collection_name=self.collection_name,
+                count_filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="documentId", match=models.MatchValue(value=document_id)
+                        ),
+                        models.FieldCondition(
+                            key="checksum", match=models.MatchValue(value=checksum)
+                        ),
+                        models.FieldCondition(
+                            key="embeddingModel",
+                            match=models.MatchValue(value=self.embedding_provider.model_id),
+                        ),
+                    ]
+                ),
+                exact=True,
+            )
+            return result.count > 0
+        except RagIngestionError:
+            raise
+        except Exception as exc:
+            raise RagIngestionError("Qdrant document state check failed") from exc
+
+    def replace_document(self, *, document_id: str, chunks: tuple[IngestedChunk, ...]) -> None:
+        client = self._client()
+        try:
+            self._ensure_collection(client, create=True)
+            vectors = self.embedding_provider.embed_documents(
+                [_embedding_text(chunk) for chunk in chunks]
+            )
             client.upsert(
                 collection_name=self.collection_name,
                 wait=True,
                 points=[
                     models.PointStruct(
                         id=_point_id(chunk.chunk_id),
-                        vector=deterministic_embedding(
-                            " ".join((*chunk.heading_path, chunk.content))
-                        ),
-                        payload=chunk.payload(),
+                        vector=vector,
+                        payload={
+                            **chunk.payload(),
+                            "embeddingModel": self.embedding_provider.model_id,
+                            "vectorSize": self.embedding_provider.dimension,
+                        },
                     )
-                    for chunk in chunks
+                    for chunk, vector in zip(chunks, vectors, strict=True)
                 ],
             )
             current_ids: list[int | str] = [_point_id(chunk.chunk_id) for chunk in chunks]
@@ -192,6 +225,10 @@ class QdrantVectorIndex:
                 ),
                 wait=True,
             )
+        except EmbeddingError as exc:
+            raise RagIngestionError("embedding model is unavailable") from exc
+        except RagIngestionError:
+            raise
         except Exception as exc:
             raise RagIngestionError("Qdrant document replacement failed") from exc
 
@@ -215,6 +252,37 @@ class QdrantVectorIndex:
             )
         except Exception as exc:
             raise RagIngestionError("Qdrant document deletion failed") from exc
+
+    def _ensure_collection(self, client: QdrantClient, *, create: bool) -> None:
+        if not client.collection_exists(self.collection_name):
+            if not create:
+                raise RagIngestionError("Qdrant collection is unavailable")
+            client.create_collection(
+                collection_name=self.collection_name,
+                vectors_config=models.VectorParams(
+                    size=self.embedding_provider.dimension,
+                    distance=models.Distance.COSINE,
+                ),
+            )
+            return
+        info = client.get_collection(self.collection_name)
+        vectors_config: Any = info.config.params.vectors
+        actual_size = getattr(vectors_config, "size", None)
+        if actual_size != self.embedding_provider.dimension:
+            raise RagIngestionError(
+                "Qdrant collection vector dimension does not match the embedding model"
+            )
+
+
+def build_vector_index(
+    settings: Settings, *, client: QdrantClient | None = None
+) -> QdrantVectorIndex:
+    return QdrantVectorIndex(
+        url=settings.qdrant_url,
+        collection_name=settings.qdrant_collection,
+        embedding_provider=build_embedding_provider(settings),
+        client=client,
+    )
 
 
 @dataclass
@@ -371,11 +439,22 @@ class RagIngestionService:
                 duplicate_of=document.metadata.document_id,
             )
         duplicate = self.repository.duplicate_for_checksum(document.checksum)
-        if (
+        indexed_duplicate = (
             duplicate is not None
             and duplicate.status == "INDEXED"
             and bool(duplicate.content_text)
-        ):
+        )
+        reindex_existing = bool(
+            indexed_duplicate
+            and duplicate is not None
+            and duplicate.document_id == document.metadata.document_id
+            and not self.vector_index.document_is_current(
+                document_id=document.metadata.document_id,
+                checksum=document.checksum,
+            )
+        )
+        if indexed_duplicate and not reindex_existing:
+            assert duplicate is not None
             return IngestionResult(
                 source_path=document.source_path.as_posix(),
                 document_id=document.metadata.document_id,
@@ -387,6 +466,24 @@ class RagIngestionService:
         chunks = chunk_document(document)
         if not chunks:
             raise RagIngestionError("document produced no indexable chunks")
+        if reindex_existing:
+            try:
+                self.vector_index.replace_document(
+                    document_id=document.metadata.document_id, chunks=chunks
+                )
+                self.repository.mark_indexed(document.metadata.document_id, len(chunks))
+            except Exception as exc:
+                self.repository.mark_failed(document.metadata.document_id)
+                if isinstance(exc, RagIngestionError):
+                    raise
+                raise RagIngestionError("document indexing failed") from exc
+            return IngestionResult(
+                source_path=document.source_path.as_posix(),
+                document_id=document.metadata.document_id,
+                checksum=document.checksum,
+                status="INDEXED",
+                chunk_count=len(chunks),
+            )
         self.repository.begin(
             document,
             expected_record_version=expected_record_version,
@@ -477,6 +574,9 @@ def chunk_document(document: ParsedDocument) -> tuple[IngestedChunk, ...]:
             else:
                 buffer.append(line)
         _flush_section(sections, heading_stack, page.page, buffer)
+    indexable_sections = [
+        section for section in sections if not _is_rag_test_heading(section[0])
+    ]
     return tuple(
         IngestedChunk(
             chunk_id=f"chunk_{document.metadata.document_id}_{index:04d}",
@@ -490,7 +590,14 @@ def chunk_document(document: ParsedDocument) -> tuple[IngestedChunk, ...]:
             priority=document.metadata.priority,
             checksum=document.checksum,
         )
-        for index, (heading_path, page, content) in enumerate(sections, start=1)
+        for index, (heading_path, page, content) in enumerate(indexable_sections, start=1)
+    )
+
+
+def _is_rag_test_heading(heading_path: tuple[str, ...]) -> bool:
+    return any(
+        re.sub(r"\s+", " ", heading.strip().lower()) == "rag 测试问题"
+        for heading in heading_path
     )
 
 
@@ -609,3 +716,7 @@ def _normalize_content(text: str) -> str:
 
 def _point_id(chunk_id: str) -> int:
     return int.from_bytes(hashlib.sha256(chunk_id.encode("utf-8")).digest()[:8], "big") >> 1
+
+
+def _embedding_text(chunk: IngestedChunk) -> str:
+    return " ".join((chunk.title, *chunk.heading_path, chunk.content))

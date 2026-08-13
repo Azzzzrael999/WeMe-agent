@@ -1,5 +1,11 @@
-"""Deterministic retrieval nodes for meeting-policy evidence."""
+"""Deterministic RAG nodes and shared meeting-policy vector infrastructure."""
 
+from app.rag.embeddings import (
+    BgeM3EmbeddingProvider,
+    DeterministicEmbeddingProvider,
+    EmbeddingProvider,
+    build_embedding_provider,
+)
 from app.rag.ingestion import (
     DocumentMetadata,
     IngestedChunk,
@@ -9,6 +15,7 @@ from app.rag.ingestion import (
     RagDocumentRepository,
     RagIngestionError,
     RagIngestionService,
+    build_vector_index,
     chunk_document,
     parse_document,
 )
@@ -24,6 +31,10 @@ __all__ = [
     "PolicyRetriever",
     "QdrantPolicyRetriever",
     "build_policy_retriever",
+    "BgeM3EmbeddingProvider",
+    "DeterministicEmbeddingProvider",
+    "EmbeddingProvider",
+    "build_embedding_provider",
     "DocumentMetadata",
     "IngestedChunk",
     "IngestionResult",
@@ -32,6 +43,7 @@ __all__ = [
     "RagDocumentRepository",
     "RagIngestionError",
     "RagIngestionService",
+    "build_vector_index",
     "chunk_document",
     "parse_document",
 ]

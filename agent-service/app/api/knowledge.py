@@ -13,7 +13,7 @@ from app.api.internal import get_agent_context
 from app.config import get_settings
 from app.database.engine import get_engine
 from app.models.metadata import RagDocument
-from app.rag.ingestion import DocumentMetadata, QdrantVectorIndex
+from app.rag.ingestion import DocumentMetadata, build_vector_index
 from app.rag.management import (
     RagDocumentConflictError,
     RagDocumentInvalidError,
@@ -115,9 +115,7 @@ def get_management_service() -> RagDocumentManagementService:
     settings = get_settings()
     return RagDocumentManagementService(
         engine=get_engine(),
-        vector_index=QdrantVectorIndex(
-            url=settings.qdrant_url, collection_name=settings.qdrant_collection
-        ),
+        vector_index=build_vector_index(settings),
     )
 
 

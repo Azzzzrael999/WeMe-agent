@@ -244,6 +244,6 @@ def _classify_ingestion_error(error: RagIngestionError) -> Exception:
     message = str(error)
     if "version is stale" in message or "checksum is already" in message:
         return RagDocumentConflictError(message)
-    if "Qdrant" in message or "indexing failed" in message:
+    if "Qdrant" in message or "embedding model" in message or "indexing failed" in message:
         return RagDocumentUnavailableError(message)
     return RagDocumentInvalidError(message)

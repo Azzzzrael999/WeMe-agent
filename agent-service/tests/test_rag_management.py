@@ -13,6 +13,7 @@ from sqlalchemy.pool import StaticPool
 from app.api.internal import get_agent_context
 from app.api.knowledge import _invoke, get_management_service, router
 from app.database.base import Base
+from app.rag.embeddings import DeterministicEmbeddingProvider
 from app.rag.ingestion import QdrantVectorIndex, RagDocumentRepository, RagIngestionService
 from app.rag.management import (
     RagDocumentConflictError,
@@ -43,7 +44,10 @@ def managed_service(rag_engine: Engine) -> tuple[RagDocumentManagementService, Q
     service = RagDocumentManagementService(
         engine=rag_engine,
         vector_index=QdrantVectorIndex(
-            url="http://unused", collection_name="managed_policies", client=client
+            url="http://unused",
+            collection_name="managed_policies",
+            embedding_provider=DeterministicEmbeddingProvider(),
+            client=client,
         ),
     )
     return service, client

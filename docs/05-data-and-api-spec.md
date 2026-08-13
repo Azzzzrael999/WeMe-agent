@@ -506,7 +506,7 @@ RAG 文件导入契约：
 - `document_id` 来自受控 Front Matter，格式为 `doc_[a-z0-9_]+`，在 64 字符内保持稳定；`checksum` 为 64 位小写 SHA-256，并具有唯一约束，同一规范化内容不得重复登记。
 - Markdown checksum 对去除 UTF-8 BOM、统一为 LF 的完整文件计算；文本型 PDF checksum 对 PDF 原始字节与规范化元数据共同计算。PDF 不做 OCR，任一页面无法提取有效文本且全文为空时导入失败。
 - `status` 使用 `INDEXING|INDEXED|FAILED|DELETED`。导入开始先登记 `INDEXING`；Qdrant upsert 全部成功后更新 `INDEXED + chunk_count + indexed_at`；失败时更新 `FAILED` 且 `indexed_at=NULL`。管理员显式删除先清理 Qdrant points，再写 `DELETED + deleted_at` tombstone。
-- 相同 `document_id + checksum` 且状态为 `INDEXED` 时必须幂等跳过。相同 checksum 对应不同 documentId 时按重复内容跳过，不再创建第二条记录。相同 documentId 内容变化时，先进入 `INDEXING`，删除该 documentId 的旧向量，再写入完整新 chunk 集合。
+- 相同 `document_id + checksum` 且状态为 `INDEXED` 时，只有目标 collection 已存在相同 `documentId + checksum + embeddingModel` points 才幂等跳过；切换版本化 collection/Embedding 后必须按既有文档记录重建向量，但不得为纯索引迁移递增 `record_version`。相同 checksum 对应不同 documentId 时按重复内容跳过，不再创建第二条记录。相同 documentId 内容变化时，先进入 `INDEXING`，删除该 documentId 的旧向量，再写入完整新 chunk 集合。
 - 删除源文件不自动删除已索引文档。`DELETED` tombstone 阻止部署期 `rag-init` 因只读种子仍存在而静默恢复；只有管理员显式上传同一 `documentId` 才能恢复。`record_version` 用于编辑/删除乐观并发。
 - Markdown 的 `content_text` 保存完整 UTF-8/LF 源文档并支持在线编辑；PDF 只保存可提取的规范化文本，不保存二进制且不支持在线正文编辑。上传最大 5 MiB，正文最大 500,000 字符。
 
@@ -523,11 +523,13 @@ RAG 文件导入契约：
   "content": "...",
   "version": "1.0",
   "priority": 200,
-  "checksum": "sha256..."
+  "checksum": "sha256...",
+  "embeddingModel": "bge-m3-local-dense-v1",
+  "vectorSize": 1024
 }
 ```
 
-- Markdown 按 ATX 标题层级切片，超长章节再按段落拆分；PDF 按页提取文本，再识别文本中的 Markdown 标题，无法识别标题时按页和段落切片。chunk 正文目标上限 1200 字符，不截断单个不可分割段落。
+- Markdown 按 ATX 标题层级切片，超长章节再按段落拆分；PDF 按页提取文本，再识别文本中的 Markdown 标题，无法识别标题时按页和段落切片。chunk 正文目标上限 1200 字符，不截断单个不可分割段落。“RAG 测试问题”及其子章节保留在可浏览 `content_text` 中，但不生成 Qdrant point。
 - `chunkId` 由 documentId 和文档内稳定顺序生成，格式 `chunk_{documentId}_{sequence:04d}`；引用的 `chunkId/title/headingPath/page` 必须与 Qdrant payload 一致。
 - 导入器只接受允许的 `documentType` 枚举、`status=ACTIVE`、`timezone=Asia/Shanghai`、有效 ISO 日期和完整 Front Matter。Markdown 元数据位于文首；PDF 元数据来自同名 `.yaml` sidecar 或可提取文本开头的 Front Matter。
 
