@@ -1,0 +1,106 @@
+{
+  "schemaVersion": "product-scenario-evaluation-v1",
+  "mode": "public-api-adversarial-dialogue",
+  "generatedAt": "2026-08-15T01:47:09.685670+00:00",
+  "status": "PASS",
+  "safety": {
+    "confirmationPolicy": "All HITL drafts are rejected",
+    "protectedMeetingSnapshots": {},
+    "secretsPersisted": false
+  },
+  "metrics": {
+    "total": 2,
+    "passed": 2,
+    "failed": 0,
+    "successRate": 1.0,
+    "latencyP50Ms": 7354.47,
+    "latencyP95Ms": 7354.47
+  },
+  "results": [
+    {
+      "caseId": "policy-vip-grounded",
+      "purpose": "VIP 制度问答必须引用相关证据",
+      "status": "PASS",
+      "latencyMs": 7354.47,
+      "runId": "run_bfb410d45b3641b198a39f5c2af275a7",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "agent.step",
+            "run.completed"
+          ],
+          "terminalEvent": "run.completed",
+          "terminalStatus": "SUCCEEDED",
+          "candidateCount": 0,
+          "unsatCategory": null,
+          "requirementRevision": null,
+          "citationIds": [
+            "chunk_doc_vip_executive_room_policy_0002",
+            "chunk_doc_vip_executive_room_policy_0001"
+          ],
+          "turn": 1,
+          "message": "接待重要客户能直接用VIP会议室吗？请只按公司制度回答，并告诉我依据。",
+          "latencyMs": 7289.1
+        }
+      ],
+      "observed": {
+        "intent": "QUERY_POLICY",
+        "runStatus": "SUCCEEDED",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v10",
+        "schemaVersion": "meeting-agent-state-v6",
+        "modelCallCount": 2,
+        "toolCallCount": 0,
+        "tools": []
+      }
+    },
+    {
+      "caseId": "policy-unknown-honesty",
+      "purpose": "知识库无答案时不得硬编制度或挂无关引用",
+      "status": "PASS",
+      "latencyMs": 4796.61,
+      "runId": "run_c4a125e1a84a4f1c99819dc9a43b6630",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "agent.step",
+            "run.completed"
+          ],
+          "terminalEvent": "run.completed",
+          "terminalStatus": "SUCCEEDED",
+          "candidateCount": 0,
+          "unsatCategory": null,
+          "requirementRevision": null,
+          "citationIds": [],
+          "turn": 1,
+          "message": "公司是不是规定每月最后一个周五开会必须穿蓝色衣服？没有制度依据就直接说没查到。",
+          "latencyMs": 4766.48
+        }
+      ],
+      "observed": {
+        "intent": "QUERY_POLICY",
+        "runStatus": "SUCCEEDED",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v10",
+        "schemaVersion": "meeting-agent-state-v6",
+        "modelCallCount": 2,
+        "toolCallCount": 0,
+        "tools": []
+      }
+    }
+  ]
+}

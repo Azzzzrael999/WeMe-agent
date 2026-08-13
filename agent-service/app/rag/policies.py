@@ -13,6 +13,7 @@ from app.rag.embeddings import EmbeddingError, EmbeddingProvider, build_embeddin
 from app.schemas.agent import Citation
 
 MAX_SEARCH_CANDIDATES = 200
+NON_SUBSTANTIVE_POLICY_HEADINGS = {"rag 找不到依据"}
 
 
 class PolicyRetrievalError(RuntimeError):
@@ -181,7 +182,7 @@ class QdrantPolicyRetriever:
             if not isinstance(payload, dict):
                 continue
             chunk = _chunk_from_payload(payload, float(point.score))
-            if chunk is not None:
+            if chunk is not None and not _is_non_substantive_policy_chunk(chunk):
                 chunks.append(chunk)
         return sorted(
             chunks,
@@ -246,6 +247,15 @@ def _chunk_from_payload(payload: dict[str, Any], score: float) -> PolicyChunk | 
         priority=priority if isinstance(priority, int) else None,
         checksum=checksum if isinstance(checksum, str) else None,
     )
+
+
+def _is_non_substantive_policy_chunk(chunk: PolicyChunk) -> bool:
+    """Exclude retrieval instructions that cannot prove a business rule."""
+
+    normalized_headings = {
+        re.sub(r"\s+", " ", heading.strip().lower()) for heading in chunk.heading_path
+    }
+    return bool(normalized_headings & NON_SUBSTANTIVE_POLICY_HEADINGS)
 
 
 def _open_candidates(

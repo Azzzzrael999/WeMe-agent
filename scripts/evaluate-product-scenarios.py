@@ -438,7 +438,7 @@ def build_scenarios(owned: list[dict[str, Any]]) -> tuple[DialogueScenario, ...]
             purpose="知识库无答案时不得硬编制度或挂无关引用",
             turns=(
                 DialogueTurn(
-                    "公司是不是规定周五下午绝对不能开会？没有制度依据就直接说没查到。",
+                    "公司是不是规定每月最后一个周五开会必须穿蓝色衣服？没有制度依据就直接说没查到。",
                     "SUCCEEDED",
                     ("run.completed",),
                 ),

@@ -82,6 +82,8 @@ docker compose -f compose.yaml -f compose.dev.yaml up -d --build --wait
 | 员工 | `zhangsan` | `demo-password` |
 | 管理员 | `admin` | `demo-password` |
 
+完整的逐页操作、可直接复制的 Agent 输入、预期证据、自动化命令与清理步骤见 [`docs/21-demo-acceptance-runbook.md`](docs/21-demo-acceptance-runbook.md)。
+
 这些仅是虚构演示数据；`.env` 中的数据库、JWT 和服务间密钥必须由 `New-LocalEnv.ps1` 随机生成，永不提交。
 
 ## 演示脚本

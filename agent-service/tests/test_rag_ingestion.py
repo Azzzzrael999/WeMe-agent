@@ -365,6 +365,14 @@ def test_qdrant_lexical_boost_finds_vip_policy_in_full_corpus(rag_engine: Engine
     assert candidates
     assert candidates[0].document_id == "doc_vip_executive_room_policy"
 
+    unknown_candidates = retriever.search(
+        "公司是不是规定每月最后一个周五开会必须穿蓝色衣服？", limit=20
+    )
+    assert all(
+        "RAG 找不到依据" not in candidate.heading_path
+        for candidate in unknown_candidates
+    )
+
 
 def test_qdrant_replacement_removes_stale_chunks(tmp_path: Path, rag_engine: Engine) -> None:
     client = QdrantClient(":memory:")
