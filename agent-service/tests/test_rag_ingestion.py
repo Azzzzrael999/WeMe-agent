@@ -51,6 +51,12 @@ class RecordingVectorIndex:
             raise RagIngestionError("fixture vector failure")
         self.documents[document_id] = chunks
 
+    def delete_document(self, *, document_id: str) -> None:
+        self.calls.append(f"delete:{document_id}")
+        if self.fail:
+            raise RagIngestionError("fixture vector failure")
+        self.documents.pop(document_id, None)
+
 
 @pytest.fixture
 def rag_engine() -> Iterator[Engine]:

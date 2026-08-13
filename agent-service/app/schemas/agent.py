@@ -148,9 +148,7 @@ class PostMeetingDraftRequest(AgentSchema):
 
     @model_validator(mode="after")
     def validate_snapshot(self) -> PostMeetingDraftRequest:
-        if not _is_shanghai_datetime(self.start_at) or not _is_shanghai_datetime(
-            self.end_at
-        ):
+        if not _is_shanghai_datetime(self.start_at) or not _is_shanghai_datetime(self.end_at):
             raise ValueError("meeting timestamps must use the Asia/Shanghai offset")
         if self.end_at <= self.start_at:
             raise ValueError("meeting endAt must be after startAt")
@@ -405,7 +403,7 @@ class NormalizationReport(AgentSchema):
 
 class PolicySelection(AgentSchema):
     answer_summary: str = Field(min_length=1, max_length=500)
-    selected_chunk_ids: list[str] = Field(min_length=1, max_length=3)
+    selected_chunk_ids: list[str] = Field(default_factory=list, max_length=3)
     confidence: float = Field(ge=0, le=1)
     constraints: list[PolicyConstraint] = Field(default_factory=list, max_length=10)
 
@@ -857,7 +855,7 @@ class AgentState(AgentSchema):
     step_count: int = Field(default=0, ge=0, le=20)
     model_call_count: int = Field(default=0, ge=0, le=12)
     tool_call_count: int = Field(default=0, ge=0, le=16)
-    loop_iteration: int = Field(default=0, ge=0, le=4)
+    loop_iteration: int = Field(default=0, ge=0, le=6)
     replan_count: int = Field(default=0, ge=0, le=2)
     executed_tool_fingerprints: list[str] = Field(default_factory=list, max_length=16)
     excluded_candidate_ids: list[str] = Field(default_factory=list, max_length=3)
@@ -868,7 +866,7 @@ class AgentState(AgentSchema):
     model_provider: str | None = Field(default=None, max_length=32)
     configured_model: str | None = Field(default=None, max_length=128)
     response_models: list[str] = Field(default_factory=list, max_length=12)
-    prompt_version: str = Field(default="meeting-agent-prompts-v8", max_length=64)
+    prompt_version: str = Field(default="meeting-agent-prompts-v10", max_length=64)
     schema_version: str = Field(default="meeting-agent-state-v6", max_length=64)
     input_tokens: int = Field(default=0, ge=0)
     output_tokens: int = Field(default=0, ge=0)

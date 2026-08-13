@@ -155,6 +155,7 @@ QDRANT_COLLECTION=meeting_policies
 # Service URLs
 BUSINESS_SERVICE_URL=http://business-service:8080
 AGENT_SERVICE_URL=http://agent-service:8000
+AGENT_SSE_ASYNC_TIMEOUT_MILLIS=300000
 
 # Application
 APP_TIMEZONE=Asia/Shanghai
@@ -172,6 +173,8 @@ LOG_LEVEL=INFO
 ```
 
 `AGENT_MODEL_PROVIDER=fixture` 是 Day 4/5 的确定性本地 Smoke/Test Provider；切换为 `deepseek` 时才允许调用配置的 OpenAI-compatible DeepSeek 端点。无论 Provider 选择如何，未配置 DeepSeek Key 时健康接口仍返回 HTTP 200 / `DEGRADED`。`agent-service` 同时接收 `INTERNAL_SERVICE_TOKEN` 和 `AGENT_CONTEXT_JWT_SECRET`，仅用于验证 Java 代理的内部上下文并在调用 Java 白名单 Tool 时透传，日志、Trace 和 SSE 中不得输出它们。`AGENT_CHECKPOINT_REDIS_URL` 必须指向 Redis 的隔离 DB 1，用于保留 24 小时的 LangGraph checkpoint；`REDIS_URL` 保留 DB 0 给其他 Agent Redis 用途。Day 5 以 `AGENT_CALLBACK_ENABLED=true` 为默认值，使 Java 的 `BOOKING_RESULT` 消费者能在事务提交后恢复等待中的 Agent Run。
+
+`AGENT_SSE_ASYNC_TIMEOUT_MILLIS` 控制 Java `StreamingResponseBody` 代理的异步请求上限，默认 300 秒，并与 Nginx 的 SSE 读取/发送超时保持一致。它必须覆盖真实模型的有限重试和多轮 Tool Calling 最坏耗时，避免 Spring 默认 30 秒超时把仍在运行的 Agent 流误写成 JSON 错误响应。
 
 要求：
 
@@ -420,7 +423,7 @@ docker compose -f compose.yaml -f compose.dev.yaml up -d --build
 
 - Node多阶段构建。
 - 最终使用Nginx静态镜像。
-- Nginx代理 `/api` 到Java，关闭对Python的直接代理。
+- Nginx代理 `/api` 到Java，关闭对Python的直接代理；`client_max_body_size` 固定为 6 MiB，以容纳最大 5 MiB 的制度文档 multipart 上传，Java 与 Python 仍分别执行大小校验。
 - SSE路径禁用代理缓存并增加读取超时。
 
 ### 10.4 Mock服务

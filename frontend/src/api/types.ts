@@ -110,6 +110,47 @@ export interface EmployeePasswordMutation {
   expectedVersion: number
 }
 
+export type KnowledgeDocumentType =
+  | 'MEETING_POLICY'
+  | 'MEETING_STANDARD'
+  | 'ROOM_POLICY'
+  | 'SECURITY_POLICY'
+  | 'EQUIPMENT_GUIDE'
+  | 'DEPARTMENT_POLICY'
+  | 'FAQ'
+
+export interface KnowledgeDocument {
+  documentId: string
+  title: string
+  documentType: KnowledgeDocumentType
+  department: string
+  version: string
+  effectiveDate: string
+  priority: number
+  fileName: string
+  mediaType: 'text/markdown' | 'application/pdf'
+  status: 'INDEXING' | 'INDEXED' | 'FAILED' | string
+  chunkCount: number
+  checksum: string
+  recordVersion: number
+  createdAt: string
+  updatedAt: string
+  indexedAt: string | null
+  editable: boolean
+  content?: string
+}
+
+export interface KnowledgeDocumentListResult {
+  items: KnowledgeDocument[]
+  total: number
+}
+
+export interface KnowledgeDocumentDeleteResult {
+  documentId: string
+  status: 'DELETED'
+  recordVersion: number
+}
+
 export type NotificationType =
   | 'MEETING_CONFIRMED'
   | 'MEETING_CHANGED'

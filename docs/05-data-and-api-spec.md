@@ -483,22 +483,32 @@ processed_at DATETIME(3)
 document_id VARCHAR(64) PK
 title VARCHAR(255)
 document_type VARCHAR(64)
+department VARCHAR(64)
+effective_date DATE
+priority INT
 source_path VARCHAR(500)
+file_name VARCHAR(255)
+media_type VARCHAR(64)             # text/markdown|application/pdf
+content_text MEDIUMTEXT            # Markdown 完整源文档或 PDF 提取正文
 version VARCHAR(32)
 checksum VARCHAR(64)
-status VARCHAR(24)
+status VARCHAR(24)                 # INDEXING/INDEXED/FAILED/DELETED
 chunk_count INT
+record_version INT
 created_at DATETIME(3)
+updated_at DATETIME(3)
 indexed_at DATETIME(3) NULL
+deleted_at DATETIME(3) NULL
 ```
 
 RAG 文件导入契约：
 
 - `document_id` 来自受控 Front Matter，格式为 `doc_[a-z0-9_]+`，在 64 字符内保持稳定；`checksum` 为 64 位小写 SHA-256，并具有唯一约束，同一规范化内容不得重复登记。
 - Markdown checksum 对去除 UTF-8 BOM、统一为 LF 的完整文件计算；文本型 PDF checksum 对 PDF 原始字节与规范化元数据共同计算。PDF 不做 OCR，任一页面无法提取有效文本且全文为空时导入失败。
-- `status` 只使用 `INDEXING|INDEXED|FAILED`。导入开始先登记 `INDEXING`；Qdrant upsert 全部成功后更新 `INDEXED + chunk_count + indexed_at`；失败时更新 `FAILED` 且 `indexed_at=NULL`。
+- `status` 使用 `INDEXING|INDEXED|FAILED|DELETED`。导入开始先登记 `INDEXING`；Qdrant upsert 全部成功后更新 `INDEXED + chunk_count + indexed_at`；失败时更新 `FAILED` 且 `indexed_at=NULL`。管理员显式删除先清理 Qdrant points，再写 `DELETED + deleted_at` tombstone。
 - 相同 `document_id + checksum` 且状态为 `INDEXED` 时必须幂等跳过。相同 checksum 对应不同 documentId 时按重复内容跳过，不再创建第二条记录。相同 documentId 内容变化时，先进入 `INDEXING`，删除该 documentId 的旧向量，再写入完整新 chunk 集合。
-- 删除源文件不自动删除已索引文档；P0 不实现目录镜像式删除。停用或删除必须由后续受控管理任务显式执行，防止一次挂载异常清空知识库。
+- 删除源文件不自动删除已索引文档。`DELETED` tombstone 阻止部署期 `rag-init` 因只读种子仍存在而静默恢复；只有管理员显式上传同一 `documentId` 才能恢复。`record_version` 用于编辑/删除乐观并发。
+- Markdown 的 `content_text` 保存完整 UTF-8/LF 源文档并支持在线编辑；PDF 只保存可提取的规范化文本，不保存二进制且不支持在线正文编辑。上传最大 5 MiB，正文最大 500,000 字符。
 
 每个 Qdrant point payload 固定包含：
 
@@ -655,6 +665,23 @@ EMPLOYEE 与 ADMIN 均可读取在职员工的安全选择目录，用于手动�
   ]
 }
 ```
+
+### 5.1.3 会议制度知识库
+
+```text
+GET    /api/v1/knowledge-documents?keyword=&documentType=&page=&size=
+GET    /api/v1/knowledge-documents/{documentId}
+POST   /api/v1/admin/knowledge-documents
+PUT    /api/v1/admin/knowledge-documents/{documentId}
+DELETE /api/v1/admin/knowledge-documents/{documentId}?expectedVersion=
+```
+
+- 列表和详情允许 EMPLOYEE/ADMIN，默认不返回 `DELETED`；管理路径只允许 ADMIN。列表数据为 `{"items":[],"total":0}`，详情额外返回 `content`。
+- item 固定包含 `documentId/title/documentType/department/version/effectiveDate/priority/fileName/mediaType/status/chunkCount/checksum/recordVersion/createdAt/updatedAt/indexedAt/editable`。`editable` 仅在 `mediaType=text/markdown` 时为 true。
+- 上传使用 `multipart/form-data`，`file` 必填且只允许 `.md/.pdf`、最大 5 MiB。Markdown 从文件内读取 Front Matter；PDF 还必须提供 `metadata` JSON part，形状与 3.7 节 `DocumentMetadata` 一致。
+- Markdown 编辑请求为 `{"content":"完整 Markdown 源文档","expectedVersion":0}`；`documentId` 不得改变。PDF 通过删除后显式重新上传同一 `documentId` 完成替换，不做浏览器内二进制编辑。
+- 删除请求携带 `expectedVersion`，返回 `{"documentId":"doc_...","status":"DELETED","recordVersion":1}`。成功后 Qdrant 不再包含该文档且 tombstone 保留。
+- 稳定错误码：`RAG_DOCUMENT_NOT_FOUND`（404）、`RAG_DOCUMENT_INVALID`（400）、`RAG_DOCUMENT_CONFLICT`（409）；Python/Qdrant 不可用映射为 `AGENT_UNAVAILABLE`（503）。
 
 ### 5.2 会议室
 
@@ -1411,7 +1438,14 @@ GET  /internal/v1/agent-runs/{runId}
 GET  /internal/v1/agent-runs/{runId}/trace
 GET  /internal/v1/health
 POST /internal/v1/post-meeting/drafts
+GET  /internal/v1/knowledge-documents
+GET  /internal/v1/knowledge-documents/{documentId}
+POST /internal/v1/knowledge-documents
+PUT  /internal/v1/knowledge-documents/{documentId}
+DELETE /internal/v1/knowledge-documents/{documentId}?expectedVersion=
 ```
+
+知识库内部 API 使用与 Agent Run 相同的 Service Token、AgentContextToken 和 trace/run 头。读取允许 EMPLOYEE/ADMIN；上传、编辑和删除必须由 Python 再次复核 `ADMIN`，不能只信任 Java 路由。Java 上传代理将文件转换为 `fileName/mediaType/contentBase64/metadata` JSON，Python 仍执行 3.7 节全部解析、checksum、切片和 Qdrant 规则。
 
 `POST /internal/v1/post-meeting/drafts` 使用与 Agent Run 相同的 AgentContextToken、Service Token、`X-Trace-Id` 和 `X-Run-Id` 校验。请求不接受可信 userId/role/runId 字段：
 

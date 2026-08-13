@@ -327,6 +327,11 @@ class FixtureModelProvider:
                 self.now.replace(hour=18, minute=0, second=0, microsecond=0),
             )
         title = "架构评审" if "架构评审" in message else "会议安排"
+        preferred_buildings = [
+            building
+            for building in ("总部楼", "研发楼", "创新楼", "协作楼")
+            if building in message
+        ]
         evidence: list[dict[str, str]] = []
         for name in ("张三", "李四", "王经理"):
             if name in message:
@@ -389,7 +394,7 @@ class FixtureModelProvider:
                     else self._minimum_capacity(message, len(participants))
                     or max(1, len(participants))
                 ),
-                "preferredBuildings": [],
+                "preferredBuildings": preferred_buildings,
                 "hardConstraints": [],
                 "softConstraints": self._soft_constraints(message),
                 "targetMeetingId": target_meeting_id,

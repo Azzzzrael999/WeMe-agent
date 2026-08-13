@@ -39,6 +39,12 @@ export const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/knowledge-documents',
+      name: 'knowledge-documents',
+      component: () => import('../views/KnowledgeDocumentsView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/admin/employees',
       name: 'admin-employees',
       component: () => import('../views/AdminEmployeesView.vue'),

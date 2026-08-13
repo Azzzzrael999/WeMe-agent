@@ -259,6 +259,7 @@ services:
       ROCKETMQ_RESULT_CONSUMER_GROUP: ${ROCKETMQ_RESULT_CONSUMER_GROUP:-meeting-agent-result-callback}
       AGENT_CALLBACK_ENABLED: ${AGENT_CALLBACK_ENABLED:-true}
       AGENT_SERVICE_URL: ${AGENT_SERVICE_URL:-http://agent-service:8000}
+      AGENT_SSE_ASYNC_TIMEOUT_MILLIS: ${AGENT_SSE_ASYNC_TIMEOUT_MILLIS:-300000}
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75.0 -Duser.timezone=${APP_TIMEZONE:-Asia/Shanghai}
     depends_on:
       mysql:

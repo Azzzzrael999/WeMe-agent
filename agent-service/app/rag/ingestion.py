@@ -93,6 +93,9 @@ class ParsedDocument:
     source_path: Path
     checksum: str
     pages: tuple[SourcePage, ...]
+    file_name: str
+    media_type: str
+    content_text: str
 
 
 @dataclass(frozen=True)
@@ -135,6 +138,8 @@ class IngestionResult:
 
 class VectorIndex(Protocol):
     def replace_document(self, *, document_id: str, chunks: tuple[IngestedChunk, ...]) -> None: ...
+
+    def delete_document(self, *, document_id: str) -> None: ...
 
 
 @dataclass
@@ -190,6 +195,27 @@ class QdrantVectorIndex:
         except Exception as exc:
             raise RagIngestionError("Qdrant document replacement failed") from exc
 
+    def delete_document(self, *, document_id: str) -> None:
+        client = self._client()
+        try:
+            if not client.collection_exists(self.collection_name):
+                return
+            client.delete(
+                collection_name=self.collection_name,
+                points_selector=models.FilterSelector(
+                    filter=models.Filter(
+                        must=[
+                            models.FieldCondition(
+                                key="documentId", match=models.MatchValue(value=document_id)
+                            )
+                        ]
+                    )
+                ),
+                wait=True,
+            )
+        except Exception as exc:
+            raise RagIngestionError("Qdrant document deletion failed") from exc
+
 
 @dataclass
 class RagDocumentRepository:
@@ -199,31 +225,71 @@ class RagDocumentRepository:
         with Session(self.engine) as session:
             return session.scalar(select(RagDocument).where(RagDocument.checksum == checksum))
 
-    def begin(self, document: ParsedDocument) -> None:
+    def find(self, document_id: str) -> RagDocument | None:
         with Session(self.engine) as session:
-            record = session.get(RagDocument, document.metadata.document_id)
+            return session.get(RagDocument, document_id)
+
+    def begin(
+        self,
+        document: ParsedDocument,
+        *,
+        expected_record_version: int | None = None,
+        allow_restore: bool = False,
+    ) -> None:
+        with Session(self.engine) as session:
+            record = session.scalar(
+                select(RagDocument)
+                .where(RagDocument.document_id == document.metadata.document_id)
+                .with_for_update()
+            )
             if record is None:
+                if expected_record_version is not None:
+                    raise RagIngestionError("document management version is stale")
                 record = RagDocument(
                     document_id=document.metadata.document_id,
                     title=document.metadata.title,
                     document_type=document.metadata.document_type,
+                    department=document.metadata.department,
+                    effective_date=document.metadata.effective_date,
+                    priority=document.metadata.priority,
                     source_path=document.source_path.as_posix(),
+                    file_name=document.file_name,
+                    media_type=document.media_type,
+                    content_text=document.content_text,
                     version=document.metadata.version,
                     checksum=document.checksum,
                     status="INDEXING",
                     chunk_count=0,
+                    record_version=0,
                     indexed_at=None,
+                    deleted_at=None,
                 )
                 session.add(record)
             else:
+                if (
+                    expected_record_version is not None
+                    and record.record_version != expected_record_version
+                ):
+                    raise RagIngestionError("document management version is stale")
+                if record.status == "DELETED" and not allow_restore:
+                    raise RagIngestionError("document is deleted")
                 record.title = document.metadata.title
                 record.document_type = document.metadata.document_type
+                record.department = document.metadata.department
+                record.effective_date = document.metadata.effective_date
+                record.priority = document.metadata.priority
                 record.source_path = document.source_path.as_posix()
+                record.file_name = document.file_name
+                record.media_type = document.media_type
+                record.content_text = document.content_text
                 record.version = document.metadata.version
                 record.checksum = document.checksum
                 record.status = "INDEXING"
                 record.chunk_count = 0
+                record.record_version += 1
                 record.indexed_at = None
+                record.deleted_at = None
+            record.updated_at = datetime.now(ZoneInfo("Asia/Shanghai"))
             try:
                 session.commit()
             except IntegrityError as exc:
@@ -237,7 +303,9 @@ class RagDocumentRepository:
                 raise RagIngestionError("rag_document registration disappeared")
             record.status = "INDEXED"
             record.chunk_count = chunk_count
-            record.indexed_at = datetime.now(ZoneInfo("Asia/Shanghai"))
+            now = datetime.now(ZoneInfo("Asia/Shanghai"))
+            record.indexed_at = now
+            record.updated_at = now
             session.commit()
 
     def mark_failed(self, document_id: str) -> None:
@@ -248,6 +316,7 @@ class RagDocumentRepository:
             record.status = "FAILED"
             record.chunk_count = 0
             record.indexed_at = None
+            record.updated_at = datetime.now(ZoneInfo("Asia/Shanghai"))
             session.commit()
 
 
@@ -280,10 +349,33 @@ class RagIngestionService:
             raise RagIngestionError("; ".join(failures))
         return results
 
-    def ingest_file(self, source_path: Path) -> IngestionResult:
+    def ingest_file(
+        self,
+        source_path: Path,
+        *,
+        expected_record_version: int | None = None,
+        allow_restore: bool = False,
+        managed_source_path: Path | None = None,
+    ) -> IngestionResult:
         document = parse_document(source_path)
+        if managed_source_path is not None:
+            document = replace(document, source_path=managed_source_path)
+        existing = self.repository.find(document.metadata.document_id)
+        if existing is not None and existing.status == "DELETED" and not allow_restore:
+            return IngestionResult(
+                source_path=document.source_path.as_posix(),
+                document_id=document.metadata.document_id,
+                checksum=document.checksum,
+                status="SKIPPED_DELETED",
+                chunk_count=0,
+                duplicate_of=document.metadata.document_id,
+            )
         duplicate = self.repository.duplicate_for_checksum(document.checksum)
-        if duplicate is not None and duplicate.status == "INDEXED":
+        if (
+            duplicate is not None
+            and duplicate.status == "INDEXED"
+            and bool(duplicate.content_text)
+        ):
             return IngestionResult(
                 source_path=document.source_path.as_posix(),
                 document_id=document.metadata.document_id,
@@ -295,7 +387,11 @@ class RagIngestionService:
         chunks = chunk_document(document)
         if not chunks:
             raise RagIngestionError("document produced no indexable chunks")
-        self.repository.begin(document)
+        self.repository.begin(
+            document,
+            expected_record_version=expected_record_version,
+            allow_restore=allow_restore,
+        )
         try:
             self.vector_index.replace_document(
                 document_id=document.metadata.document_id, chunks=chunks
@@ -328,6 +424,9 @@ def parse_document(source_path: Path) -> ParsedDocument:
             source_path=path,
             checksum=hashlib.sha256(normalized.encode("utf-8")).hexdigest(),
             pages=(SourcePage(page=1, text=body),),
+            file_name=path.name,
+            media_type="text/markdown",
+            content_text=normalized,
         )
     if suffix == ".pdf":
         raw = path.read_bytes()
@@ -344,7 +443,15 @@ def parse_document(source_path: Path) -> ParsedDocument:
             for key, value in sorted(metadata.model_dump(by_alias=True, mode="json").items())
         )
         checksum = hashlib.sha256(raw + b"\0" + normalized_metadata.encode("utf-8")).hexdigest()
-        return ParsedDocument(metadata, path, checksum, tuple(pages))
+        return ParsedDocument(
+            metadata=metadata,
+            source_path=path,
+            checksum=checksum,
+            pages=tuple(pages),
+            file_name=path.name,
+            media_type="application/pdf",
+            content_text="\n\n".join(page.text for page in pages).strip(),
+        )
     raise RagIngestionError(f"unsupported document type: {path.suffix}")
 
 

@@ -19,6 +19,7 @@ Java服务是业务系统的唯一事实和安全边界，负责：
 - Python SSE代理。
 - 会前议程、材料元数据、动态准备清单和独立乐观版本。
 - 会议自动完成、会前提醒、会后草案审核、正式纪要/决策/行动项和催办去重。
+- RAG 文档公共浏览与 ADMIN 管理入口的鉴权、限量校验和 Python 代理；Java 不实现文档切片或索引。
 
 ## 2. 模块结构
 
@@ -393,6 +394,9 @@ Day 3 冻结的内部鉴权语义：
 | BOOKING_PENDING | 202 | 热门请求已受理 |
 | TOOL_NOT_ALLOWED | 403 | Agent工具不在白名单 |
 | AGENT_UNAVAILABLE | 503 | Python服务不可用 |
+| RAG_DOCUMENT_NOT_FOUND | 404 | 制度文档不存在或已删除 |
+| RAG_DOCUMENT_INVALID | 400 | 文档格式、元数据、文件类型或大小无效 |
+| RAG_DOCUMENT_CONFLICT | 409 | 文档 checksum、状态或管理版本冲突 |
 | AGENT_RUN_STATE_CONFLICT | 409 | Run等待状态、需求revision或补充请求幂等状态已经变化 |
 | EMPLOYEE_NOT_FOUND | 404 | 员工不存在 |
 | EMPLOYEE_USERNAME_CONFLICT | 409 | 员工用户名已存在 |
@@ -432,3 +436,4 @@ Day 3 冻结的内部鉴权语义：
 - 会前准备权限、乐观版本、动态清单和原子替换测试。
 - 自动完成、两级会前提醒、缺失项通知、行动项临期/逾期提醒的重复扫描幂等测试。
 - 会后 Agent 调用事务边界、草案 `ACCEPT/EDIT/REJECT`、负责人白名单和正式写入原子性测试。
+- 知识库列表/详情登录边界、ADMIN 上传/编辑/删除代理、EMPLOYEE 越权、大小/类型限制和 Python 错误映射测试。

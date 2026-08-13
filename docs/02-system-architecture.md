@@ -33,9 +33,9 @@ flowchart TB
 
 | 服务 | 职责 |
 |---|---|
-| frontend | 登录、聊天、会议管理、会议室管理、HITL 和 Trace 展示 |
-| business-service | 鉴权、业务数据、并发预约、草案确认、Tool Gateway、MQ 和 SSE 代理 |
-| agent-service | LangGraph Multi-Agent、DeepSeek、OR-Tools、RAG、checkpoint 和评测 |
+| frontend | 登录、聊天、会议管理、会议室管理、知识库浏览/管理、HITL 和 Trace 展示 |
+| business-service | 鉴权、业务数据、并发预约、草案确认、Tool Gateway、MQ、SSE 与 RAG 管理代理 |
+| agent-service | LangGraph Multi-Agent、DeepSeek、OR-Tools、RAG 文档/索引、checkpoint 和评测 |
 
 ### 1.2 基础设施
 
@@ -86,6 +86,7 @@ flowchart TB
 - Agent Run、Step 和模型调用摘要。
 - 显式调度偏好。
 - RAG 文档解析元数据与向量索引。
+- RAG 文档可浏览正文、删除 tombstone 和管理乐观版本。
 - Agent 评测数据与结果。
 
 ### 3.3 禁止的访问
@@ -264,6 +265,7 @@ Java调用 Python 内部流式接口并转发以下事件：
 | 站内通知 | 最终一致 |
 | Agent Trace | 最终一致，不影响业务结果 |
 | RAG索引 | 最终一致 |
+| RAG 管理删除 | Qdrant 删除成功后写 Python tombstone；部署期导入不得覆盖 tombstone |
 | 房间停用、异常单与资源失效通知 | 单个 Java 本地事务，强一致 |
 | 会议改期/取消与异常单终态 | 同一 Java 业务事务，强一致 |
 | 会前准备聚合 | Java 当前事实动态计算；保存使用独立乐观版本 |

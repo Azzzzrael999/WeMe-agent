@@ -85,7 +85,11 @@ function authenticatedHeaders(init: RequestInit, accept: string): Headers {
   const token = readAccessToken()
 
   headers.set('Accept', accept)
-  if (init.body !== undefined && !headers.has('Content-Type')) {
+  if (
+    init.body !== undefined
+    && !(init.body instanceof FormData)
+    && !headers.has('Content-Type')
+  ) {
     headers.set('Content-Type', 'application/json')
   }
   if (token !== null) {

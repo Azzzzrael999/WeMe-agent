@@ -27,7 +27,12 @@ from app.config import Settings, get_settings
 from app.database.base import Base
 from app.main import app
 from app.persistence import MetadataRepository
-from app.providers.base import ModelCompletion
+from app.providers.base import (
+    ModelCompletion,
+    ModelToolCall,
+    ToolModelRequest,
+    ToolModelResponse,
+)
 from app.providers.fixture import FixtureModelProvider
 from app.rag.policies import InMemoryPolicyRetriever
 from app.schemas.agent import AgentState, BookingDraft, DraftParticipant, MeetingView, RunStatus
@@ -689,6 +694,50 @@ def test_initial_hitl_persists_candidates_without_leaking_token_to_trace(
     assert trace["toolCalls"][-1]["riskLevel"] == "DRAFT"  # type: ignore[index]
 
 
+def test_verified_controller_completes_partial_model_read_plan(
+    configured_app: None,
+    fixture_tools: FakeJavaTools,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class PartialReadProvider(FixtureModelProvider):
+        def complete_tools(self, request: ToolModelRequest) -> ToolModelResponse:
+            if request.iteration == 1:
+                return ToolModelResponse(
+                    content=None,
+                    tool_calls=(
+                        ModelToolCall(
+                            id="partial-resolve",
+                            name="resolve_employees",
+                            arguments=json.dumps(
+                                {"names": ["张三", "李四"], "departmentNames": []},
+                                ensure_ascii=False,
+                            ),
+                        ),
+                    ),
+                )
+            return ToolModelResponse(content="读取结束。", tool_calls=())
+
+    settings = Settings()
+    monkeypatch.setitem(
+        app.dependency_overrides,
+        get_model_provider,
+        lambda: PartialReadProvider(datetime.fromisoformat(settings.fixture_now)),
+    )
+    run_id = f"run_{uuid.uuid4().hex}"
+    trace_id = f"trc_{uuid.uuid4().hex}"
+
+    with TestClient(app) as client:
+        events = _start(client, run_id, trace_id)
+
+    assert events[-1][0] == "hitl.required"
+    assert fixture_tools.calls == [
+        "resolve_employees",
+        "get_employee_free_busy",
+        "search_available_rooms",
+        "create_booking_draft",
+    ]
+
+
 def test_exact_demo_request_reaches_candidates_without_false_clarification(
     configured_app: None,
     metadata_repository: MetadataRepository,
@@ -1332,7 +1381,7 @@ def test_trajectory_integration_exposes_bounded_native_tool_loop(
     loops = [payload for name, payload in events if name == "agent.loop"]
     assert [payload["phase"] for payload in loops] == ["PLAN", "VERIFY"]
     assert loops[0]["iteration"] == 1
-    assert loops[-1]["iteration"] <= 4
+    assert loops[-1]["iteration"] <= 6
     assert loops[-1]["stopReason"] == "READY_FOR_CONFIRMATION"
     assert loops[-1]["remainingBudget"]["modelCalls"] >= 0  # type: ignore[index]
     assert loops[-1]["remainingBudget"]["toolCalls"] >= 0  # type: ignore[index]

@@ -181,6 +181,10 @@
 - 回答引用的chunkId真实存在。
 - `open_policy_chunks`不能打开本轮候选之外的chunk。
 - 无答案时返回未找到证据。
+- 普通用户可浏览文档但不能上传、编辑或删除；ADMIN 写操作同时经过 Java RBAC 与 Python AgentContext 角色复核。
+- Markdown 编辑使用乐观版本并完整替换旧 chunks；过期版本返回冲突。
+- 删除清理 Qdrant 后保留 tombstone，重复部署期导入不会恢复；管理员显式上传同一 documentId 可以恢复。
+- 上传大小、扩展名、Base64、Front Matter、PDF 元数据与正文长度均有边界测试。
 
 ## 6. Agent离线评测集
 
@@ -323,6 +327,7 @@
 - ADMIN 也不能读取或标记其他用户的通知。
 - 非组织者不能编辑会前准备或审核会后草案；非负责人不能修改行动项。
 - 会后 Agent 输出的负责人 ID 必须属于 Java 提供的会议人员白名单。
+- EMPLOYEE 无法调用知识库管理 API，伪造内部 ADMIN 角色或缺失 Service Token 均被拒绝。
 
 ## 10. 不做的测试
 

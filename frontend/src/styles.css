@@ -9,5 +9,6 @@
 @import "./styles/operations.css";
 @import "./styles/replan.css";
 @import "./styles/lifecycle.css";
+@import "./styles/knowledge.css";
 
 /* Page-level styles live in the imported modules above. */

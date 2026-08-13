@@ -58,6 +58,9 @@ public class SecurityConfiguration {
                     .hasAnyRole("EMPLOYEE", "ADMIN")
                     .requestMatchers("/api/v1/replan-cases", "/api/v1/replan-cases/**")
                     .hasAnyRole("EMPLOYEE", "ADMIN")
+                    .requestMatchers(
+                        "/api/v1/knowledge-documents", "/api/v1/knowledge-documents/**")
+                    .hasAnyRole("EMPLOYEE", "ADMIN")
                     .anyRequest()
                     .authenticated())
         .exceptionHandling(

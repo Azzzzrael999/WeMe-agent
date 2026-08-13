@@ -22,6 +22,7 @@
 | PostMeetingDraft | Agent 生成且尚未确认的纪要、决策和行动项草案 |
 | MeetingMinutes/Decision | HITL 接受后形成的正式纪要与决策记录 |
 | MeetingActionItem | HITL 接受后形成的负责人、截止时间和执行状态 |
+| RagDocument | Python 持有的会议制度源文档、索引状态和可浏览正文 |
 
 ## 2. 会议状态
 
@@ -309,6 +310,14 @@ stateDiagram-v2
 - 行动项负责人必须来自会议参与者或组织者；负责人、组织者或 ADMIN 可更新 `OPEN/IN_PROGRESS/DONE`。未完成行动项在截止前 24 小时和逾期后各产生一次去重站内催办。
 - 本页不展示或实现 RSVP、签到、附件上传、政策结果绑定、统计复盘和外部平台同步。
 
+### 7.10 会议制度知识库
+
+- 所有登录用户可分页检索和查看已索引的会议制度文档、类型、版本、部门、生效日期、切片数与规范化正文。
+- ADMIN 可上传 Markdown 和文本型 PDF；Markdown 必须包含受控 Front Matter，PDF 必须附带同形元数据。上传体最大 5 MiB、可浏览正文最大 500,000 字符，PDF 只处理可提取文本，不做 OCR。
+- ADMIN 可在线编辑 Markdown 完整源文档；PDF 内容变更通过重新上传完成。任何变更都必须按 `documentId` 完整重建 Qdrant chunks。
+- 删除必须显式执行并带乐观版本；删除后 Qdrant 不再包含该文档，同时保留 `DELETED` tombstone，部署期 `rag-init` 不得静默恢复。
+- EMPLOYEE 不显示管理入口且无法调用 `/api/v1/admin/knowledge-documents/**`。
+
 ## 8. 验收标准
 
 | ID | 验收条件 |
@@ -345,3 +354,5 @@ stateDiagram-v2
 | AC-30 | 行动项只允许负责人、组织者或 ADMIN 更新状态；临期与逾期站内催办幂等，DONE 项不再催办 |
 | AC-31 | 会前会后页完全使用真实 `/api/v1/**` 数据并剔除 RSVP、签到、附件、政策绑定与统计预览 |
 | AC-32 | 用户主路径不展示技术枚举、原始人员 ID、测试会议或冗余实现说明；周视图按周一至周日和 08:00–00:00 展示，会议室日期/筛选变化自动刷新且过期响应不能覆盖当前结果 |
+| AC-33 | 所有登录用户可浏览已索引会议制度；ADMIN 可上传、编辑 Markdown、替换 PDF 和显式删除，EMPLOYEE 管理请求被拒绝 |
+| AC-34 | 文档编辑完整替换旧 Qdrant chunks，删除后检索不可见且重复 rag-init 不会恢复 tombstone；版本过期与非法/扫描型文件返回稳定错误 |

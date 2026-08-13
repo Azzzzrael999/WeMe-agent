@@ -147,6 +147,7 @@ RAG 语料导入是确定性基础设施组件，不是新的 Agent：
 - 按标题路径切片并保留 documentId、chunkId、标题、页码、版本、优先级和 checksum，Policy Agent 只能引用本轮真实召回且能重新打开的 chunk。
 - 文件导入失败不得用内置模型知识补齐；检索无可验证依据时必须回答“未找到可验证证据”并标记 `UNVERIFIED`。
 - 文档索引最终一致，不改变 Java 业务事实、预约权限或硬约束；Java 写入前仍重新校验全部业务规则。
+- 在线管理由受 Service Token 与 AgentContext 保护的 Python 内部资源 API 执行；所有用户可读，写入仅 ADMIN。删除保留 `DELETED` tombstone，阻止部署期种子目录静默恢复；管理员显式重传同一 `documentId` 才可恢复。
 
 ### 2.4 Scheduling Agent
 
@@ -541,6 +542,8 @@ totalCost =
 - 按标题层级切片，目标500至800 tokens，重叠约80 tokens。
 - 使用本地中文Embedding模型，模型名通过环境变量配置。
 - 不做OCR和Rerank。
+- 管理员在线上传最大 5 MiB；Markdown 可在线编辑，文本型 PDF 只允许查看提取正文并通过重新上传替换。
+- 编辑、替换和恢复都按 documentId 全量重建 chunks；删除先清理 Qdrant points，再写 tombstone。
 
 ### 11.3 元数据
 

@@ -1,0 +1,881 @@
+{
+  "schemaVersion": "live-model-component-v2",
+  "mode": "live-model-component",
+  "suite": "full",
+  "repeats": 1,
+  "generatedAt": "2026-08-14T16:20:09.507773+00:00",
+  "provider": "deepseek",
+  "configuredModel": "deepseek-v4-flash",
+  "promptVersion": "meeting-agent-prompts-v8",
+  "agentSchemaVersion": "meeting-agent-state-v6",
+  "status": "FAIL",
+  "responseModels": [
+    "deepseek-v4-flash"
+  ],
+  "tokenUsage": {
+    "inputTokens": 86332,
+    "outputTokens": 13187,
+    "cacheHitTokens": 78592,
+    "cacheMissTokens": 7740
+  },
+  "metrics": {
+    "samples": 40,
+    "routeAccuracy": 1.0,
+    "policyRouteAllCorrect": true,
+    "intentAccuracy": 1.0,
+    "constraintFieldF1": 0.953125,
+    "toolSelectionAccuracy": 0.85,
+    "sourceFidelityViolations": 0,
+    "nativeToolProtocol": 1.0,
+    "citationValidity": 0.8333333333333334,
+    "latencyP50Ms": 3878.68,
+    "latencyP95Ms": 6215.28
+  },
+  "results": [
+    {
+      "caseId": "normal-001",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 8886.06,
+      "errorType": null
+    },
+    {
+      "caseId": "normal-002",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 3425.19,
+      "errorType": null
+    },
+    {
+      "caseId": "normal-003",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 3780.98,
+      "errorType": null
+    },
+    {
+      "caseId": "normal-004",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 4219.88,
+      "errorType": null
+    },
+    {
+      "caseId": "normal-005",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 3966.59,
+      "errorType": null
+    },
+    {
+      "caseId": "normal-006",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 3126.07,
+      "errorType": null
+    },
+    {
+      "caseId": "normal-007",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 3285.05,
+      "errorType": null
+    },
+    {
+      "caseId": "normal-008",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 3249.5,
+      "errorType": null
+    },
+    {
+      "caseId": "coord-001",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 3857.46,
+      "errorType": null
+    },
+    {
+      "caseId": "coord-002",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 3641.44,
+      "errorType": null
+    },
+    {
+      "caseId": "coord-003",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 6434.13,
+      "errorType": null
+    },
+    {
+      "caseId": "coord-004",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 3952.39,
+      "errorType": null
+    },
+    {
+      "caseId": "coord-005",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 4020.26,
+      "errorType": null
+    },
+    {
+      "caseId": "coord-006",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 3611.85,
+      "errorType": null
+    },
+    {
+      "caseId": "complex-001",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 4127.54,
+      "errorType": null
+    },
+    {
+      "caseId": "complex-002",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 3906.32,
+      "errorType": null
+    },
+    {
+      "caseId": "complex-003",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 4229.82,
+      "errorType": null
+    },
+    {
+      "caseId": "complex-004",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 4143.7,
+      "errorType": null
+    },
+    {
+      "caseId": "complex-005",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 4181.9,
+      "errorType": null
+    },
+    {
+      "caseId": "complex-006",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 4516.08,
+      "errorType": null
+    },
+    {
+      "caseId": "recommend-001",
+      "repeat": 1,
+      "terminal": "CLARIFICATION",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 3,
+        "fp": 1,
+        "fn": 1
+      },
+      "toolSelectionMatch": false,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [
+        "TIME_WINDOW_REQUIRED"
+      ],
+      "missingFields": [
+        "TIME_WINDOW_REQUIRED",
+        "timeWindow",
+        "durationMinutes"
+      ],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 3439.93,
+      "errorType": null
+    },
+    {
+      "caseId": "recommend-002",
+      "repeat": 1,
+      "terminal": "CLARIFICATION",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": false,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [
+        "TIME_WINDOW_REQUIRED"
+      ],
+      "missingFields": [
+        "TIME_WINDOW_REQUIRED",
+        "timeWindow"
+      ],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 3208.61,
+      "errorType": null
+    },
+    {
+      "caseId": "recommend-003",
+      "repeat": 1,
+      "terminal": "CLARIFICATION",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 3,
+        "fp": 1,
+        "fn": 1
+      },
+      "toolSelectionMatch": false,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [
+        "TIME_WINDOW_REQUIRED"
+      ],
+      "missingFields": [
+        "TIME_WINDOW_REQUIRED",
+        "timeWindow",
+        "durationMinutes"
+      ],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 3591.62,
+      "errorType": null
+    },
+    {
+      "caseId": "recommend-004",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 6215.28,
+      "errorType": null
+    },
+    {
+      "caseId": "recommend-005",
+      "repeat": 1,
+      "terminal": "CLARIFICATION",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 3,
+        "fp": 1,
+        "fn": 1
+      },
+      "toolSelectionMatch": false,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [
+        "TIME_WINDOW_REQUIRED"
+      ],
+      "missingFields": [
+        "TIME_WINDOW_REQUIRED",
+        "timeWindow",
+        "durationMinutes"
+      ],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 5293.19,
+      "errorType": null
+    },
+    {
+      "caseId": "policy-001",
+      "repeat": 1,
+      "terminal": "FINAL",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 1,
+      "citationsValid": 1,
+      "latencyMs": 3057.2,
+      "errorType": null
+    },
+    {
+      "caseId": "policy-002",
+      "repeat": 1,
+      "terminal": "FINAL",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 1,
+      "citationsValid": 0,
+      "latencyMs": 3051.28,
+      "errorType": null
+    },
+    {
+      "caseId": "policy-003",
+      "repeat": 1,
+      "terminal": "FINAL",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 1,
+      "citationsValid": 1,
+      "latencyMs": 3084.47,
+      "errorType": null
+    },
+    {
+      "caseId": "policy-004",
+      "repeat": 1,
+      "terminal": "FINAL",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 2,
+      "citationsValid": 2,
+      "latencyMs": 3024.92,
+      "errorType": null
+    },
+    {
+      "caseId": "policy-005",
+      "repeat": 1,
+      "terminal": "FINAL",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 1,
+      "citationsValid": 1,
+      "latencyMs": 2755.98,
+      "errorType": null
+    },
+    {
+      "caseId": "change-001",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 4,
+        "fp": 1,
+        "fn": 1
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 4244.83,
+      "errorType": null
+    },
+    {
+      "caseId": "change-002",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 5,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 3878.68,
+      "errorType": null
+    },
+    {
+      "caseId": "change-003",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 4,
+        "fp": 1,
+        "fn": 1
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 3985.27,
+      "errorType": null
+    },
+    {
+      "caseId": "change-004",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 4501.45,
+      "errorType": null
+    },
+    {
+      "caseId": "change-005",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 4578.83,
+      "errorType": null
+    },
+    {
+      "caseId": "change-006",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 4702.73,
+      "errorType": null
+    },
+    {
+      "caseId": "preference-001",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 3386.32,
+      "errorType": null
+    },
+    {
+      "caseId": "preference-002",
+      "repeat": 1,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": true,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 5783.72,
+      "errorType": null
+    },
+    {
+      "caseId": "preference-003",
+      "repeat": 1,
+      "terminal": "CLARIFICATION",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0
+      },
+      "toolSelectionMatch": false,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [
+        "requiredParticipants"
+      ],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 3838.33,
+      "errorType": null
+    },
+    {
+      "caseId": "preference-004",
+      "repeat": 1,
+      "terminal": "CLARIFICATION",
+      "routeMatch": true,
+      "intentMatch": true,
+      "constraintCounts": {
+        "tp": 3,
+        "fp": 1,
+        "fn": 1
+      },
+      "toolSelectionMatch": false,
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [
+        "TIME_WINDOW_REQUIRED"
+      ],
+      "missingFields": [
+        "TIME_WINDOW_REQUIRED",
+        "timeWindow",
+        "durationMinutes",
+        "requiredParticipants"
+      ],
+      "citationsChecked": 0,
+      "citationsValid": 0,
+      "latencyMs": 3091.09,
+      "errorType": null
+    }
+  ],
+  "nativeToolProtocolResults": [
+    {
+      "repeat": 1,
+      "valid": true,
+      "latencyMs": 1839.82,
+      "errorType": null
+    }
+  ],
+  "limitations": [
+    "This component report makes real DeepSeek calls but no Java business writes.",
+    "Hard constraints and HITL-before-side-effects are measured by integration and live-model-trajectory gates.",
+    "Policy retrieval uses the versioned in-memory seed corpus; the Policy model call is real."
+  ]
+}

@@ -26,6 +26,13 @@ spring:
   jackson:
     time-zone: ${APP_TIMEZONE:Asia/Shanghai}
     default-property-inclusion: non_null
+  mvc:
+    async:
+      request-timeout: ${AGENT_SSE_ASYNC_TIMEOUT_MILLIS:300000}
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
 
 mybatis-plus:
   configuration:

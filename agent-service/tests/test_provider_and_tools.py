@@ -26,6 +26,7 @@ from app.providers.base import (
 )
 from app.providers.deepseek import DeepSeekModelProvider
 from app.providers.fixture import FixtureModelProvider
+from app.rag.policies import InMemoryPolicyRetriever
 from app.schemas.agent import (
     AgentState,
     BusinessResultCallback,
@@ -45,7 +46,7 @@ from app.tools.java import (
     JavaReadToolClient,
     JavaToolError,
 )
-from app.workflow import RequirementAgent, SupervisorAgent
+from app.workflow import PolicyAgent, RequirementAgent, SupervisorAgent
 
 
 class QueueProvider:
@@ -130,13 +131,88 @@ def test_supervisor_normalizes_direct_scheduling_to_requirement_boundary() -> No
         request_time=datetime.fromisoformat("2026-08-12T10:00:00+08:00"),
     )
 
-    updated, _, calls = SupervisorAgent(
-        provider=provider, runner=StructuredModelRunner()
-    ).execute(state)
+    updated, _, calls = SupervisorAgent(provider=provider, runner=StructuredModelRunner()).execute(
+        state
+    )
 
     assert calls == 2
     assert updated.next_route is Route.REQUIREMENT
     assert updated.meeting_request is None
+
+
+def test_policy_agent_answers_from_openable_evidence_content() -> None:
+    provider = QueueProvider(
+        [
+            json.dumps(
+                {
+                    "answerSummary": "架构评审展示材料时应选择配备大屏的会议室。",
+                    "selectedChunkIds": ["chunk_architecture_review_v1"],
+                    "confidence": 0.95,
+                    "constraints": [],
+                },
+                ensure_ascii=False,
+            )
+        ]
+    )
+    state = AgentState(
+        thread_id="thread_policy_evidence",
+        run_id="run_policy_evidence",
+        trace_id="trc_policy_evidence",
+        user_id=1001,
+        roles=["EMPLOYEE"],
+        message="架构评审的会议室设备规则是什么？",
+        request_time=datetime.fromisoformat("2026-08-15T10:00:00+08:00"),
+        intent=Intent.QUERY_POLICY,
+    )
+
+    updated, summary, calls = PolicyAgent(
+        provider=provider,
+        runner=StructuredModelRunner(),
+        retriever=InMemoryPolicyRetriever(),
+    ).execute(state)
+
+    assert calls == 1
+    assert summary == "架构评审展示材料时应选择配备大屏的会议室。"
+    assert "架构评审展示材料时应选择配备大屏的会议室" in provider.requests[0].user_prompt
+    assert [item.chunk_id for item in updated.citations] == ["chunk_architecture_review_v1"]
+
+
+def test_policy_agent_returns_explicit_unverified_result_when_no_chunk_is_selected() -> None:
+    provider = QueueProvider(
+        [
+            json.dumps(
+                {
+                    "answerSummary": "周五禁止开会。",
+                    "selectedChunkIds": [],
+                    "confidence": 0.8,
+                    "constraints": [],
+                },
+                ensure_ascii=False,
+            )
+        ]
+    )
+    state = AgentState(
+        thread_id="thread_policy_unknown",
+        run_id="run_policy_unknown",
+        trace_id="trc_policy_unknown",
+        user_id=1001,
+        roles=["EMPLOYEE"],
+        message="公司是否禁止周五开会？",
+        request_time=datetime.fromisoformat("2026-08-15T10:00:00+08:00"),
+        intent=Intent.QUERY_POLICY,
+    )
+
+    updated, summary, _ = PolicyAgent(
+        provider=provider,
+        runner=StructuredModelRunner(),
+        retriever=InMemoryPolicyRetriever(),
+    ).execute(state)
+
+    assert summary == "未找到可验证的会议制度证据。"
+    assert updated.policy_result is not None
+    assert updated.policy_result.verification_status == "UNVERIFIED"
+    assert updated.policy_result.confidence == 0.0
+    assert updated.citations == []
 
 
 def test_deepseek_provider_retries_temporary_failure_without_real_network(
@@ -339,9 +415,7 @@ def test_java_client_does_not_replan_an_unrelated_http_conflict() -> None:
 
 def test_tool_fingerprint_is_canonical_and_changes_with_arguments() -> None:
     first = tool_fingerprint("resolve_employees", {"names": ["张三"], "departmentNames": []})
-    reordered = tool_fingerprint(
-        "resolve_employees", {"departmentNames": [], "names": ["张三"]}
-    )
+    reordered = tool_fingerprint("resolve_employees", {"departmentNames": [], "names": ["张三"]})
     changed = tool_fingerprint("resolve_employees", {"names": ["李四"], "departmentNames": []})
 
     assert first == reordered
@@ -553,6 +627,78 @@ def test_source_fidelity_treats_between_range_as_search_window() -> None:
     assert feedback is None
 
 
+def test_source_fidelity_accepts_colloquial_range_and_english_feature_alias() -> None:
+    draft = RequirementDraft.model_validate(
+        {
+            "intent": "CREATE_MEETING",
+            "durationMinutes": 90,
+            "timeWindow": {
+                "start": "2026-08-24T13:00:00+08:00",
+                "end": "2026-08-24T17:00:00+08:00",
+            },
+            "requiredParticipantNames": ["李四"],
+            "requiredFeatures": ["WHITEBOARD"],
+            "minimumCapacity": 8,
+            "fieldEvidence": [],
+            "summary": "安排上线评审",
+        }
+    )
+
+    feedback = SourceFidelityEvaluator().evaluate(
+        draft,
+        "8月24日下午1点到5点这个范围开90分钟会，李四参加，8个人，whiteboard required。",
+    )
+
+    assert feedback is None
+
+
+def test_source_fidelity_accepts_deterministic_mixed_language_evidence() -> None:
+    draft = RequirementDraft.model_validate(
+        {
+            "intent": "CREATE_MEETING",
+            "durationMinutes": 30,
+            "timeWindow": {
+                "start": "2026-08-23T12:00:00+08:00",
+                "end": "2026-08-23T18:00:00+08:00",
+            },
+            "requiredParticipantNames": ["李四"],
+            "requiredFeatures": ["WHITEBOARD"],
+            "minimumCapacity": 4,
+            "fieldEvidence": [
+                {
+                    "field": "durationMinutes",
+                    "source": "30 minutes",
+                    "provenance": "USER_DERIVED",
+                },
+                {
+                    "field": "timeWindow",
+                    "source": "2026-08-23 13:00-18:00",
+                    "provenance": "USER_DERIVED",
+                },
+                {
+                    "field": "minimumCapacity",
+                    "source": "capacity 4",
+                    "provenance": "USER_DERIVED",
+                },
+                {
+                    "field": "requiredFeatures",
+                    "source": "Whiteboard",
+                    "provenance": "USER_DERIVED",
+                },
+            ],
+            "summary": "安排同步会议",
+        }
+    )
+
+    feedback = SourceFidelityEvaluator().evaluate(
+        draft,
+        "Please book a 30-minute sync with 李四 on 2026-08-23 afternoon, "
+        "4 people, whiteboard required.",
+    )
+
+    assert feedback is None
+
+
 def test_source_fidelity_rejects_conflicting_fixed_interval_duration() -> None:
     draft = RequirementDraft.model_validate(
         {
@@ -600,6 +746,76 @@ def test_route_evaluator_distinguishes_mutation_rules_from_mutation_request() ->
         Route.REQUIREMENT,
         Intent.MODIFY_MEETING,
     )
+    assert evaluator.fallback("帮我找李四和周经理一起空出的时间，只查时间，不预约。") == (
+        Route.REQUIREMENT,
+        Intent.FIND_COMMON_TIME,
+    )
+    assert evaluator.fallback("找一间有白板的会议室，只推荐，不要预约。") == (
+        Route.REQUIREMENT,
+        Intent.RECOMMEND_ROOM,
+    )
+    assert evaluator.fallback("Please book a sync with 李四.") == (
+        Route.REQUIREMENT,
+        Intent.CREATE_MEETING,
+    )
+    assert evaluator.fallback("明天下午帮我跟李四碰一下，先让我挑房间。") == (
+        Route.REQUIREMENT,
+        Intent.CREATE_MEETING,
+    )
+    assert evaluator.fallback("调整参会人：赵六不参加，加上孙琪。") == (
+        Route.CLARIFICATION,
+        None,
+    )
+
+
+def test_requirement_deterministically_normalizes_mixed_language_explicit_facts() -> None:
+    provider = QueueProvider(
+        [
+            json.dumps(
+                {
+                    "requirementDraft": {
+                        "intent": "FIND_COMMON_TIME",
+                        "durationMinutes": 60,
+                        "timeWindow": {
+                            "start": "2026-08-23T12:00:00+08:00",
+                            "end": "2026-08-23T18:00:00+08:00",
+                        },
+                        "requiredParticipantNames": ["李四"],
+                        "requiredFeatures": ["whiteboard"],
+                        "minimumCapacity": 1,
+                        "fieldEvidence": [],
+                        "summary": "book a sync",
+                    },
+                    "missingFields": [],
+                },
+                ensure_ascii=False,
+            )
+        ]
+    )
+    state = AgentState(
+        thread_id="thread_mixed_language",
+        run_id="run_mixed_language",
+        trace_id="trc_mixed_language",
+        user_id=1001,
+        roles=["EMPLOYEE"],
+        message=(
+            "Please book a 30-minute sync with 李四 on 2026-08-23 afternoon, "
+            "4 people, whiteboard required."
+        ),
+        request_time=datetime.fromisoformat("2026-08-15T09:00:00+08:00"),
+        intent=Intent.CREATE_MEETING,
+    )
+
+    updated, _, _, _ = RequirementAgent(
+        provider=provider, runner=StructuredModelRunner()
+    ).execute(state)
+
+    assert updated.meeting_request is not None
+    assert updated.meeting_request.intent is Intent.CREATE_MEETING
+    assert updated.meeting_request.duration_minutes == 30
+    assert updated.meeting_request.minimum_capacity == 4
+    assert updated.meeting_request.required_features == ["WHITEBOARD"]
+    assert updated.missing_fields == []
 
 
 def test_requirement_preserves_recent_meeting_reference_after_model_omission() -> None:
@@ -630,9 +846,9 @@ def test_requirement_preserves_recent_meeting_reference_after_model_omission() -
         request_time=datetime.fromisoformat("2026-08-13T01:00:00+08:00"),
     )
 
-    updated, _, _, _ = RequirementAgent(
-        provider=provider, runner=StructuredModelRunner()
-    ).execute(state)
+    updated, _, _, _ = RequirementAgent(provider=provider, runner=StructuredModelRunner()).execute(
+        state
+    )
 
     assert updated.meeting_request is not None
     assert updated.meeting_request.target_meeting_reference == "刚才那个会议"
@@ -675,9 +891,9 @@ def test_requirement_defaults_remove_stale_model_missing_fields() -> None:
         request_time=datetime.fromisoformat("2026-08-13T01:00:00+08:00"),
     )
 
-    updated, _, _, _ = RequirementAgent(
-        provider=provider, runner=StructuredModelRunner()
-    ).execute(state)
+    updated, _, _, _ = RequirementAgent(provider=provider, runner=StructuredModelRunner()).execute(
+        state
+    )
 
     assert updated.missing_fields == []
     assert updated.meeting_request is not None
@@ -759,9 +975,9 @@ def test_requirement_applies_deterministic_partial_time_defaults(
         request_time=datetime.fromisoformat(request_time),
     )
 
-    updated, _, _, _ = RequirementAgent(
-        provider=provider, runner=StructuredModelRunner()
-    ).execute(state)
+    updated, _, _, _ = RequirementAgent(provider=provider, runner=StructuredModelRunner()).execute(
+        state
+    )
 
     assert updated.requirement_draft is not None
     assert updated.requirement_draft.time_window is not None
@@ -1155,6 +1371,111 @@ def test_participant_removal_is_applied_to_verified_previous_roster() -> None:
     assert participant_item.summary == "3人：张三、李四、王五"
 
 
+def test_participant_removal_and_addition_are_applied_in_one_continuation() -> None:
+    previous = RequirementDraft(
+        intent=Intent.CREATE_MEETING,
+        duration_minutes=60,
+        time_window=TimeWindow(
+            start=datetime.fromisoformat("2026-08-25T13:00:00+08:00"),
+            end=datetime.fromisoformat("2026-08-25T17:00:00+08:00"),
+        ),
+        required_participant_names=["李四", "赵六", "周经理"],
+        minimum_capacity=4,
+        summary="项目评审",
+    )
+    extraction = json.dumps(
+        {
+            "requirementDraft": {
+                "intent": "MODIFY_MEETING",
+                "requiredParticipantNames": ["孙琪"],
+                "fieldEvidence": [],
+                "summary": "调整参会人",
+            },
+            "missingFields": [],
+        },
+        ensure_ascii=False,
+    )
+    state = AgentState(
+        thread_id="thread_replace_participant",
+        run_id="run_replace_participant",
+        trace_id="trc_replace_participant",
+        user_id=1001,
+        roles=["EMPLOYEE"],
+        message="调整参会人：赵六不参加了，加上孙琪必须参加。",
+        request_time=datetime.fromisoformat("2026-08-14T09:05:00+08:00"),
+        intent=Intent.CREATE_MEETING,
+        requirement_draft=previous,
+        continuation_turn=True,
+        requirement_revision=1,
+    )
+
+    updated, _, _, _ = RequirementAgent(
+        provider=QueueProvider([extraction]),
+        runner=StructuredModelRunner(),
+    ).execute(state)
+
+    assert updated.intent is Intent.CREATE_MEETING
+    assert updated.requirement_draft is not None
+    assert updated.requirement_draft.required_participant_names == [
+        "李四",
+        "周经理",
+        "孙琪",
+    ]
+
+
+def test_create_continuation_time_change_does_not_become_reschedule() -> None:
+    previous = RequirementDraft(
+        intent=Intent.CREATE_MEETING,
+        duration_minutes=180,
+        time_window=TimeWindow(
+            start=datetime.fromisoformat("2026-08-25T13:00:00+08:00"),
+            end=datetime.fromisoformat("2026-08-25T16:00:00+08:00"),
+        ),
+        participant_scope="ORGANIZER_ONLY",
+        minimum_capacity=4,
+        summary="会议安排",
+    )
+    extraction = json.dumps(
+        {
+            "requirementDraft": {
+                "intent": "MODIFY_MEETING",
+                "durationMinutes": 180,
+                "timeWindow": {
+                    "start": "2026-08-26T09:00:00+08:00",
+                    "end": "2026-08-26T12:00:00+08:00",
+                },
+                "requiredParticipantNames": [],
+                "fieldEvidence": [],
+                "summary": "改到次日上午",
+            },
+            "missingFields": [],
+        },
+        ensure_ascii=False,
+    )
+    state = AgentState(
+        thread_id="thread_create_time_change",
+        run_id="run_create_time_change",
+        trace_id="trc_create_time_change",
+        user_id=1001,
+        roles=["EMPLOYEE"],
+        message="那改到8月26日上午9点到12点这个范围，时长和其他要求不变。",
+        request_time=datetime.fromisoformat("2026-08-14T09:05:00+08:00"),
+        intent=Intent.CREATE_MEETING,
+        requirement_draft=previous,
+        continuation_turn=True,
+        requirement_revision=1,
+    )
+
+    updated, _, _, _ = RequirementAgent(
+        provider=QueueProvider([extraction]),
+        runner=StructuredModelRunner(),
+    ).execute(state)
+
+    assert updated.intent is Intent.CREATE_MEETING
+    assert updated.meeting_request is not None
+    assert updated.meeting_request.intent is Intent.CREATE_MEETING
+
+
 def test_requirement_derives_duration_only_from_explicit_fixed_interval() -> None:
     extraction = json.dumps(
         {
@@ -1169,9 +1490,7 @@ def test_requirement_derives_duration_only_from_explicit_fixed_interval() -> Non
         },
         ensure_ascii=False,
     )
-    provider = QueueProvider(
-        [extraction, extraction]
-    )
+    provider = QueueProvider([extraction, extraction])
     state = AgentState(
         thread_id="thread_fixed_interval",
         run_id="run_fixed_interval",
@@ -1182,9 +1501,9 @@ def test_requirement_derives_duration_only_from_explicit_fixed_interval() -> Non
         request_time=datetime.fromisoformat("2026-08-14T09:00:00+08:00"),
     )
 
-    updated, _, _, _ = RequirementAgent(
-        provider=provider, runner=StructuredModelRunner()
-    ).execute(state)
+    updated, _, _, _ = RequirementAgent(provider=provider, runner=StructuredModelRunner()).execute(
+        state
+    )
 
     assert updated.requirement_draft is not None
     assert updated.requirement_draft.duration_minutes == 60
@@ -1536,9 +1855,7 @@ def test_create_draft_uses_caller_supplied_stable_tool_identity() -> None:
         ("2026-08-19T15:00:00+08:00", "2026-08-19T16:30:00+00:00"),
     ],
 )
-def test_create_draft_requires_asia_shanghai_offset(
-    start_at: str, end_at: str
-) -> None:
+def test_create_draft_requires_asia_shanghai_offset(start_at: str, end_at: str) -> None:
     with pytest.raises(ValidationError, match=r"\+08:00"):
         CreateBookingDraftInput(
             title="架构评审",
@@ -1574,7 +1891,10 @@ def test_fixture_requirement_extracts_video_feature_and_explicit_capacity() -> N
     request = ModelRequest(
         agent_name="requirement",
         system_prompt="fixture",
-        user_prompt="下周三下午帮张三安排一个90分钟架构评审，10人，要视频会议设备",
+        user_prompt=(
+            "下周三下午帮张三安排一个90分钟架构评审，10人，"
+            "要视频会议设备，优先总部楼"
+        ),
         schema_name="RequirementExtraction",
         schema={},
     )
@@ -1586,6 +1906,7 @@ def test_fixture_requirement_extracts_video_feature_and_explicit_capacity() -> N
 
     assert meeting["minimumCapacity"] == 10
     assert meeting["requiredFeatures"] == ["VIDEO_CONFERENCE"]
+    assert meeting["preferredBuildings"] == ["总部楼"]
 
 
 def test_fixture_tool_loop_computes_unique_organizer_capacity_after_resolution() -> None:
@@ -1600,9 +1921,7 @@ def test_fixture_tool_loop_computes_unique_organizer_capacity_after_resolution()
     )
     user = ToolLoopMessage(role="user", content="帮张三和李四安排会议")
     first = provider.complete_tools(
-        ToolModelRequest(
-            agent_name="scheduling", messages=(system, user), tools=(), iteration=1
-        )
+        ToolModelRequest(agent_name="scheduling", messages=(system, user), tools=(), iteration=1)
     )
     second = provider.complete_tools(
         ToolModelRequest(

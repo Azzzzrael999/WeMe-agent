@@ -156,6 +156,7 @@ import {
   Sparkles,
   UserRoundCog,
   Bell,
+  BookOpenText,
   X,
 } from '@lucide/vue'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, type Component } from 'vue'
@@ -214,6 +215,7 @@ const navigationGroups = computed<{ label: string; items: NavigationItem[] }[]>(
       { label: '消息中心', icon: Bell, to: { name: 'notifications' } },
       { label: '异常重排', icon: RotateCcw, to: { name: 'replan' } },
       { label: '会前会后', icon: ListChecks, to: { name: 'meeting-lifecycle' } },
+      { label: '知识库', icon: BookOpenText, to: { name: 'knowledge-documents' } },
     ],
   },
   ...(authStore.state.user?.roles.includes('ADMIN') === true ? [{
@@ -246,6 +248,7 @@ const currentSectionTitle = computed(() => {
     'agent-run': '运行记录',
     replan: '异常重排',
     'meeting-lifecycle': '会前会后',
+    'knowledge-documents': '知识库',
   }
   return typeof route.name === 'string' ? labels[route.name] ?? 'MeetOps' : 'MeetOps'
 })

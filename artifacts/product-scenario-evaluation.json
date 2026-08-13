@@ -1,0 +1,973 @@
+{
+  "schemaVersion": "product-scenario-evaluation-v1",
+  "mode": "public-api-adversarial-dialogue",
+  "generatedAt": "2026-08-14T17:33:50.705989+00:00",
+  "status": "PASS",
+  "safety": {
+    "confirmationPolicy": "All HITL drafts are rejected",
+    "protectedMeetingSnapshots": {
+      "121": {
+        "id": 121,
+        "title": "架构评审",
+        "roomId": 111,
+        "startAt": "2026-08-25T13:00:00+08:00",
+        "endAt": "2026-08-25T14:00:00+08:00",
+        "status": "CONFIRMED",
+        "version": 0
+      },
+      "122": {
+        "id": 122,
+        "title": "会议安排",
+        "roomId": 101,
+        "startAt": "2026-08-25T14:00:00+08:00",
+        "endAt": "2026-08-25T16:00:00+08:00",
+        "status": "CONFIRMED",
+        "version": 0
+      }
+    },
+    "secretsPersisted": false
+  },
+  "metrics": {
+    "total": 16,
+    "passed": 16,
+    "failed": 0,
+    "successRate": 1.0,
+    "latencyP50Ms": 14594.29,
+    "latencyP95Ms": 26113.21
+  },
+  "results": [
+    {
+      "caseId": "create-formal-hard-constraints",
+      "purpose": "正式表达、多人、容量和双设备硬约束",
+      "status": "PASS",
+      "latencyMs": 15934.27,
+      "runId": "run_e85c370ef1b74fcb9a072b306bb3b014",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "requirement.updated",
+            "agent.loop",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "agent.loop",
+            "agent.step",
+            "plan.candidates",
+            "hitl.required"
+          ],
+          "terminalEvent": "hitl.required",
+          "terminalStatus": "WAITING_CONFIRMATION",
+          "candidateCount": 3,
+          "unsatCategory": null,
+          "requirementRevision": 1,
+          "citationIds": [],
+          "turn": 1,
+          "message": "请安排李四和周经理在8月22日14:00至17:00之间开60分钟支付网关发布准备会，至少8人，需要大屏和白板。先给候选，不要直接确认。",
+          "latencyMs": 15760.82
+        }
+      ],
+      "observed": {
+        "intent": "CREATE_MEETING",
+        "runStatus": "CANCELLED",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v10",
+        "schemaVersion": "meeting-agent-state-v6",
+        "modelCallCount": 8,
+        "toolCallCount": 4,
+        "tools": [
+          "resolve_employees",
+          "search_available_rooms",
+          "get_employee_free_busy",
+          "create_booking_draft"
+        ]
+      }
+    },
+    {
+      "caseId": "create-colloquial-synonyms",
+      "purpose": "口语、半小时、投屏同义表达",
+      "status": "PASS",
+      "latencyMs": 15345.63,
+      "runId": "run_0f0412ebf8594c61bf47a96719151222",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "requirement.updated",
+            "agent.loop",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "agent.loop",
+            "agent.step",
+            "plan.candidates",
+            "hitl.required"
+          ],
+          "terminalEvent": "hitl.required",
+          "terminalStatus": "WAITING_CONFIRMATION",
+          "candidateCount": 3,
+          "unsatCategory": null,
+          "requirementRevision": 1,
+          "citationIds": [],
+          "turn": 1,
+          "message": "麻烦8月23日午后帮我跟李四碰一下，半小时就行，四五个人，找个能投屏的屋，先让我挑。",
+          "latencyMs": 15186.3
+        }
+      ],
+      "observed": {
+        "intent": "CREATE_MEETING",
+        "runStatus": "CANCELLED",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v10",
+        "schemaVersion": "meeting-agent-state-v6",
+        "modelCallCount": 6,
+        "toolCallCount": 4,
+        "tools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_booking_draft"
+        ]
+      }
+    },
+    {
+      "caseId": "create-missing-then-complete",
+      "purpose": "信息不足后一次补齐，复用同一 Run",
+      "status": "PASS",
+      "latencyMs": 17823.5,
+      "runId": "run_ad45539daee9434f8eeb6cc3917a3aaa",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "requirement.updated",
+            "agent.step",
+            "run.completed"
+          ],
+          "terminalEvent": "run.completed",
+          "terminalStatus": "WAITING_USER_INPUT",
+          "candidateCount": 0,
+          "unsatCategory": null,
+          "requirementRevision": 1,
+          "citationIds": [],
+          "turn": 1,
+          "message": "帮我安排一个上线评审。",
+          "latencyMs": 2922.35
+        },
+        {
+          "events": [
+            "run.resumed",
+            "agent.step",
+            "requirement.updated",
+            "agent.loop",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "agent.loop",
+            "agent.step",
+            "plan.candidates",
+            "hitl.required"
+          ],
+          "terminalEvent": "hitl.required",
+          "terminalStatus": "WAITING_CONFIRMATION",
+          "candidateCount": 3,
+          "unsatCategory": null,
+          "requirementRevision": 2,
+          "citationIds": [],
+          "turn": 2,
+          "message": "定在8月24日下午1点到5点这个范围，开90分钟；李四、赵六必须参加，8个人，要大屏，其他没要求。",
+          "latencyMs": 14730.97
+        }
+      ],
+      "observed": {
+        "intent": "CREATE_MEETING",
+        "runStatus": "CANCELLED",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v10",
+        "schemaVersion": "meeting-agent-state-v6",
+        "modelCallCount": 9,
+        "toolCallCount": 4,
+        "tools": [
+          "resolve_employees",
+          "search_available_rooms",
+          "get_employee_free_busy",
+          "create_booking_draft"
+        ]
+      }
+    },
+    {
+      "caseId": "create-ambiguous-clock-clarified",
+      "purpose": "单独‘2点’歧义与自然语言澄清",
+      "status": "PASS",
+      "latencyMs": 13873.57,
+      "runId": "run_c1fd3bbfce4344769956d28cb0fe5a29",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "requirement.updated",
+            "agent.step",
+            "run.completed"
+          ],
+          "terminalEvent": "run.completed",
+          "terminalStatus": "WAITING_USER_INPUT",
+          "candidateCount": 0,
+          "unsatCategory": null,
+          "requirementRevision": 1,
+          "citationIds": [],
+          "turn": 1,
+          "message": "明天2点帮我和李四开一小时会。",
+          "latencyMs": 2801.83
+        },
+        {
+          "events": [
+            "run.resumed",
+            "agent.step",
+            "requirement.updated",
+            "agent.loop",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "agent.loop",
+            "agent.step",
+            "plan.candidates",
+            "hitl.required"
+          ],
+          "terminalEvent": "hitl.required",
+          "terminalStatus": "WAITING_CONFIRMATION",
+          "candidateCount": 3,
+          "unsatCategory": null,
+          "requirementRevision": 2,
+          "citationIds": [],
+          "turn": 2,
+          "message": "是下午两点，4个人，不需要额外设备。",
+          "latencyMs": 10878.58
+        }
+      ],
+      "observed": {
+        "intent": "CREATE_MEETING",
+        "runStatus": "CANCELLED",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v10",
+        "schemaVersion": "meeting-agent-state-v6",
+        "modelCallCount": 6,
+        "toolCallCount": 4,
+        "tools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_booking_draft"
+        ]
+      }
+    },
+    {
+      "caseId": "create-participant-delta",
+      "purpose": "续聊中删除、增加参会人并关闭可选要求",
+      "status": "PASS",
+      "latencyMs": 19519.17,
+      "runId": "run_eab12320b7ae47a29e84291b40f85ca0",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "requirement.updated",
+            "agent.step",
+            "run.completed"
+          ],
+          "terminalEvent": "run.completed",
+          "terminalStatus": "WAITING_USER_INPUT",
+          "candidateCount": 0,
+          "unsatCategory": null,
+          "requirementRevision": 1,
+          "citationIds": [],
+          "turn": 1,
+          "message": "帮我和李四、赵六约个会，周经理可选。",
+          "latencyMs": 2717.92
+        },
+        {
+          "events": [
+            "run.resumed",
+            "agent.step",
+            "requirement.updated",
+            "agent.loop",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "agent.loop",
+            "agent.step",
+            "plan.candidates",
+            "hitl.required"
+          ],
+          "terminalEvent": "hitl.required",
+          "terminalStatus": "WAITING_CONFIRMATION",
+          "candidateCount": 3,
+          "unsatCategory": null,
+          "requirementRevision": 2,
+          "citationIds": [],
+          "turn": 2,
+          "message": "调整参会人：赵六不参加了，加上孙琪必须参加；8月22日下午1点到5点内找60分钟，6个人，要白板，其他没有要求。",
+          "latencyMs": 16623.81
+        }
+      ],
+      "observed": {
+        "intent": "CREATE_MEETING",
+        "runStatus": "CANCELLED",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v10",
+        "schemaVersion": "meeting-agent-state-v6",
+        "modelCallCount": 6,
+        "toolCallCount": 4,
+        "tools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_booking_draft"
+        ]
+      }
+    },
+    {
+      "caseId": "create-my-team-scope",
+      "purpose": "‘我的小组’必须由服务端人员范围解析",
+      "status": "PASS",
+      "latencyMs": 16482.18,
+      "runId": "run_be1d55e299af44ae84f819f1db9abb5d",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "tool.call",
+            "agent.step",
+            "requirement.updated",
+            "agent.loop",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "agent.loop",
+            "agent.step",
+            "plan.candidates",
+            "hitl.required"
+          ],
+          "terminalEvent": "hitl.required",
+          "terminalStatus": "WAITING_CONFIRMATION",
+          "candidateCount": 3,
+          "unsatCategory": null,
+          "requirementRevision": 1,
+          "citationIds": [],
+          "turn": 1,
+          "message": "给我的小组约个8月23日下午的60分钟周会，至少12人，要白板，房间你挑，先给方案。",
+          "latencyMs": 16218.05
+        }
+      ],
+      "observed": {
+        "intent": "CREATE_MEETING",
+        "runStatus": "CANCELLED",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v10",
+        "schemaVersion": "meeting-agent-state-v6",
+        "modelCallCount": 8,
+        "toolCallCount": 5,
+        "tools": [
+          "resolve_participant_scope",
+          "resolve_employees",
+          "search_available_rooms",
+          "get_employee_free_busy",
+          "create_booking_draft"
+        ]
+      }
+    },
+    {
+      "caseId": "create-mixed-language",
+      "purpose": "中英混合、简写 sync 和设备偏好",
+      "status": "PASS",
+      "latencyMs": 12686.48,
+      "runId": "run_dcc4a8be84a64e80a11e04d0eddd30be",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "requirement.updated",
+            "agent.loop",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "agent.loop",
+            "agent.step",
+            "plan.candidates",
+            "hitl.required"
+          ],
+          "terminalEvent": "hitl.required",
+          "terminalStatus": "WAITING_CONFIRMATION",
+          "candidateCount": 3,
+          "unsatCategory": null,
+          "requirementRevision": 1,
+          "citationIds": [],
+          "turn": 1,
+          "message": "Please book a 30-minute sync with 李四 on 2026-08-23 afternoon, 4 people, whiteboard required. Show options first.",
+          "latencyMs": 12507.4
+        }
+      ],
+      "observed": {
+        "intent": "CREATE_MEETING",
+        "runStatus": "CANCELLED",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v10",
+        "schemaVersion": "meeting-agent-state-v6",
+        "modelCallCount": 5,
+        "toolCallCount": 4,
+        "tools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_booking_draft"
+        ]
+      }
+    },
+    {
+      "caseId": "find-common-time-read-only",
+      "purpose": "只找共同时间，不创建草案",
+      "status": "PASS",
+      "latencyMs": 12235.55,
+      "runId": "run_06f0d7b24e95491d85872dbab16ef997",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "requirement.updated",
+            "agent.loop",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "agent.loop",
+            "agent.step",
+            "plan.candidates",
+            "agent.step",
+            "run.completed"
+          ],
+          "terminalEvent": "run.completed",
+          "terminalStatus": "SUCCEEDED",
+          "candidateCount": 3,
+          "unsatCategory": null,
+          "requirementRevision": 1,
+          "citationIds": [],
+          "turn": 1,
+          "message": "帮我看看李四和周经理在8月22日上午9点到12点有没有一起空出的60分钟，只查时间，不预约。",
+          "latencyMs": 12216.04
+        }
+      ],
+      "observed": {
+        "intent": "FIND_COMMON_TIME",
+        "runStatus": "SUCCEEDED",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v10",
+        "schemaVersion": "meeting-agent-state-v6",
+        "modelCallCount": 8,
+        "toolCallCount": 3,
+        "tools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms"
+        ]
+      }
+    },
+    {
+      "caseId": "recommend-room-read-only",
+      "purpose": "只推荐会议室，不产生草案",
+      "status": "PASS",
+      "latencyMs": 14594.29,
+      "runId": "run_530dd66cdc12456b8e4e7bf759053c27",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "requirement.updated",
+            "agent.loop",
+            "tool.call",
+            "tool.call",
+            "agent.loop",
+            "agent.step",
+            "plan.candidates",
+            "agent.step",
+            "run.completed"
+          ],
+          "terminalEvent": "run.completed",
+          "terminalStatus": "SUCCEEDED",
+          "candidateCount": 3,
+          "unsatCategory": null,
+          "requirementRevision": 1,
+          "citationIds": [],
+          "turn": 1,
+          "message": "8月23日13:00到17:00，8个人，给我找带大屏和白板的会议室，只推荐，不要预约。",
+          "latencyMs": 14575.06
+        }
+      ],
+      "observed": {
+        "intent": "RECOMMEND_ROOM",
+        "runStatus": "SUCCEEDED",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v10",
+        "schemaVersion": "meeting-agent-state-v6",
+        "modelCallCount": 6,
+        "toolCallCount": 2,
+        "tools": [
+          "search_available_rooms",
+          "get_employee_free_busy"
+        ]
+      }
+    },
+    {
+      "caseId": "policy-vip-grounded",
+      "purpose": "VIP 制度问答必须引用相关证据",
+      "status": "PASS",
+      "latencyMs": 3097.76,
+      "runId": "run_1a807105b9054df491f3671f08896a12",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "agent.step",
+            "run.completed"
+          ],
+          "terminalEvent": "run.completed",
+          "terminalStatus": "SUCCEEDED",
+          "candidateCount": 0,
+          "unsatCategory": null,
+          "requirementRevision": null,
+          "citationIds": [
+            "chunk_doc_vip_executive_room_policy_0002",
+            "chunk_vip_room_v1"
+          ],
+          "turn": 1,
+          "message": "接待重要客户能直接用VIP会议室吗？请只按公司制度回答，并告诉我依据。",
+          "latencyMs": 3080.75
+        }
+      ],
+      "observed": {
+        "intent": "QUERY_POLICY",
+        "runStatus": "SUCCEEDED",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v10",
+        "schemaVersion": "meeting-agent-state-v6",
+        "modelCallCount": 2,
+        "toolCallCount": 0,
+        "tools": []
+      }
+    },
+    {
+      "caseId": "policy-architecture-grounded",
+      "purpose": "架构评审设备规则不得引用无关制度",
+      "status": "PASS",
+      "latencyMs": 2922.18,
+      "runId": "run_b03826b9a2a1462780179b13ba7ef84d",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "agent.step",
+            "run.completed"
+          ],
+          "terminalEvent": "run.completed",
+          "terminalStatus": "SUCCEEDED",
+          "candidateCount": 0,
+          "unsatCategory": null,
+          "requirementRevision": null,
+          "citationIds": [
+            "chunk_architecture_review_v1",
+            "chunk_doc_architecture_review_standard_0002",
+            "chunk_room_equipment_v1"
+          ],
+          "turn": 1,
+          "message": "做架构评审时，会议室设备有什么硬性或建议要求？只说知识库能证明的。",
+          "latencyMs": 2904.57
+        }
+      ],
+      "observed": {
+        "intent": "QUERY_POLICY",
+        "runStatus": "SUCCEEDED",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v10",
+        "schemaVersion": "meeting-agent-state-v6",
+        "modelCallCount": 2,
+        "toolCallCount": 0,
+        "tools": []
+      }
+    },
+    {
+      "caseId": "policy-unknown-honesty",
+      "purpose": "知识库无答案时不得硬编制度或挂无关引用",
+      "status": "PASS",
+      "latencyMs": 2693.81,
+      "runId": "run_201869a600df4246ab8775fae1b5c51c",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "agent.step",
+            "run.completed"
+          ],
+          "terminalEvent": "run.completed",
+          "terminalStatus": "SUCCEEDED",
+          "candidateCount": 0,
+          "unsatCategory": null,
+          "requirementRevision": null,
+          "citationIds": [],
+          "turn": 1,
+          "message": "公司是不是规定周五下午绝对不能开会？没有制度依据就直接说没查到。",
+          "latencyMs": 2676.87
+        }
+      ],
+      "observed": {
+        "intent": "QUERY_POLICY",
+        "runStatus": "SUCCEEDED",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v10",
+        "schemaVersion": "meeting-agent-state-v6",
+        "modelCallCount": 2,
+        "toolCallCount": 0,
+        "tools": []
+      }
+    },
+    {
+      "caseId": "modify-explicit-id-reject",
+      "purpose": "明确会议 ID、继承原约束、预览后拒绝",
+      "status": "PASS",
+      "latencyMs": 14465.33,
+      "runId": "run_ae71a76e5990467eb8a34607f377790d",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "requirement.updated",
+            "agent.loop",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "agent.loop",
+            "agent.step",
+            "requirement.updated",
+            "plan.candidates",
+            "hitl.required"
+          ],
+          "terminalEvent": "hitl.required",
+          "terminalStatus": "WAITING_CONFIRMATION",
+          "candidateCount": 3,
+          "unsatCategory": null,
+          "requirementRevision": 1,
+          "citationIds": [],
+          "turn": 1,
+          "message": "把会议ID 121挪到8月26日上午10点，时长、人员和设备都不变，先给我看变更草案。",
+          "latencyMs": 14283.36
+        }
+      ],
+      "observed": {
+        "intent": "MODIFY_MEETING",
+        "runStatus": "CANCELLED",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v10",
+        "schemaVersion": "meeting-agent-state-v6",
+        "modelCallCount": 8,
+        "toolCallCount": 5,
+        "tools": [
+          "get_recent_meeting",
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_reschedule_draft"
+        ]
+      }
+    },
+    {
+      "caseId": "cancel-colloquial-reject",
+      "purpose": "口语取消目标识别与取消预览",
+      "status": "PASS",
+      "latencyMs": 6355.29,
+      "runId": "run_ccee412278374fff85bcf96da14adbc3",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "requirement.updated",
+            "agent.loop",
+            "tool.call",
+            "tool.call",
+            "agent.loop",
+            "agent.step",
+            "requirement.updated",
+            "hitl.required"
+          ],
+          "terminalEvent": "hitl.required",
+          "terminalStatus": "WAITING_CONFIRMATION",
+          "candidateCount": 0,
+          "unsatCategory": null,
+          "requirementRevision": 1,
+          "citationIds": [],
+          "turn": 1,
+          "message": "把 122 号会议撤掉，不过先让我看清楚会取消哪一场，别直接动。",
+          "latencyMs": 6165.66
+        }
+      ],
+      "observed": {
+        "intent": "CANCEL_MEETING",
+        "runStatus": "CANCELLED",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v10",
+        "schemaVersion": "meeting-agent-state-v6",
+        "modelCallCount": 4,
+        "toolCallCount": 2,
+        "tools": [
+          "get_recent_meeting",
+          "create_cancellation_preview"
+        ]
+      }
+    },
+    {
+      "caseId": "modify-ambiguous-target-clarified",
+      "purpose": "同日多场会议目标消歧后再生成改期草案",
+      "status": "PASS",
+      "latencyMs": 14795.08,
+      "runId": "run_5d03e55436044f749415e26c13ff4561",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "requirement.updated",
+            "agent.loop",
+            "tool.call",
+            "agent.loop",
+            "agent.step",
+            "agent.step",
+            "run.completed"
+          ],
+          "terminalEvent": "run.completed",
+          "terminalStatus": "WAITING_USER_INPUT",
+          "candidateCount": 0,
+          "unsatCategory": null,
+          "requirementRevision": 1,
+          "citationIds": [],
+          "turn": 1,
+          "message": "把8月25日下午的会挪到第二天上午，其他照旧。",
+          "latencyMs": 3670.35
+        },
+        {
+          "events": [
+            "run.resumed",
+            "agent.step",
+            "requirement.updated",
+            "agent.loop",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "agent.loop",
+            "agent.step",
+            "requirement.updated",
+            "plan.candidates",
+            "hitl.required"
+          ],
+          "terminalEvent": "hitl.required",
+          "terminalStatus": "WAITING_CONFIRMATION",
+          "candidateCount": 3,
+          "unsatCategory": null,
+          "requirementRevision": 2,
+          "citationIds": [],
+          "turn": 2,
+          "message": "是“架构评审”这场，改到8月26日上午10点，其他不变。",
+          "latencyMs": 10922.88
+        }
+      ],
+      "observed": {
+        "intent": "MODIFY_MEETING",
+        "runStatus": "CANCELLED",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v10",
+        "schemaVersion": "meeting-agent-state-v6",
+        "modelCallCount": 7,
+        "toolCallCount": 6,
+        "tools": [
+          "get_recent_meeting",
+          "get_recent_meeting",
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_reschedule_draft"
+        ]
+      }
+    },
+    {
+      "caseId": "unsat-then-relax-same-run",
+      "purpose": "必需人员连续忙碌导致无解，同一 Run 放宽日期",
+      "status": "PASS",
+      "latencyMs": 26113.21,
+      "runId": "run_29cb6d4ee9284a8ca424152373104096",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "requirement.updated",
+            "agent.loop",
+            "tool.call",
+            "tool.call",
+            "agent.loop",
+            "agent.step",
+            "plan.unsat",
+            "agent.step",
+            "run.completed"
+          ],
+          "terminalEvent": "run.completed",
+          "terminalStatus": "WAITING_USER_INPUT",
+          "candidateCount": 0,
+          "unsatCategory": "REQUIRED_AVAILABILITY",
+          "requirementRevision": 1,
+          "citationIds": [],
+          "turn": 1,
+          "message": "我必须参加，想在8月25日13:00到16:00之间开60分钟会议，4个人，无设备要求；如果排不开请说具体原因。",
+          "latencyMs": 9239.76
+        },
+        {
+          "events": [
+            "run.resumed",
+            "agent.step",
+            "requirement.updated",
+            "agent.loop",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "agent.loop",
+            "agent.step",
+            "plan.candidates",
+            "hitl.required"
+          ],
+          "terminalEvent": "hitl.required",
+          "terminalStatus": "WAITING_CONFIRMATION",
+          "candidateCount": 3,
+          "unsatCategory": null,
+          "requirementRevision": 2,
+          "citationIds": [],
+          "turn": 2,
+          "message": "那改到8月26日上午9点到12点这个范围，时长和其他要求不变。",
+          "latencyMs": 16664.41
+        }
+      ],
+      "observed": {
+        "intent": "CREATE_MEETING",
+        "runStatus": "CANCELLED",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v10",
+        "schemaVersion": "meeting-agent-state-v6",
+        "modelCallCount": 10,
+        "toolCallCount": 5,
+        "tools": [
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "search_available_rooms",
+          "get_employee_free_busy",
+          "create_booking_draft"
+        ]
+      }
+    }
+  ]
+}

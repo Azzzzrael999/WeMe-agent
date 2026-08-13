@@ -46,6 +46,7 @@ from app.providers.base import (
     ModelProvider,
     ModelProviderError,
     ModelRequest,
+    ModelToolCall,
     StructuredModelRunner,
     ToolLoopMessage,
     ToolModelRequest,
@@ -92,9 +93,11 @@ from app.schemas.agent import (
 from app.security import AgentContext
 from app.tools.java import (
     CreateBookingDraftInput,
+    FreeBusyInput,
     JavaReadToolClient,
     JavaToolError,
     RescheduleDraftInput,
+    SearchRoomsInput,
     ToolOutcome,
     stable_idempotency_identity,
     stable_tool_identity,
@@ -102,11 +105,9 @@ from app.tools.java import (
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "meeting-agent-prompts-v8"
+PROMPT_VERSION = "meeting-agent-prompts-v10"
 SCHEMA_VERSION = "meeting-agent-state-v6"
-POST_MEETING_PROMPT_VERSION: Literal["post-meeting-analysis-v1"] = (
-    "post-meeting-analysis-v1"
-)
+POST_MEETING_PROMPT_VERSION: Literal["post-meeting-analysis-v1"] = "post-meeting-analysis-v1"
 POST_MEETING_SCHEMA_VERSION: Literal["post-meeting-draft-v1"] = "post-meeting-draft-v1"
 
 SUPERVISOR_PROMPT = """You are the Supervisor Agent for an enterprise meeting scheduler.
@@ -125,7 +126,9 @@ describe an allowed range with words such as 之间、以内、范围内 or 时�
 "给出候选方案/不要替我确认" describes the mandatory HITL behavior; when the user asks to arrange
 a meeting with participants and duration, it remains CREATE_MEETING rather than RECOMMEND_ROOM.
 Supported features: 白板=WHITEBOARD, 大屏/投屏=LARGE_SCREEN, 视频会议=VIDEO_CONFERENCE,
-投影仪=PROJECTOR. “我的小组/同组人员” must be participantScope=MY_DEPARTMENT and must not
+投影仪=PROJECTOR; English whiteboard/large screen/video conference/projector use the same
+canonical values. “只查时间/一起空出” is FIND_COMMON_TIME; “只推荐/不要预约” with a room
+request is RECOMMEND_ROOM. “我的小组/同组人员” must be participantScope=MY_DEPARTMENT and must not
 contain invented member names. title and meetingType may be null because deterministic code owns
 safe defaults. On a continuation turn, extract only facts present in the current USER_MESSAGE; do
 not copy the previous roster. Expressions such as 去掉、不参加、请假不会来 are participant removal
@@ -296,7 +299,30 @@ class RequirementAgent:
         draft = _apply_explicit_meeting_defaults(
             draft, state.message, request_time=state.request_time
         )
-        feedback = self.fidelity.evaluate(draft, state.message)
+        if state.intent is not None and (
+            not state.continuation_turn or not _source_changes_intent(state.message)
+        ):
+            draft = draft.model_copy(update={"intent": state.intent})
+        if (
+            state.continuation_turn
+            and state.requirement_draft is not None
+            and draft.intent in {Intent.MODIFY_MEETING, Intent.CANCEL_MEETING}
+        ):
+            draft = draft.model_copy(
+                update={
+                    "target_meeting_id": (
+                        draft.target_meeting_id
+                        or state.requirement_draft.target_meeting_id
+                    ),
+                    "target_meeting_reference": (
+                        draft.target_meeting_reference
+                        or state.requirement_draft.target_meeting_reference
+                    ),
+                }
+            )
+        feedback = _continuation_fidelity_feedback(
+            self.fidelity.evaluate(draft, state.message), state=state
+        )
         if (
             feedback is not None
             and feedback.codes == ["INTENT_SOURCE_MISMATCH"]
@@ -308,16 +334,16 @@ class RequirementAgent:
             # unnecessary model repair that could rewrite otherwise faithful
             # evidence strings.
             draft = draft.model_copy(update={"intent": state.intent})
-            feedback = self.fidelity.evaluate(draft, state.message)
+            feedback = _continuation_fidelity_feedback(
+                self.fidelity.evaluate(draft, state.message), state=state
+            )
         if (
             feedback is None
             and not state.continuation_turn
             and not (draft.pending_start_at is not None and draft.duration_minutes is None)
         ):
             initial_request, _ = self.normalizer.normalize(draft, source=state.message)
-            feedback = self.evaluator.evaluate(
-                initial_request, request_time=state.request_time
-            )
+            feedback = self.evaluator.evaluate(initial_request, request_time=state.request_time)
         if feedback is not None and feedback.repairable:
             extraction, repair_completions = _model_output_with_count(
                 provider=self.provider,
@@ -325,8 +351,7 @@ class RequirementAgent:
                 agent_name="requirement",
                 system_prompt=REQUIREMENT_REPAIR_PROMPT,
                 user_prompt=(
-                    f"{prompt}\nEVALUATOR_FEEDBACK="
-                    f"{feedback.model_dump_json(by_alias=True)}"
+                    f"{prompt}\nEVALUATOR_FEEDBACK={feedback.model_dump_json(by_alias=True)}"
                 ),
                 output_type=RequirementExtraction,
             )
@@ -335,7 +360,30 @@ class RequirementAgent:
             draft = _apply_explicit_meeting_defaults(
                 draft, state.message, request_time=state.request_time
             )
-            feedback = self.fidelity.evaluate(draft, state.message)
+            if state.intent is not None and (
+                not state.continuation_turn or not _source_changes_intent(state.message)
+            ):
+                draft = draft.model_copy(update={"intent": state.intent})
+            if (
+                state.continuation_turn
+                and state.requirement_draft is not None
+                and draft.intent in {Intent.MODIFY_MEETING, Intent.CANCEL_MEETING}
+            ):
+                draft = draft.model_copy(
+                    update={
+                        "target_meeting_id": (
+                            draft.target_meeting_id
+                            or state.requirement_draft.target_meeting_id
+                        ),
+                        "target_meeting_reference": (
+                            draft.target_meeting_reference
+                            or state.requirement_draft.target_meeting_reference
+                        ),
+                    }
+                )
+            feedback = _continuation_fidelity_feedback(
+                self.fidelity.evaluate(draft, state.message), state=state
+            )
             if (
                 feedback is not None
                 and "INTENT_SOURCE_MISMATCH" in feedback.codes
@@ -346,7 +394,9 @@ class RequirementAgent:
                 # reuse that safe intent instead of asking the user to restate
                 # an unambiguous “预约/改到/取消” verb.
                 draft = draft.model_copy(update={"intent": state.intent})
-                feedback = self.fidelity.evaluate(draft, state.message)
+                feedback = _continuation_fidelity_feedback(
+                    self.fidelity.evaluate(draft, state.message), state=state
+                )
         previous_draft = state.requirement_draft if state.continuation_turn else None
         draft = _resolve_ambiguous_pending_start(previous_draft, draft, state.message)
         draft = _apply_participant_delta(previous_draft, draft, state.message)
@@ -368,21 +418,17 @@ class RequirementAgent:
                 update={
                     "time_window": TimeWindow(
                         start=merged.pending_start_at,
-                        end=merged.pending_start_at
-                        + timedelta(minutes=merged.duration_minutes),
+                        end=merged.pending_start_at + timedelta(minutes=merged.duration_minutes),
                     )
                 }
             )
         outcomes: list[ToolOutcome] = []
         resolved_employees = list(state.resolved_employees)
         if previous_draft is not None and (
-            merged.required_participant_names
-            != previous_draft.required_participant_names
+            merged.required_participant_names != previous_draft.required_participant_names
         ):
             final_names = set(merged.required_participant_names)
-            resolved_employees = [
-                item for item in resolved_employees if item.name in final_names
-            ]
+            resolved_employees = [item for item in resolved_employees if item.name in final_names]
         if (
             merged.participant_scope == "MY_DEPARTMENT"
             and not merged.required_participant_names
@@ -481,7 +527,8 @@ class RequirementAgent:
             if merged.duration_minutes is None:
                 missing_fields.append("durationMinutes")
             if (
-                not merged.required_participant_names
+                request.intent in {Intent.CREATE_MEETING, Intent.FIND_COMMON_TIME}
+                and not merged.required_participant_names
                 and merged.participant_scope != "ORGANIZER_ONLY"
             ):
                 missing_fields.append("requiredParticipants")
@@ -554,23 +601,37 @@ class PolicyAgent:
                 constraints=[],
                 citations=[],
             )
-            return state.model_copy(
-                update={"policy_result": result, "citations": []}
-            ), result.summary, 0
+            return (
+                state.model_copy(update={"policy_result": result, "citations": []}),
+                result.summary,
+                0,
+            )
 
-        candidate_summary = "; ".join(
-            f"{chunk.chunk_id}: {chunk.title}" for chunk in candidates[:5]
-        )
+        candidate_evidence = [
+            {
+                "chunkId": chunk.chunk_id,
+                "title": chunk.title,
+                "headingPath": list(chunk.heading_path),
+                "page": chunk.page,
+                "content": chunk.content,
+            }
+            for chunk in candidates[:5]
+        ]
         selection, completions = _model_output_with_count(
             provider=self.provider,
             runner=self.runner,
             agent_name="policy",
             system_prompt=(
-                "You are the Policy Agent. Select only evidence chunk IDs supplied by "
-                "the retriever and return a concise rule answer. Never invent citations or "
-                "make a booking decision."
+                "You are the Policy Agent. Answer only from the supplied RETRIEVED_EVIDENCE "
+                "content. Select only chunk IDs whose content directly supports the answer. "
+                "If none of the supplied chunks answers the question, return selectedChunkIds "
+                "as [] and explicitly say that no verifiable policy evidence was found. Never "
+                "infer a rule from a title, invent a citation, or make a booking decision."
             ),
-            user_prompt=f"Question: {state.message}\nCandidates: {candidate_summary}",
+            user_prompt=(
+                f"QUESTION={state.message}\nRETRIEVED_EVIDENCE="
+                f"{json.dumps(candidate_evidence, ensure_ascii=False, separators=(',', ':'))}"
+            ),
             output_type=PolicySelection,
         )
         try:
@@ -581,6 +642,14 @@ class PolicyAgent:
         except PolicyRetrievalError as exc:
             raise WorkflowError("POLICY_CITATION_INVALID", "规则引用不在本轮检索结果中") from exc
         citations = [chunk.citation() for chunk in opened]
+        if not citations:
+            selection = selection.model_copy(
+                update={
+                    "answer_summary": "未找到可验证的会议制度证据。",
+                    "confidence": 0.0,
+                    "constraints": [],
+                }
+            )
         result = PolicyResult(
             summary=selection.answer_summary,
             confidence=selection.confidence,
@@ -638,7 +707,7 @@ class SchedulingAgent:
         model_calls = 0
         tool_usage: list[ModelCompletion] = []
         loop_iteration = state.loop_iteration
-        max_iterations = 4
+        max_iterations = 6
         for _ in range(max_iterations):
             if state.model_call_count + model_calls + 1 > self.max_model_calls:
                 raise WorkflowError("AGENT_STEP_LIMIT_EXCEEDED", "调度模型调用预算已耗尽")
@@ -686,9 +755,9 @@ class SchedulingAgent:
                     ToolLoopMessage(
                         role="user",
                         content=(
-                            "VERIFY_FEEDBACK={\"codes\":[\"REQUIRED_FACTS_MISSING\"],"
-                            "\"instruction\":\"Call the listed READ tools now.\","
-                            f"\"requiredTools\":{json.dumps(required_tools)}}}"
+                            'VERIFY_FEEDBACK={"codes":["REQUIRED_FACTS_MISSING"],'
+                            '"instruction":"Call the listed READ tools now.",'
+                            f'"requiredTools":{json.dumps(required_tools)}}}'
                         ),
                     )
                 )
@@ -700,9 +769,7 @@ class SchedulingAgent:
             ordered_calls = sorted(
                 tool_response.tool_calls,
                 key=lambda call: (
-                    0
-                    if mutation_intent and call.name == "get_recent_meeting"
-                    else 1
+                    0 if mutation_intent and call.name == "get_recent_meeting" else 1
                 ),
             )
             for call in ordered_calls:
@@ -833,10 +900,59 @@ class SchedulingAgent:
             # resulting role=tool observations back through one assistant
             # turn. A tool-free response is the explicit protocol boundary
             # that lets the verifier advance to deterministic solving.
+        # A model may stop after only part of the canonical READ plan even
+        # after bounded verifier feedback. Complete the remaining free-busy
+        # and room reads deterministically from the already validated request
+        # instead of asking the user to type “continue”. These calls still go
+        # through the same Tool gate, context checks, idempotency and Trace.
+        for fallback_index in range(4):
+            if _read_facts_ready(request, free_busy_data, rooms_data, recent_data):
+                break
+            missing = _missing_read_tools(
+                request=request,
+                resolved=resolved,
+                free_busy_data=free_busy_data,
+                rooms_data=rooms_data,
+                recent_data=recent_data,
+            )
+            tool_name = next(
+                (
+                    item
+                    for item in missing
+                    if item in {"get_employee_free_busy", "search_available_rooms"}
+                ),
+                None,
+            )
+            if tool_name is None:
+                break
+            if state.tool_call_count + len(outcomes) + 1 > self.max_tool_calls:
+                raise WorkflowError("AGENT_STEP_LIMIT_EXCEEDED", "调度工具调用预算已耗尽")
+            call = _canonical_fact_read_call(
+                name=tool_name,
+                request=request,
+                resolved=resolved,
+                context=context,
+                index=fallback_index,
+            )
+            try:
+                gated_result = gate.execute(
+                    call=call,
+                    state=state,
+                    context=context,
+                    resolved_employees=resolved,
+                    fingerprints=fingerprints,
+                )
+            except ToolGateError as exc:
+                raise WorkflowError(exc.code, "确定性事实补全未通过安全校验") from exc
+            outcomes.append(gated_result.outcome)
+            fingerprints.add(gated_result.fingerprint)
+            if tool_name == "get_employee_free_busy":
+                free_busy_data = gated_result.outcome.data
+            else:
+                rooms_data = gated_result.outcome.data
         if not _read_facts_ready(request, free_busy_data, rooms_data, recent_data):
             answer = (
-                "会议需求已保存，但本轮没有完成忙闲和会议室查询。"
-                "请回复“继续查询”，无需重述需求。"
+                "会议需求已保存，但本轮没有完成忙闲和会议室查询。请回复“继续查询”，无需重述需求。"
             )
             return (
                 _apply_completions(state, tool_usage).model_copy(
@@ -894,9 +1010,9 @@ class SchedulingAgent:
                     update={
                         **common_update,
                         "operation_type": OperationType.CANCEL,
-                            "draft": CancellationDraftView(meeting=cancellation.meeting),
-                            "confirmation_token": cancellation.confirmation_token,
-                            "draft_expires_at": cancellation.expires_at,
+                        "draft": CancellationDraftView(meeting=cancellation.meeting),
+                        "confirmation_token": cancellation.confirmation_token,
+                        "draft_expires_at": cancellation.expires_at,
                         "draft_generation": generation,
                         "status": RunStatus.WAITING_CONFIRMATION,
                         "next_route": Route.HITL,
@@ -904,13 +1020,6 @@ class SchedulingAgent:
                     }
                 ),
                 "已生成取消预览，等待用户确认",
-                outcomes,
-                model_calls,
-            )
-        if request.intent not in {Intent.CREATE_MEETING, Intent.MODIFY_MEETING}:
-            return (
-                usage_state.model_copy(update={**common_update, "next_route": Route.FINAL}),
-                "已通过受控工具循环完成只读事实查询",
                 outcomes,
                 model_calls,
             )
@@ -1002,6 +1111,26 @@ class SchedulingAgent:
             for item in candidates
         ):
             raise WorkflowError("SCHEDULE_VALIDATION_FAILED", "候选方案未通过独立硬约束校验")
+        if request.intent in {Intent.FIND_COMMON_TIME, Intent.RECOMMEND_ROOM}:
+            return (
+                usage_state.model_copy(
+                    update={
+                        "resolved_employees": resolved,
+                        "availability_snapshot": snapshot,
+                        "schedule_candidates": candidates,
+                        "selected_candidate_id": candidates[0].candidate_id,
+                        "unsat_analysis": None,
+                        "answer_summary": "已找到满足当前条件的候选方案。",
+                        "status": RunStatus.SUCCEEDED,
+                        "next_route": Route.FINAL,
+                        "stop_reason": LoopStopReason.COMPLETED.value,
+                        **common_update,
+                    }
+                ),
+                "已完成只读查询并验证候选方案",
+                outcomes,
+                model_calls,
+            )
         selected = candidates[0]
         generation = state.draft_generation + 1
         draft_operation = (
@@ -1056,17 +1185,17 @@ class SchedulingAgent:
                 operation = OperationType.RESCHEDULE
             else:
                 draft_outcome, draft_response = self.tools.create_booking_draft(
-                context=context,
-                tool_call_id=draft_call_id,
-                payload=CreateBookingDraftInput(
-                    title=request.title,
-                    meeting_type=request.meeting_type,
-                    room_id=selected.room_id,
-                    start_at=selected.start_at,
-                    end_at=selected.end_at,
-                    required_participant_ids=required_ids,
-                    optional_participant_ids=[],
-                ),
+                    context=context,
+                    tool_call_id=draft_call_id,
+                    payload=CreateBookingDraftInput(
+                        title=request.title,
+                        meeting_type=request.meeting_type,
+                        room_id=selected.room_id,
+                        start_at=selected.start_at,
+                        end_at=selected.end_at,
+                        required_participant_ids=required_ids,
+                        optional_participant_ids=[],
+                    ),
                 )
                 draft_view = CreateDraftView(draft=draft_response.draft)
                 token = draft_response.confirmation_token
@@ -1337,8 +1466,7 @@ def _verified_clarification_facts(request: MeetingRequest | None) -> list[str]:
             "PROJECTOR": "投影仪",
         }
         facts.append(
-            "必需设备为"
-            + "、".join(labels.get(item, item) for item in request.required_features)
+            "必需设备为" + "、".join(labels.get(item, item) for item in request.required_features)
         )
     return facts[:6]
 
@@ -1384,9 +1512,7 @@ def _apply_explicit_meeting_defaults(
                     normalized_selector,
                 )
                 if selector_clock is not None:
-                    normalized_destination = (
-                        normalized_destination + " " + selector_clock.group(0)
-                    )
+                    normalized_destination = normalized_destination + " " + selector_clock.group(0)
             time_source = normalized_destination
     if "架构评审" in source:
         if not draft.title:
@@ -1404,8 +1530,33 @@ def _apply_explicit_meeting_defaults(
                 break
     if any(value in source for value in ("我的小组", "同组人员", "小组会议", "组内人员")):
         updates["participant_scope"] = "MY_DEPARTMENT"
-    elif any(value in source for value in ("只有我", "我自己参加", "就我一个人")):
+    elif (
+        any(value in source for value in ("只有我", "我自己参加", "就我一个人", "我必须参加"))
+        and not draft.required_participant_names
+    ):
         updates["participant_scope"] = "ORGANIZER_ONLY"
+
+    duration_match = re.search(r"(30|60|90|120|150|180|210|240)\s*分钟", source)
+    english_duration = re.search(r"(30|60|90|120|150|180|210|240)[ -]minute", source, re.IGNORECASE)
+    if duration_match is not None:
+        updates["duration_minutes"] = int(duration_match.group(1))
+    elif english_duration is not None:
+        updates["duration_minutes"] = int(english_duration.group(1))
+    elif "一个半小时" in source:
+        updates["duration_minutes"] = 90
+    elif "半小时" in source:
+        updates["duration_minutes"] = 30
+    elif "一小时" in source or "一个小时" in source:
+        updates["duration_minutes"] = 60
+    elif "两小时" in source or "两个小时" in source:
+        updates["duration_minutes"] = 120
+
+    headcount = re.search(r"(\d{1,4})\s*(?:个)?人", source)
+    english_headcount = re.search(r"(\d{1,4})\s*people", source, re.IGNORECASE)
+    if headcount is not None:
+        updates["minimum_capacity"] = int(headcount.group(1))
+    elif english_headcount is not None:
+        updates["minimum_capacity"] = int(english_headcount.group(1))
 
     feature_aliases = {
         "白板": "WHITEBOARD",
@@ -1413,9 +1564,31 @@ def _apply_explicit_meeting_defaults(
         "投屏": "LARGE_SCREEN",
         "视频会议": "VIDEO_CONFERENCE",
         "投影仪": "PROJECTOR",
+        "whiteboard": "WHITEBOARD",
+        "large screen": "LARGE_SCREEN",
+        "video conference": "VIDEO_CONFERENCE",
+        "projector": "PROJECTOR",
     }
-    features = list(
-        dict.fromkeys(feature_aliases.get(item, item) for item in draft.required_features)
+    normalized_lower = source.lower()
+    explicitly_closed = any(
+        value in source for value in ("无设备要求", "不需要额外设备", "没有设备要求")
+    )
+    explicit_features = [
+        canonical
+        for alias, canonical in feature_aliases.items()
+        if alias.lower() in normalized_lower
+    ]
+    features = (
+        []
+        if explicitly_closed
+        else list(
+            dict.fromkeys(
+                [
+                    *(feature_aliases.get(item.lower(), item) for item in draft.required_features),
+                    *explicit_features,
+                ]
+            )
+        )
     )
     if "投屏" in source and "投影仪" not in source:
         # DeepSeek sometimes expands “投屏” to both PROJECTOR and
@@ -1561,6 +1734,13 @@ def _normalize_chinese_clock_tokens(source: str) -> str:
 
 def _deterministic_target_date(source: str, request_time: datetime) -> Any:
     try:
+        iso_date = re.search(r"\b(\d{4})-(\d{2})-(\d{2})\b", source)
+        if iso_date is not None:
+            return request_time.date().replace(
+                year=int(iso_date.group(1)),
+                month=int(iso_date.group(2)),
+                day=int(iso_date.group(3)),
+            )
         if "今天" in source or "今日" in source:
             return request_time.date()
         if "明天" in source:
@@ -1599,13 +1779,14 @@ def _deterministic_target_date(source: str, request_time: datetime) -> Any:
 
 
 def _daypart_window(source: str) -> tuple[int, int, bool] | None:
-    if "晚上" in source:
+    normalized = source.lower()
+    if "晚上" in source or "evening" in normalized:
         return 18, 6, True
-    if "下午" in source:
+    if "下午" in source or "afternoon" in normalized:
         return 12, 18, False
-    if "中午" in source:
+    if "中午" in source or "noon" in normalized:
         return 11, 14, False
-    if "上午" in source or "早上" in source:
+    if "上午" in source or "早上" in source or "morning" in normalized:
         return 6, 12, False
     return None
 
@@ -1706,10 +1887,20 @@ def _apply_participant_delta(
     if remove_requested:
         removed = set(mentioned_previous)
         next_names = [name for name in previous_names if name not in removed]
+        if add_requested:
+            deterministic_additions = re.findall(
+                r"(?:加上|增加|添加|邀请|再叫上|再加)\s*"
+                r"([\u4e00-\u9fff]{2,4}?)(?=必须|参加|、|，|和|与|$)",
+                source,
+            )
+            additions = [
+                name
+                for name in [*current.required_participant_names, *deterministic_additions]
+                if name not in removed
+            ]
+            next_names = list(dict.fromkeys([*next_names, *additions]))
     elif add_requested and current.required_participant_names:
-        next_names = list(
-            dict.fromkeys([*previous_names, *current.required_participant_names])
-        )
+        next_names = list(dict.fromkeys([*previous_names, *current.required_participant_names]))
     elif replace_requested and current.required_participant_names:
         next_names = list(dict.fromkeys(current.required_participant_names))
 
@@ -1764,9 +1955,7 @@ def _apply_constraint_delta(
     }
     if removed_features:
         features = [item for item in features if item not in removed_features]
-        additions = [
-            item for item in current.required_features if item not in removed_features
-        ]
+        additions = [item for item in current.required_features if item not in removed_features]
         updates["required_features"] = list(dict.fromkeys([*features, *additions]))
 
     delay = re.search(r"(?:允许)?(?:顺延|延后|推迟)\s*(30|60|90|120)\s*分钟", source)
@@ -1787,11 +1976,41 @@ def _apply_constraint_delta(
 
 
 def _source_changes_intent(source: str) -> bool:
-    return bool(
-        re.search(
-            r"(?:取消|撤销|改期|改到|调整到|重新安排|新建会议|预约会议|找个空的会议室)",
-            source,
-        )
+    if re.search(r"(?:取消|撤销|新建会议|预约会议|找个空的会议室)", source):
+        return True
+    explicit_target = bool(
+        _explicit_meeting_id(source)
+        or re.search(r"(?:把|将).{0,40}(?:会议|评审|周会|例会|那场|那个)", source)
+    )
+    return explicit_target and bool(re.search(r"(?:改期|改到|调整到|重新安排)", source))
+
+
+def _continuation_fidelity_feedback(
+    feedback: RequirementFeedback | None, *, state: AgentState
+) -> RequirementFeedback | None:
+    """Keep a draft's trusted intent when a continuation only edits that draft.
+
+    Phrases such as “那改到明天” and “调整参会人” mutate the pending request;
+    they do not turn a CREATE run into a reschedule of an existing meeting.
+    Other fidelity failures remain blocking.
+    """
+
+    if (
+        feedback is None
+        or not state.continuation_turn
+        or state.intent is None
+        or _source_changes_intent(state.message)
+        or "INTENT_SOURCE_MISMATCH" not in feedback.codes
+    ):
+        return feedback
+    remaining = [code for code in feedback.codes if code != "INTENT_SOURCE_MISMATCH"]
+    if not remaining:
+        return None
+    return feedback.model_copy(
+        update={
+            "codes": remaining,
+            "summary": "源文本忠实度校验未通过：" + "、".join(remaining),
+        }
     )
 
 
@@ -1845,9 +2064,7 @@ def _merge_requirement_drafts(
             evidence.append(evidence_item)
     return previous.model_copy(
         update={
-            "intent": (
-                current.intent if _source_changes_intent(source) else previous.intent
-            ),
+            "intent": (current.intent if _source_changes_intent(source) else previous.intent),
             "title": current.title or previous.title,
             "meeting_type": current.meeting_type or previous.meeting_type,
             "duration_minutes": current.duration_minutes or previous.duration_minutes,
@@ -1875,9 +2092,7 @@ def _merge_requirement_drafts(
             "required_features": (
                 current.required_features
                 if _source_changes_feature_constraints(source)
-                else list(
-                    dict.fromkeys([*previous.required_features, *current.required_features])
-                )
+                else list(dict.fromkeys([*previous.required_features, *current.required_features]))
             ),
             "minimum_capacity": current.minimum_capacity or previous.minimum_capacity,
             "preferred_buildings": list(
@@ -1931,8 +2146,7 @@ def _apply_unsat_recommended_time(
             "pending_start_at": recommended_start,
             "pending_start_ambiguous": False,
             "summary": (
-                f"用户接受了上一轮建议的最近可重新校验时间 "
-                f"{recommended_start:%Y-%m-%d %H:%M}。"
+                f"用户接受了上一轮建议的最近可重新校验时间 {recommended_start:%Y-%m-%d %H:%M}。"
             ),
         }
     )
@@ -1965,9 +2179,7 @@ def _source_has_ambiguous_single_time(source: str) -> bool:
     )
     if match is None or "点" not in match.group(0) or int(match.group(1)) > 12:
         return False
-    return not any(
-        marker in match.group(0) for marker in ("上午", "早上", "中午", "下午", "晚上")
-    )
+    return not any(marker in match.group(0) for marker in ("上午", "早上", "中午", "下午", "晚上"))
 
 
 def _source_describes_fixed_interval(source: str) -> bool:
@@ -1994,9 +2206,7 @@ def _has_requirement_issue(missing_fields: list[str], field_name: str) -> bool:
         "durationMinutes": ("DURATION_",),
         "requiredParticipants": ("PARTICIPANT_", "REQUIRED_PARTICIPANT_"),
     }.get(field_name, ())
-    return field_name in missing_fields or any(
-        code.startswith(prefixes) for code in missing_fields
-    )
+    return field_name in missing_fields or any(code.startswith(prefixes) for code in missing_fields)
 
 
 def _requirement_items(
@@ -2144,8 +2354,7 @@ def _requirement_items(
         )
     else:
         directory = (
-            draft.participant_scope == "MY_DEPARTMENT"
-            and not draft.participant_list_modified
+            draft.participant_scope == "MY_DEPARTMENT" and not draft.participant_list_modified
         )
         participant_changed = _source_has_participant_mutation(source)
         names = "、".join(draft.required_participant_names)
@@ -2334,8 +2543,7 @@ def _scheduling_system_prompt(*, state: AgentState, context: AgentContext) -> st
         "destination window and excludeMeetingId from CANONICAL_CONTEXT. "
         "After employee resolution, room minimumCapacity must be the maximum of "
         "requestedMinimumCapacity and the unique organizer plus resolved employee IDs.\n"
-        "CANONICAL_CONTEXT="
-        + json.dumps(canonical, ensure_ascii=False, separators=(",", ":"))
+        "CANONICAL_CONTEXT=" + json.dumps(canonical, ensure_ascii=False, separators=(",", ":"))
     )
 
 
@@ -2345,13 +2553,62 @@ def _read_facts_ready(
     rooms_data: dict[str, Any] | None,
     recent_data: dict[str, Any] | None,
 ) -> bool:
-    if request.intent is Intent.CREATE_MEETING:
+    if request.intent in {
+        Intent.CREATE_MEETING,
+        Intent.FIND_COMMON_TIME,
+        Intent.RECOMMEND_ROOM,
+    }:
         return free_busy_data is not None and rooms_data is not None
     if request.intent is Intent.MODIFY_MEETING:
         return recent_data is not None and free_busy_data is not None and rooms_data is not None
     if request.intent is Intent.CANCEL_MEETING:
         return request.target_meeting_id is not None or recent_data is not None
     return True
+
+
+def _canonical_fact_read_call(
+    *,
+    name: str,
+    request: MeetingRequest,
+    resolved: list[Participant],
+    context: AgentContext,
+    index: int,
+) -> ModelToolCall:
+    window = request.time_window
+    if window is None:
+        raise WorkflowError("TIME_WINDOW_REQUIRED", "缺少可调度时间窗口")
+    employee_ids = sorted(
+        {
+            context.user_id,
+            *(item.employee_id for item in resolved if item.employee_id is not None),
+        }
+    )
+    exclude_meeting_id = (
+        request.target_meeting_id if request.intent is Intent.MODIFY_MEETING else None
+    )
+    if name == "get_employee_free_busy":
+        payload: FreeBusyInput | SearchRoomsInput = FreeBusyInput(
+            employee_ids=employee_ids,
+            from_=window.start,
+            to=window.end,
+            exclude_meeting_id=exclude_meeting_id,
+        )
+    elif name == "search_available_rooms":
+        payload = SearchRoomsInput(
+            from_=window.start,
+            to=window.end,
+            minimum_capacity=max(request.minimum_capacity or 1, len(employee_ids)),
+            required_features=request.required_features,
+            limit=50,
+            exclude_meeting_id=exclude_meeting_id,
+        )
+    else:
+        raise WorkflowError("TOOL_NOT_ALLOWED", "确定性事实补全工具不在白名单")
+    return ModelToolCall(
+        id=f"deterministic-fact-{index}-{name}",
+        name=name,
+        arguments=payload.model_dump_json(by_alias=True),
+    )
 
 
 def _missing_read_tools(
@@ -2439,9 +2696,7 @@ def _resolve_target_meeting(
         selected = [item for item in selected if item.start_at.date() == target_date.date()]
     if target_clock is not None:
         selected = [
-            item
-            for item in selected
-            if (item.start_at.hour, item.start_at.minute) == target_clock
+            item for item in selected if (item.start_at.hour, item.start_at.minute) == target_clock
         ]
     if target_date is not None or target_clock is not None:
         return selected, meetings
@@ -2492,9 +2747,7 @@ def _target_reference_clock(value: str) -> tuple[int, int] | None:
     if hour is None or hour > 23:
         return None
     period = match.group("period")
-    if (period in {"下午", "晚上"} and hour < 12) or (
-        period == "中午" and hour < 11
-    ):
+    if (period in {"下午", "晚上"} and hour < 12) or (period == "中午" and hour < 11):
         hour += 12
     elif period in {"上午", "早上"} and hour == 12:
         hour = 0
@@ -2504,8 +2757,20 @@ def _target_reference_clock(value: str) -> tuple[int, int] | None:
 def _chinese_hour(value: str) -> int | None:
     if value.isdigit():
         return int(value)
-    digits = {"零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
-              "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+    digits = {
+        "零": 0,
+        "〇": 0,
+        "一": 1,
+        "二": 2,
+        "两": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+    }
     if value == "十":
         return 10
     if "十" in value:
@@ -2524,9 +2789,7 @@ def _target_meeting_clarification(
     choices = matches if len(matches) > 1 else visible_meetings
     if not choices:
         return "没有找到与该日期、时间或标题匹配且你可管理的会议，请补充会议日期、开始时间或标题。"
-    lines = [
-        "目标会议还不能唯一确定，请从以下会议中说明要操作哪一场："
-    ]
+    lines = ["目标会议还不能唯一确定，请从以下会议中说明要操作哪一场："]
     for item in choices[:5]:
         lines.append(
             f"- 会议 {item.id}：{item.title}，"
@@ -2553,9 +2816,7 @@ def _hydrate_mutation_target(
             end=draft.pending_start_at + timedelta(minutes=duration),
         )
     elif destination is None or (
-        _window_only_selects_target(
-            destination, meeting, request.target_meeting_reference
-        )
+        _window_only_selects_target(destination, meeting, request.target_meeting_reference)
         and not _source_changes_time_constraints(state.message)
     ):
         destination = TimeWindow(start=meeting.start_at, end=meeting.end_at)
@@ -2565,12 +2826,13 @@ def _hydrate_mutation_target(
         if item.participant_type == "REQUIRED"
     ]
     preserve_existing = _preserves_existing_requirements(state.message) or (
-        draft is not None
-        and _is_exception_replanning(draft.target_meeting_reference or "")
+        draft is not None and _is_exception_replanning(draft.target_meeting_reference or "")
     )
     required_features = request.required_features
-    if not required_features and preserve_existing and not _source_changes_feature_constraints(
-        state.message
+    if (
+        not required_features
+        and preserve_existing
+        and not _source_changes_feature_constraints(state.message)
     ):
         required_features = _meeting_room_features(recent_data, meeting.id)
     hydrated = request.model_copy(
@@ -2699,9 +2961,7 @@ def _is_exception_replanning_context(state: AgentState) -> bool:
     if _is_exception_replanning(state.message):
         return True
     draft = state.requirement_draft
-    return draft is not None and _is_exception_replanning(
-        draft.target_meeting_reference or ""
-    )
+    return draft is not None and _is_exception_replanning(draft.target_meeting_reference or "")
 
 
 def _feature_removal_requested(source: str, alias: str) -> bool:
@@ -2841,12 +3101,9 @@ def _enrich_unsat_analysis(
     visible = []
     for blocker in blockers[:5]:
         label = blocker.resource_name or f"员工 {blocker.resource_id}"
-        meeting = (
-            f"（会议 {blocker.meeting_id}）" if blocker.meeting_id is not None else ""
-        )
+        meeting = f"（会议 {blocker.meeting_id}）" if blocker.meeting_id is not None else ""
         visible.append(
-            f"{label}在 {blocker.start_at:%H:%M}-{blocker.end_at:%H:%M} "
-            f"{blocker.reason}{meeting}"
+            f"{label}在 {blocker.start_at:%H:%M}-{blocker.end_at:%H:%M} {blocker.reason}{meeting}"
         )
     window = analysis.requested_window
     summary = (
@@ -3212,18 +3469,16 @@ class WorkflowRun:
         started = time.perf_counter()
         sequence_no = state.step_count + 1
         initial_loop = _loop_event(
-                state=state,
-                phase="REPLAN" if state.replan_count else "PLAN",
-                iteration=state.loop_iteration + 1,
-                decision="读取受信任业务事实",
-                model_budget=self.settings.agent_max_model_calls,
-                tool_budget=self.settings.agent_max_tool_calls,
-            )
+            state=state,
+            phase="REPLAN" if state.replan_count else "PLAN",
+            iteration=state.loop_iteration + 1,
+            decision="读取受信任业务事实",
+            model_budget=self.settings.agent_max_model_calls,
+            tool_budget=self.settings.agent_max_tool_calls,
+        )
         self._record_loop_event(state, initial_loop)
         try:
-            updated, summary, outcomes, model_calls = self.scheduling.execute(
-                state, self.context
-            )
+            updated, summary, outcomes, model_calls = self.scheduling.execute(state, self.context)
             actual_tool_count = len(outcomes)
             if (
                 state.tool_call_count + actual_tool_count > self.settings.agent_max_tool_calls
@@ -3240,17 +3495,17 @@ class WorkflowRun:
             for outcome in outcomes:
                 self._record_tool(state=updated, outcome=outcome)
             verified_loop = _loop_event(
-                    state=updated,
-                    phase="VERIFY",
-                    iteration=updated.loop_iteration,
-                    decision=(
-                        "候选与草案已通过验证"
-                        if updated.status is RunStatus.WAITING_CONFIRMATION
-                        else "事实验证完成"
-                    ),
-                    model_budget=self.settings.agent_max_model_calls,
-                    tool_budget=self.settings.agent_max_tool_calls,
-                )
+                state=updated,
+                phase="VERIFY",
+                iteration=updated.loop_iteration,
+                decision=(
+                    "候选与草案已通过验证"
+                    if updated.status is RunStatus.WAITING_CONFIRMATION
+                    else "事实验证完成"
+                ),
+                model_budget=self.settings.agent_max_model_calls,
+                tool_budget=self.settings.agent_max_tool_calls,
+            )
             self._record_loop_event(updated, verified_loop)
             duration_ms = int((time.perf_counter() - started) * 1000)
             self._record_step(
@@ -3347,9 +3602,7 @@ class WorkflowRun:
             )
             update["confirm_idempotency_key"] = (
                 state.confirm_idempotency_key
-                or stable_idempotency_identity(
-                    state.run_id, operation, state.confirmation_token
-                )
+                or stable_idempotency_identity(state.run_id, operation, state.confirmation_token)
             )
         updated = state.model_copy(update=update)
         self.latest_state = updated
@@ -3670,9 +3923,7 @@ class WorkflowRun:
         iteration = event["iteration"]
         replan_count = event["replanCount"]
         assert isinstance(iteration, int) and isinstance(replan_count, int)
-        sequence = state.step_count * 10 + iteration + (
-            5 if event["phase"] == "VERIFY" else 0
-        )
+        sequence = state.step_count * 10 + iteration + (5 if event["phase"] == "VERIFY" else 0)
         self.repository.record_loop_event(
             run_id=state.run_id,
             sequence_no=sequence,
@@ -3820,9 +4071,7 @@ class WorkflowRun:
         return "end" if state.status is RunStatus.WAITING_BUSINESS_RESULT else "compose_final"
 
 
-def _synchronous_conflict_replan_state(
-    *, state: AgentState, error: JavaToolError
-) -> AgentState:
+def _synchronous_conflict_replan_state(*, state: AgentState, error: JavaToolError) -> AgentState:
     if state.replan_count >= 2:
         return state.model_copy(
             update={
@@ -3853,8 +4102,7 @@ def _synchronous_conflict_replan_state(
             f"{request.time_window.start.isoformat()}/{request.time_window.end.isoformat()}"
         )
     preserved.extend(
-        f"hard:{constraint.type}={constraint.value}"
-        for constraint in request.hard_constraints
+        f"hard:{constraint.type}={constraint.value}" for constraint in request.hard_constraints
     )
     feedback = ConflictRepairFeedbackState(
         conflict_type=error.details.get("conflict.type", "BOOKING_CONFLICT"),
@@ -3956,6 +4204,8 @@ def _loop_event(
             "cacheMissTokens": state.cache_miss_tokens,
         },
     }
+
+
 def _sanitized_tool_args(outcome: ToolOutcome, state: AgentState) -> dict[str, object]:
     request = state.meeting_request
     if outcome.tool_name == "resolve_employees":

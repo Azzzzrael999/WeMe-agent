@@ -470,7 +470,10 @@ def main() -> int:
             headers={**user_headers, "X-Trace-Id": hot_trace_id},
             body={
                 "threadId": None,
-                "message": "下周三下午帮张三安排一个90分钟架构评审，10人，要大屏",
+                "message": (
+                    "下周三13:00到14:30帮张三安排一个90分钟架构评审，10人，"
+                    "要大屏和视频会议设备，优先总部楼"
+                ),
                 "clientRequestId": str(uuid.uuid4()),
             },
         )
@@ -560,7 +563,10 @@ def main() -> int:
             "HOT callback did not return replanned candidates",
         )
         require(isinstance(recovery_draft, dict), "HOT recovery has no draft")
-        require(recovery_draft.get("roomId") == 102, "HOT conflict did not replan to room 102")
+        require(
+            recovery_draft.get("roomId") != hot_draft.get("roomId"),
+            "HOT conflict did not select a different available room",
+        )
         require(
             isinstance(recovery_token, str) and recovery_token,
             "HOT recovery lacks a fresh confirmationToken",

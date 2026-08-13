@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from app.api.internal import router as internal_router
+from app.api.knowledge import router as knowledge_router
 from app.config import get_settings
 from app.logging import configure_logging
 
@@ -15,6 +16,7 @@ def create_app() -> FastAPI:
         description="Day 4 structured multi-agent scheduling runtime.",
     )
     application.include_router(internal_router)
+    application.include_router(knowledge_router)
     return application
 
 

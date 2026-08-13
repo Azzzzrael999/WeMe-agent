@@ -78,7 +78,11 @@ class RouteEvaluator:
     _CANCEL = ("取消", "撤销", "不订了")
     _MODIFY = (
         "改期",
-        "调整",
+        "调整会议",
+        "调整安排",
+        "调整时间",
+        "调整房间",
+        "调整到",
         "换会议室",
         "改到",
         "修改",
@@ -88,8 +92,31 @@ class RouteEvaluator:
         "会议室已失效",
         "房间不可用",
     )
-    _CREATE = ("预约", "预订", "安排", "创建会议")
-    _FIND = ("共同时间", "共同空闲", "什么时候有空", "推荐会议室", "推荐房间")
+    _CREATE = (
+        "预约",
+        "预订",
+        "安排",
+        "创建会议",
+        "约个会",
+        "开个会",
+        "碰一下",
+        "碰个头",
+        "book",
+        "schedule",
+    )
+    _FIND = (
+        "共同时间",
+        "共同空闲",
+        "什么时候有空",
+        "一起空",
+        "同时有空",
+        "只查时间",
+        "找时间",
+        "推荐会议室",
+        "推荐房间",
+        "只推荐",
+        "find time",
+    )
     _PREFERENCE = ("以后", "优先安排", "避免")
 
     def evaluate(self, decision: SupervisorDecision, source: str) -> RouteFeedback | None:
@@ -129,12 +156,28 @@ class RouteEvaluator:
             return Route.REQUIREMENT, Intent.MODIFY_MEETING
         if any(anchor in source for anchor in self._PREFERENCE):
             return Route.REQUIREMENT, Intent.UPDATE_PREFERENCE
-        if any(anchor in source for anchor in self._CREATE):
+        normalized = source.lower()
+        find_anchor = any(anchor in normalized for anchor in self._FIND)
+        explicitly_read_only = any(
+            value in normalized for value in ("不预约", "不要预约", "只查", "只推荐", "read only")
+        )
+        if find_anchor and explicitly_read_only:
+            intent = (
+                Intent.RECOMMEND_ROOM
+                if any(value in normalized for value in ("推荐", "只推荐"))
+                else Intent.FIND_COMMON_TIME
+            )
+            return Route.REQUIREMENT, intent
+        if any(anchor in normalized for anchor in self._CREATE):
             return Route.REQUIREMENT, Intent.CREATE_MEETING
         if "协调" in source and any(anchor in source for anchor in ("会议", "站会", "评审")):
             return Route.REQUIREMENT, Intent.CREATE_MEETING
-        if any(anchor in source for anchor in self._FIND):
-            intent = Intent.RECOMMEND_ROOM if "推荐" in source else Intent.FIND_COMMON_TIME
+        if find_anchor:
+            intent = (
+                Intent.RECOMMEND_ROOM
+                if any(value in normalized for value in ("推荐", "只推荐"))
+                else Intent.FIND_COMMON_TIME
+            )
             return Route.REQUIREMENT, intent
         return Route.CLARIFICATION, None
 
@@ -146,12 +189,14 @@ class SourceFidelityEvaluator:
     _HEADCOUNT = re.compile(r"(\d{1,4})\s*(?:个)?人")
     _TIME_RANGE = re.compile(r"(\d{1,2})(?::(\d{2})|点)\s*(?:到|至|-)\s*(\d{1,2})(?::(\d{2})|点)")
     _FEATURE_ALIASES = {
-        "WHITEBOARD": ("白板",),
-        "LARGE_SCREEN": ("大屏", "大屏幕", "投屏"),
-        "VIDEO_CONFERENCE": ("视频会议", "视频设备"),
-        "PROJECTOR": ("投影", "投影仪"),
+        "WHITEBOARD": ("白板", "whiteboard"),
+        "LARGE_SCREEN": ("大屏", "大屏幕", "投屏", "large screen"),
+        "VIDEO_CONFERENCE": ("视频会议", "视频设备", "video conference"),
+        "PROJECTOR": ("投影", "投影仪", "projector"),
     }
-    _SEARCH_WINDOW_SUFFIX = re.compile(r"^\s*(?:之间|以内|内|范围内|时段内|期间)")
+    _SEARCH_WINDOW_SUFFIX = re.compile(
+        r"^\s*(?:之间|以内|内|这个?范围(?:内)?|范围内|时段内|期间|有没有|能不能|是否有)"
+    )
 
     def evaluate(self, draft: RequirementDraft, source: str) -> RequirementFeedback | None:
         codes: list[str] = []
@@ -169,9 +214,10 @@ class SourceFidelityEvaluator:
         headcount = self._HEADCOUNT.search(source)
         if headcount and draft.minimum_capacity != int(headcount.group(1)):
             codes.append("CAPACITY_SOURCE_MISMATCH")
+        normalized_source = source.lower()
         for feature in draft.required_features:
             aliases = self._FEATURE_ALIASES.get(_canonical_feature(feature), ())
-            if not aliases or not any(alias in source for alias in aliases):
+            if not aliases or not any(alias.lower() in normalized_source for alias in aliases):
                 codes.append("FEATURE_NOT_IN_SOURCE")
         explicit_range = self._TIME_RANGE.search(source)
         if explicit_range and draft.time_window is not None:
@@ -185,8 +231,7 @@ class SourceFidelityEvaluator:
                 draft.duration_minutes is not None
                 and expected > 0
                 and draft.duration_minutes != expected
-                and draft.intent
-                not in {Intent.FIND_COMMON_TIME, Intent.RECOMMEND_ROOM}
+                and draft.intent not in {Intent.FIND_COMMON_TIME, Intent.RECOMMEND_ROOM}
                 and not self.is_search_window(source, explicit_range)
             ):
                 codes.append("DURATION_INTERVAL_MISMATCH")
@@ -238,8 +283,7 @@ class RequirementNormalizer:
         if (
             duration is None
             and draft.time_window is not None
-            and draft.intent
-            not in {Intent.MODIFY_MEETING, Intent.CANCEL_MEETING}
+            and draft.intent not in {Intent.MODIFY_MEETING, Intent.CANCEL_MEETING}
             and not _source_describes_search_window(source)
         ):
             duration = int((draft.time_window.end - draft.time_window.start).total_seconds() / 60)
@@ -307,8 +351,7 @@ class RequirementEvaluator:
         }:
             if window is None:
                 if request.intent is Intent.MODIFY_MEETING and (
-                    request.target_meeting_id is not None
-                    or request.target_meeting_reference
+                    request.target_meeting_id is not None or request.target_meeting_reference
                 ):
                     window = None
                 else:
@@ -322,10 +365,9 @@ class RequirementEvaluator:
                 # it from the latest Java snapshot before availability reads.
                 pass
             else:
-                if (
-                    window.start.utcoffset() != timedelta(hours=8)
-                    or window.end.utcoffset() != timedelta(hours=8)
-                ):
+                if window.start.utcoffset() != timedelta(
+                    hours=8
+                ) or window.end.utcoffset() != timedelta(hours=8):
                     codes.append("TIMEZONE_NOT_ASIA_SHANGHAI")
                 if any(
                     value.minute % 30 or value.second or value.microsecond
@@ -379,37 +421,66 @@ def _explicit_participant_names(source: str) -> set[str]:
     return anchors
 
 
-def _evidence_supported(
-    field: str, evidence: str, source: str, draft: RequirementDraft
-) -> bool:
+def _evidence_supported(field: str, evidence: str, source: str, draft: RequirementDraft) -> bool:
     """Accept literal evidence or a deterministic canonical rendering."""
 
-    if evidence in source:
+    if evidence.lower() in source.lower():
         return True
     if field == "intent":
         _, expected_intent = RouteEvaluator().fallback(source)
         return expected_intent is not None and draft.intent is expected_intent
     if field in {"requiredFeatures", "required_features"}:
         aliases = SourceFidelityEvaluator._FEATURE_ALIASES
+        normalized_source = source.lower()
         return all(
-            any(alias in source for alias in aliases.get(_canonical_feature(feature), ()))
+            any(
+                alias.lower() in normalized_source
+                for alias in aliases.get(_canonical_feature(feature), ())
+            )
             for feature in draft.required_features
         )
     if field in {"minimumCapacity", "minimum_capacity"}:
         match = SourceFidelityEvaluator._HEADCOUNT.search(source)
         if match is not None:
             return str(draft.minimum_capacity) == match.group(1)
+        english_headcount = re.search(r"(\d{1,4})\s*people", source, re.IGNORECASE)
+        if english_headcount is not None:
+            return draft.minimum_capacity == int(english_headcount.group(1))
         # Capacity may be deterministically derived from the organiser plus
         # explicitly named required participants even though that integer is
         # not a literal source substring.
         named_count = len(set(draft.required_participant_names))
-        return (
-            draft.minimum_capacity in {max(1, named_count), max(1, named_count + 1)}
-            and all(name in source for name in draft.required_participant_names)
+        return draft.minimum_capacity in {max(1, named_count), max(1, named_count + 1)} and all(
+            name in source for name in draft.required_participant_names
         )
     if field in {"durationMinutes", "duration_minutes", "timeWindow", "time_window"}:
         explicit_range = SourceFidelityEvaluator._TIME_RANGE.search(source)
         if explicit_range is None:
+            if field in {"durationMinutes", "duration_minutes"}:
+                english_duration = re.search(
+                    r"(30|60|90|120|150|180|210|240)[ -]minutes?",
+                    source,
+                    re.IGNORECASE,
+                )
+                if english_duration is not None:
+                    return draft.duration_minutes == int(english_duration.group(1))
+            if field in {"timeWindow", "time_window"} and draft.time_window is not None:
+                iso_date = re.search(r"\b(\d{4}-\d{2}-\d{2})\b", source)
+                if (
+                    iso_date is not None
+                    and draft.time_window.start.date().isoformat() == iso_date.group(1)
+                ):
+                    normalized = source.lower()
+                    if "afternoon" in normalized:
+                        return (
+                            draft.time_window.start.hour == 12
+                            and draft.time_window.end.hour == 18
+                        )
+                    if "morning" in normalized:
+                        return (
+                            draft.time_window.start.hour == 6
+                            and draft.time_window.end.hour == 12
+                        )
             return any(anchor in source for anchor in ("半小时", "一小时", "两小时"))
         expected = (
             int(explicit_range.group(3)) * 60
@@ -420,9 +491,7 @@ def _evidence_supported(
         if field in {"timeWindow", "time_window"}:
             if draft.time_window is None:
                 return False
-            actual = int(
-                (draft.time_window.end - draft.time_window.start).total_seconds() / 60
-            )
+            actual = int((draft.time_window.end - draft.time_window.start).total_seconds() / 60)
             return actual == expected
         explicit_duration = re.search(r"(\d{1,3})\s*分钟", source)
         if explicit_duration is not None:
@@ -460,7 +529,7 @@ def _canonical_feature(value: str) -> str:
     if upper in SourceFidelityEvaluator._FEATURE_ALIASES:
         return upper
     for canonical, aliases in SourceFidelityEvaluator._FEATURE_ALIASES.items():
-        if value in aliases:
+        if value.lower() in {alias.lower() for alias in aliases}:
             return canonical
     return value
 
@@ -584,11 +653,7 @@ class ReadToolGate:
             raise ToolGateError("TARGET_MEETING_REQUIRED")
         if not isinstance(payload, FreeBusyInput | SearchRoomsInput):
             return payload
-        expected = (
-            request.target_meeting_id
-            if request.intent is Intent.MODIFY_MEETING
-            else None
-        )
+        expected = request.target_meeting_id if request.intent is Intent.MODIFY_MEETING else None
         if payload.exclude_meeting_id not in {None, expected}:
             raise ToolGateError("TOOL_CONTEXT_MISMATCH")
         return payload.model_copy(update={"exclude_meeting_id": expected})
@@ -630,11 +695,7 @@ class ReadToolGate:
                 or payload.from_ != window.start
                 or payload.to != window.end
                 or payload.exclude_meeting_id
-                != (
-                    request.target_meeting_id
-                    if request.intent is Intent.MODIFY_MEETING
-                    else None
-                )
+                != (request.target_meeting_id if request.intent is Intent.MODIFY_MEETING else None)
             ):
                 raise ToolGateError("TOOL_CONTEXT_MISMATCH")
         elif name == "search_available_rooms":
@@ -653,11 +714,7 @@ class ReadToolGate:
                 or payload.required_features != request.required_features
                 or payload.limit != 50
                 or payload.exclude_meeting_id
-                != (
-                    request.target_meeting_id
-                    if request.intent is Intent.MODIFY_MEETING
-                    else None
-                )
+                != (request.target_meeting_id if request.intent is Intent.MODIFY_MEETING else None)
             ):
                 raise ToolGateError("TOOL_CONTEXT_MISMATCH")
 

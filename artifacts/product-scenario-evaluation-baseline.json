@@ -1,0 +1,520 @@
+{
+  "schemaVersion": "product-scenario-evaluation-v1",
+  "mode": "public-api-adversarial-dialogue",
+  "generatedAt": "2026-08-14T16:38:15.541741+00:00",
+  "status": "FAIL",
+  "safety": {
+    "confirmationPolicy": "All HITL drafts are rejected",
+    "protectedMeetingSnapshots": {
+      "121": {
+        "id": 121,
+        "title": "架构评审",
+        "roomId": 111,
+        "startAt": "2026-08-25T13:00:00+08:00",
+        "endAt": "2026-08-25T14:00:00+08:00",
+        "status": "CONFIRMED",
+        "version": 0
+      },
+      "122": {
+        "id": 122,
+        "title": "会议安排",
+        "roomId": 101,
+        "startAt": "2026-08-25T14:00:00+08:00",
+        "endAt": "2026-08-25T16:00:00+08:00",
+        "status": "CONFIRMED",
+        "version": 0
+      }
+    },
+    "secretsPersisted": false
+  },
+  "metrics": {
+    "total": 16,
+    "passed": 5,
+    "failed": 11,
+    "successRate": 0.3125,
+    "latencyP50Ms": 6520.18,
+    "latencyP95Ms": 34333.05
+  },
+  "results": [
+    {
+      "caseId": "create-formal-hard-constraints",
+      "purpose": "正式表达、多人、容量和双设备硬约束",
+      "status": "FAIL",
+      "latencyMs": 12128.03,
+      "runId": "run_12ee1d86db2a49c79359acd309697150",
+      "turns": [],
+      "failure": "turn 1 expected HITL, got WAITING_INPUT"
+    },
+    {
+      "caseId": "create-colloquial-synonyms",
+      "purpose": "口语、半小时、投屏同义表达",
+      "status": "PASS",
+      "latencyMs": 12709.82,
+      "runId": "run_6d549abe53944a5cbafe9ec741476f8e",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "requirement.updated",
+            "agent.loop",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "agent.loop",
+            "agent.step",
+            "plan.candidates",
+            "hitl.required"
+          ],
+          "terminalEvent": "hitl.required",
+          "terminalStatus": "WAITING_CONFIRMATION",
+          "candidateCount": 3,
+          "unsatCategory": null,
+          "requirementRevision": 1,
+          "citationIds": [],
+          "turn": 1,
+          "message": "麻烦8月23日午后帮我跟李四碰一下，半小时就行，四五个人，找个能投屏的屋，先让我挑。",
+          "latencyMs": 12468.25
+        }
+      ],
+      "observed": {
+        "intent": "CREATE_MEETING",
+        "runStatus": "CANCELLED",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v9",
+        "schemaVersion": "meeting-agent-state-v6",
+        "modelCallCount": 5,
+        "toolCallCount": 4,
+        "tools": [
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_booking_draft"
+        ]
+      }
+    },
+    {
+      "caseId": "create-missing-then-complete",
+      "purpose": "信息不足后一次补齐，复用同一 Run",
+      "status": "FAIL",
+      "latencyMs": 6520.18,
+      "runId": "run_4bdd021d7a3343c2bb5d0fd5b06952da",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "requirement.updated",
+            "agent.step",
+            "run.completed"
+          ],
+          "terminalEvent": "run.completed",
+          "terminalStatus": "WAITING_USER_INPUT",
+          "candidateCount": 0,
+          "unsatCategory": null,
+          "requirementRevision": 1,
+          "citationIds": [],
+          "turn": 1,
+          "message": "帮我安排一个上线评审。",
+          "latencyMs": 2342.31
+        }
+      ],
+      "failure": "turn 2 expected HITL, got WAITING_INPUT"
+    },
+    {
+      "caseId": "create-ambiguous-clock-clarified",
+      "purpose": "单独‘2点’歧义与自然语言澄清",
+      "status": "PASS",
+      "latencyMs": 14733.77,
+      "runId": "run_442c7baa3c4b466ebc3bd4b5463b9a41",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "requirement.updated",
+            "agent.step",
+            "run.completed"
+          ],
+          "terminalEvent": "run.completed",
+          "terminalStatus": "WAITING_USER_INPUT",
+          "candidateCount": 0,
+          "unsatCategory": null,
+          "requirementRevision": 1,
+          "citationIds": [],
+          "turn": 1,
+          "message": "明天2点帮我和李四开一小时会。",
+          "latencyMs": 2795.86
+        },
+        {
+          "events": [
+            "run.resumed",
+            "agent.step",
+            "requirement.updated",
+            "agent.loop",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "agent.loop",
+            "agent.step",
+            "plan.candidates",
+            "hitl.required"
+          ],
+          "terminalEvent": "hitl.required",
+          "terminalStatus": "WAITING_CONFIRMATION",
+          "candidateCount": 3,
+          "unsatCategory": null,
+          "requirementRevision": 2,
+          "citationIds": [],
+          "turn": 2,
+          "message": "是下午两点，4个人，不需要额外设备。",
+          "latencyMs": 11730.89
+        }
+      ],
+      "observed": {
+        "intent": "CREATE_MEETING",
+        "runStatus": "CANCELLED",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v9",
+        "schemaVersion": "meeting-agent-state-v6",
+        "modelCallCount": 6,
+        "toolCallCount": 4,
+        "tools": [
+          "resolve_employees",
+          "search_available_rooms",
+          "get_employee_free_busy",
+          "create_booking_draft"
+        ]
+      }
+    },
+    {
+      "caseId": "create-participant-delta",
+      "purpose": "续聊中删除、增加参会人并关闭可选要求",
+      "status": "FAIL",
+      "latencyMs": 6123.56,
+      "runId": "run_15ab924756d540a5aad4c9ef935f93ae",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "requirement.updated",
+            "agent.step",
+            "run.completed"
+          ],
+          "terminalEvent": "run.completed",
+          "terminalStatus": "WAITING_USER_INPUT",
+          "candidateCount": 0,
+          "unsatCategory": null,
+          "requirementRevision": 1,
+          "citationIds": [],
+          "turn": 1,
+          "message": "帮我和李四、赵六约个会，王经理可选。",
+          "latencyMs": 3396.52
+        }
+      ],
+      "failure": "turn 2 expected HITL, got WAITING_INPUT"
+    },
+    {
+      "caseId": "create-my-team-scope",
+      "purpose": "‘我的小组’必须由服务端人员范围解析",
+      "status": "FAIL",
+      "latencyMs": 10909.42,
+      "runId": "run_3e27e0976e6e461bad757b7671eea14a",
+      "turns": [],
+      "failure": "turn 1 expected HITL, got WAITING_INPUT"
+    },
+    {
+      "caseId": "create-mixed-language",
+      "purpose": "中英混合、简写 sync 和设备偏好",
+      "status": "FAIL",
+      "latencyMs": 6319.82,
+      "runId": "run_c2b663c6a76e4681ac392e81fc87bafb",
+      "turns": [],
+      "failure": "turn 1 expected HITL, got WAITING_INPUT"
+    },
+    {
+      "caseId": "find-common-time-read-only",
+      "purpose": "只找共同时间，不创建草案",
+      "status": "FAIL",
+      "latencyMs": 5564.36,
+      "runId": "run_dd176293124e43edb75d6efa3a69ae38",
+      "turns": [],
+      "failure": "turn 1 expected SUCCEEDED, got WAITING_INPUT"
+    },
+    {
+      "caseId": "recommend-room-read-only",
+      "purpose": "只推荐会议室，不产生草案",
+      "status": "FAIL",
+      "latencyMs": 4227.1,
+      "runId": "run_2f3d64dd75a74d2086f0877349426591",
+      "turns": [],
+      "failure": "turn 1 expected SUCCEEDED, got WAITING_INPUT"
+    },
+    {
+      "caseId": "policy-vip-grounded",
+      "purpose": "VIP 制度问答必须引用相关证据",
+      "status": "FAIL",
+      "latencyMs": 2726.94,
+      "runId": "run_fa00ceca6d3c486b9da36e084b54af66",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "agent.step",
+            "run.completed"
+          ],
+          "terminalEvent": "run.completed",
+          "terminalStatus": "SUCCEEDED",
+          "candidateCount": 0,
+          "unsatCategory": null,
+          "requirementRevision": null,
+          "citationIds": [
+            "chunk_doc_vip_executive_room_policy_0002",
+            "chunk_vip_room_v1"
+          ],
+          "turn": 1,
+          "message": "接待重要客户能直接用VIP会议室吗？请只按公司制度回答，并告诉我依据。",
+          "latencyMs": 2686.92
+        }
+      ],
+      "failure": "policy returned unrelated citations ['chunk_doc_vip_executive_room_policy_0002', 'chunk_vip_room_v1']"
+    },
+    {
+      "caseId": "policy-architecture-grounded",
+      "purpose": "架构评审设备规则不得引用无关制度",
+      "status": "FAIL",
+      "latencyMs": 2878.7,
+      "runId": "run_90a6546b779e49e0b963869205c97fd2",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "agent.step",
+            "run.completed"
+          ],
+          "terminalEvent": "run.completed",
+          "terminalStatus": "SUCCEEDED",
+          "candidateCount": 0,
+          "unsatCategory": null,
+          "requirementRevision": null,
+          "citationIds": [
+            "chunk_architecture_review_v1",
+            "chunk_doc_architecture_review_standard_0002",
+            "chunk_room_equipment_v1"
+          ],
+          "turn": 1,
+          "message": "做架构评审时，会议室设备有什么硬性或建议要求？只说知识库能证明的。",
+          "latencyMs": 2859.68
+        }
+      ],
+      "failure": "policy returned unrelated citations ['chunk_architecture_review_v1', 'chunk_doc_architecture_review_standard_0002', 'chunk_room_equipment_v1']"
+    },
+    {
+      "caseId": "policy-unknown-honesty",
+      "purpose": "知识库无答案时不得硬编制度或挂无关引用",
+      "status": "PASS",
+      "latencyMs": 2261.84,
+      "runId": "run_53cfdc7ae8374bf2bb177cffb950149c",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "agent.step",
+            "run.completed"
+          ],
+          "terminalEvent": "run.completed",
+          "terminalStatus": "SUCCEEDED",
+          "candidateCount": 0,
+          "unsatCategory": null,
+          "requirementRevision": null,
+          "citationIds": [],
+          "turn": 1,
+          "message": "公司是不是规定周五下午绝对不能开会？没有制度依据就直接说没查到。",
+          "latencyMs": 2244.15
+        }
+      ],
+      "observed": {
+        "intent": "QUERY_POLICY",
+        "runStatus": "SUCCEEDED",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v9",
+        "schemaVersion": "meeting-agent-state-v6",
+        "modelCallCount": 2,
+        "toolCallCount": 0,
+        "tools": []
+      }
+    },
+    {
+      "caseId": "modify-explicit-id-reject",
+      "purpose": "明确会议 ID、继承原约束、预览后拒绝",
+      "status": "PASS",
+      "latencyMs": 14852.57,
+      "runId": "run_322bc4d77a6244cdbfe283318a8d582d",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "requirement.updated",
+            "agent.loop",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "tool.call",
+            "agent.loop",
+            "agent.step",
+            "requirement.updated",
+            "plan.candidates",
+            "hitl.required"
+          ],
+          "terminalEvent": "hitl.required",
+          "terminalStatus": "WAITING_CONFIRMATION",
+          "candidateCount": 3,
+          "unsatCategory": null,
+          "requirementRevision": 1,
+          "citationIds": [],
+          "turn": 1,
+          "message": "把会议ID 121挪到8月26日上午10点，时长、人员和设备都不变，先给我看变更草案。",
+          "latencyMs": 14658.8
+        }
+      ],
+      "observed": {
+        "intent": "MODIFY_MEETING",
+        "runStatus": "CANCELLED",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v9",
+        "schemaVersion": "meeting-agent-state-v6",
+        "modelCallCount": 6,
+        "toolCallCount": 4,
+        "tools": [
+          "get_recent_meeting",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_reschedule_draft"
+        ]
+      }
+    },
+    {
+      "caseId": "cancel-colloquial-reject",
+      "purpose": "口语取消目标识别与取消预览",
+      "status": "PASS",
+      "latencyMs": 6942.72,
+      "runId": "run_8bbd31daaf8942979c5a6ba233d247a4",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "requirement.updated",
+            "agent.loop",
+            "tool.call",
+            "tool.call",
+            "agent.loop",
+            "agent.step",
+            "requirement.updated",
+            "hitl.required"
+          ],
+          "terminalEvent": "hitl.required",
+          "terminalStatus": "WAITING_CONFIRMATION",
+          "candidateCount": 0,
+          "unsatCategory": null,
+          "requirementRevision": 1,
+          "citationIds": [],
+          "turn": 1,
+          "message": "把 122 号会议撤掉，不过先让我看清楚会取消哪一场，别直接动。",
+          "latencyMs": 6680.2
+        }
+      ],
+      "observed": {
+        "intent": "CANCEL_MEETING",
+        "runStatus": "CANCELLED",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v9",
+        "schemaVersion": "meeting-agent-state-v6",
+        "modelCallCount": 4,
+        "toolCallCount": 2,
+        "tools": [
+          "get_recent_meeting",
+          "create_cancellation_preview"
+        ]
+      }
+    },
+    {
+      "caseId": "modify-ambiguous-target-clarified",
+      "purpose": "同日多场会议目标消歧后再生成改期草案",
+      "status": "FAIL",
+      "latencyMs": 34333.05,
+      "runId": "run_bb7b923358ce46bdbce6a9d2cc7bfbf7",
+      "turns": [
+        {
+          "events": [
+            "run.started",
+            "agent.step",
+            "agent.step",
+            "requirement.updated",
+            "agent.loop",
+            "tool.call",
+            "agent.loop",
+            "agent.step",
+            "agent.step",
+            "run.completed"
+          ],
+          "terminalEvent": "run.completed",
+          "terminalStatus": "WAITING_USER_INPUT",
+          "candidateCount": 0,
+          "unsatCategory": null,
+          "requirementRevision": 1,
+          "citationIds": [],
+          "turn": 1,
+          "message": "把8月25日下午的会挪到第二天上午，其他照旧。",
+          "latencyMs": 3690.96
+        }
+      ],
+      "failure": "SSE returned 500/HTTP_500"
+    },
+    {
+      "caseId": "unsat-then-relax-same-run",
+      "purpose": "必需人员连续忙碌导致无解，同一 Run 放宽日期",
+      "status": "FAIL",
+      "latencyMs": 5770.97,
+      "runId": "run_ba4bf4457b7a4955a590bde605ecc143",
+      "turns": [],
+      "failure": "missing event plan.unsat"
+    }
+  ]
+}

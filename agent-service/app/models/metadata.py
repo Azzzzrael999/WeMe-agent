@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import BigInteger, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import BigInteger, Date, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -134,10 +134,19 @@ class RagDocument(Base):
     document_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     document_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    department: Mapped[str] = mapped_column(String(64), nullable=False)
+    effective_date: Mapped[date] = mapped_column(Date, nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False)
     source_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    media_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    content_text: Mapped[str] = mapped_column(Text, nullable=False)
     version: Mapped[str] = mapped_column(String(32), nullable=False)
     checksum: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(24), nullable=False)
     chunk_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    record_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = timestamp_column()
+    updated_at: Mapped[datetime] = timestamp_column()
     indexed_at: Mapped[datetime | None] = timestamp_column(nullable=True)
+    deleted_at: Mapped[datetime | None] = timestamp_column(nullable=True)

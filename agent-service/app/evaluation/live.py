@@ -208,9 +208,7 @@ def run_live_evaluation(
 ) -> dict[str, Any]:
     # Component evaluation never touches persistence. This safe local value
     # only satisfies the shared Settings schema in a standalone process.
-    config = settings or Settings.model_validate(
-        {"AGENT_DATABASE_URL": "sqlite+pysqlite://"}
-    )
+    config = settings or Settings.model_validate({"AGENT_DATABASE_URL": "sqlite+pysqlite://"})
     base = {
         "schemaVersion": "live-model-component-v2",
         "mode": f"live-model-{mode}",
@@ -293,9 +291,7 @@ def run_live_evaluation(
                     relevant = not expected_ids or bool(expected_ids.intersection(actual_ids))
                     case_citations_valid = (
                         len(actual_ids)
-                        if actual_ids
-                        and relevant
-                        and all(item in known_ids for item in actual_ids)
+                        if actual_ids and relevant and all(item in known_ids for item in actual_ids)
                         else 0
                     )
                     tool_match = not case.expected_tools
@@ -308,7 +304,7 @@ def run_live_evaluation(
                         observed=observed,
                     )
                     actual_tools = _selected_tools(state)
-                    expected_tools = _expected_tools(case)
+                    expected_tools = _expected_tools(case, state=state)
                     tool_match = actual_tools == expected_tools and not set(
                         case.forbidden_tools
                     ).intersection(actual_tools)
@@ -466,9 +462,7 @@ def _scored_expectation(case: EvaluationCase) -> ConstraintExpectation:
     if case.expected_intent is Intent.CANCEL_MEETING:
         return ConstraintExpectation(target_meeting_id=expected.target_meeting_id)
     if case.expected_intent is Intent.UPDATE_PREFERENCE:
-        return ConstraintExpectation(
-            required_participant_names=expected.required_participant_names
-        )
+        return ConstraintExpectation(required_participant_names=expected.required_participant_names)
     return ConstraintExpectation(
         duration_minutes=expected.duration_minutes,
         minimum_capacity=expected.minimum_capacity,
@@ -478,7 +472,9 @@ def _scored_expectation(case: EvaluationCase) -> ConstraintExpectation:
     )
 
 
-def _expected_tools(case: EvaluationCase) -> set[str]:
+def _expected_tools(case: EvaluationCase, *, state: AgentState) -> set[str]:
+    if state.missing_fields:
+        return set()
     intent = case.expected_intent
     names = bool(case.expected_constraints.required_participant_names)
     if intent is Intent.CREATE_MEETING:
@@ -565,9 +561,7 @@ def _native_tool_probe(
         )
         valid = len(response.tool_calls) == 1 and response.tool_calls[0].name == "resolve_employees"
         if valid:
-            arguments = ResolveEmployeesInput.model_validate_json(
-                response.tool_calls[0].arguments
-            )
+            arguments = ResolveEmployeesInput.model_validate_json(response.tool_calls[0].arguments)
             valid = arguments.names == ["张三", "李四"] and not arguments.department_names
     except Exception as exc:
         error_type = type(exc).__name__
