@@ -19,6 +19,8 @@ business-service/.mvn/wrapper/maven-wrapper.jar
 
 # Python / uv
 agent-service/.venv/
+agent-service/build/
+agent-service/*.egg-info/
 agent-service/.pytest_cache/
 agent-service/.mypy_cache/
 agent-service/.ruff_cache/
@@ -32,8 +34,6 @@ frontend/node_modules/
 frontend/dist/
 frontend/.vite/
 npm-debug.log*
-
-# Mock service build output
 
 # Local test and runtime artifacts
 .cache/

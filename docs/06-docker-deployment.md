@@ -27,9 +27,9 @@ deploy/
 ├─ nginx/
 │  └─ default.conf
 └─ rag-documents/
-   ├─ meeting-room-policy.md
-   ├─ vip-room-policy.md
-   └─ architecture-review-standard.md
+   ├─ 01-...md
+   ├─ ...
+   └─ 22-...md                 # 22 份受版本控制的会议制度源文档
 ```
 
 ## 3. 服务清单
@@ -430,12 +430,6 @@ docker compose -f compose.yaml -f compose.dev.yaml up -d --build
 - 最终使用Nginx静态镜像。
 - Nginx代理 `/api` 到Java，关闭对Python的直接代理；`client_max_body_size` 固定为 6 MiB，以容纳最大 5 MiB 的制度文档 multipart 上传，Java 与 Python 仍分别执行大小校验。
 - SSE路径禁用代理缓存并增加读取超时。
-
-### 10.4 Mock服务
-
-- 与Agent服务分离镜像，体现外部依赖边界。
-- 数据可以仅保存在内存；容器重启后允许清空。
-- 必须实现Idempotency-Key。
 
 ## 11. Nginx关键配置
 

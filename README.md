@@ -164,7 +164,7 @@ Pop-Location
 python .\scripts\live-model-trajectory.py --public-base http://localhost --output .\artifacts\live-eval\trajectory-final.json
 ```
 
-2026-08-13 最新结果：core 12×3 component PASS，full 40×1 component FAIL，因此整体 live-model component 仍为 FAIL；公共 API trajectory 为 7/8（87.5%）PASS。详情与失败分类以 `docs/HANDOFF.md` 第 22 节为准。
+2026-08-15 最新结果：完整 live-model 40 条 component 门禁 PASS（Route/Intent/Tool/Native Tool/Citation 均 100%，Constraint F1 95.31%，Source Fidelity Violation 0）；公开 API 多轮对抗场景 16/16 PASS。基线与最终脱敏证据位于 `artifacts/live-eval/component-full-*-20260815.json` 和 `artifacts/product-scenario-evaluation*.json`。真实模型仍具有非确定性，Prompt、模型或 Tool Schema 变更后必须重跑门禁。
 
 ## 目录说明
 

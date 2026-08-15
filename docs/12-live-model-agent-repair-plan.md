@@ -1,5 +1,7 @@
 # 12. 真实模型 Agent 修复方案
 
+> 状态：已实施的架构与评测设计记录。当前实现以 `agent-service/**`、`SPEC.md` 和 `docs/HANDOFF.md` 为准；保留本文是为了说明 Source Fidelity、受控 Tool Loop 与真实模型门禁的设计依据。
+
 ## 1. 背景、目标与完成定义
 
 当前 Spec 1.1 的受控 Loop、原生 Tool Calling、冲突修复和 Evaluator–Optimizer 已通过 fixture、集成测试与 Compose Smoke；真实 `deepseek-v4-flash` 也已经接通，并能返回合法原生 `tool_calls`。但真实中文业务请求暴露了四类问题：
