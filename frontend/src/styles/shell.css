@@ -38,7 +38,15 @@
 .workspace-shell--collapsed .recent-task-chevron,
 .workspace-shell--collapsed .conversation-search input { display: none; }
 
-.workspace-primary-actions { display: grid; gap: 8px; padding: 8px 10px 12px; }
+.workspace-sidebar__top { flex: 0 0 auto; min-height: 0; }
+.workspace-sidebar__top--with-recent {
+  /* Keep all conversation controls inside the sidebar's upper third. */
+  height: max(0px, calc(33.333dvh - 64px));
+  flex-basis: max(0px, calc(33.333dvh - 64px));
+  display: flex;
+  flex-direction: column;
+}
+.workspace-primary-actions { flex: 0 0 auto; display: grid; gap: 8px; padding: 8px 10px 12px; }
 .new-orchestration-button {
   display: flex;
   min-height: 42px;
@@ -106,7 +114,13 @@
 .recent-task-link.router-link-active { color: var(--primary); background: var(--primary-soft); font-weight: 680; }
 .workspace-shell--collapsed .workspace-nav a,
 .workspace-shell--collapsed .recent-task-link { justify-content: center; padding-inline: 0; }
-.recent-task-section { max-height: 248px; overflow-y: auto; border-top: 1px solid #e4e4e7; padding: 12px 10px; }
+.recent-task-section {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  border-top: 1px solid #e4e4e7;
+  padding: 0 10px 12px;
+}
 .recent-task-link { align-items: flex-start !important; }
 .recent-task-copy { display: grid; min-width: 0; flex: 1; }
 .recent-task-copy strong { overflow: hidden; font-size: 12px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }

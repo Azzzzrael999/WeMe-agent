@@ -19,16 +19,41 @@
         </button>
       </div>
 
-      <div class="workspace-primary-actions">
-        <button class="new-orchestration-button" type="button" @click="newOrchestration">
-          <Plus :size="18" aria-hidden="true" />
-          <span class="nav-label">新建编排</span>
-        </button>
-        <label class="conversation-search" :class="{ 'conversation-search--collapsed': collapsed }">
-          <Search :size="16" aria-hidden="true" />
-          <span class="sr-only">搜索最近任务</span>
-          <input v-model.trim="searchQuery" type="search" placeholder="搜索会话" autocomplete="off" />
-        </label>
+      <div
+        class="workspace-sidebar__top"
+        :class="{ 'workspace-sidebar__top--with-recent': recentTasks.length > 0 }"
+      >
+        <div class="workspace-primary-actions">
+          <button class="new-orchestration-button" type="button" @click="newOrchestration">
+            <Plus :size="18" aria-hidden="true" />
+            <span class="nav-label">新建编排</span>
+          </button>
+          <label class="conversation-search" :class="{ 'conversation-search--collapsed': collapsed }">
+            <Search :size="16" aria-hidden="true" />
+            <span class="sr-only">搜索最近任务</span>
+            <input v-model.trim="searchQuery" type="search" placeholder="搜索会话" autocomplete="off" />
+          </label>
+        </div>
+
+        <section v-if="recentTasks.length > 0" class="recent-task-section">
+          <p class="nav-group-label">最近任务</p>
+          <RouterLink
+            v-for="task in filteredRecentTasks"
+            :key="task.threadId"
+            class="recent-task-link"
+            :to="{ name: 'chat', query: { runId: task.runId } }"
+            :title="task.question"
+            @click="closeMobileNavigation()"
+          >
+            <MessageCircle :size="17" aria-hidden="true" />
+            <span class="recent-task-copy nav-label">
+              <strong>{{ task.question }}</strong>
+              <small>{{ taskStatusLabel(task.status) }}</small>
+            </span>
+            <ChevronRight class="recent-task-chevron" :size="15" aria-hidden="true" />
+          </RouterLink>
+          <p v-if="filteredRecentTasks.length === 0" class="recent-task-empty nav-label">没有匹配的任务</p>
+        </section>
       </div>
 
       <nav class="workspace-nav" aria-label="主要功能">
@@ -62,28 +87,7 @@
             <span class="nav-label">当前运行记录</span>
           </RouterLink>
         </section>
-
       </nav>
-
-      <section v-if="recentTasks.length > 0" class="recent-task-section">
-        <p class="nav-group-label">最近任务</p>
-        <RouterLink
-          v-for="task in filteredRecentTasks"
-          :key="task.threadId"
-          class="recent-task-link"
-          :to="{ name: 'chat', query: { runId: task.runId } }"
-          :title="task.question"
-          @click="closeMobileNavigation()"
-        >
-          <MessageCircle :size="17" aria-hidden="true" />
-          <span class="recent-task-copy nav-label">
-            <strong>{{ task.question }}</strong>
-            <small>{{ taskStatusLabel(task.status) }}</small>
-          </span>
-          <ChevronRight class="recent-task-chevron" :size="15" aria-hidden="true" />
-        </RouterLink>
-        <p v-if="filteredRecentTasks.length === 0" class="recent-task-empty nav-label">没有匹配的任务</p>
-      </section>
 
       <div class="workspace-user">
         <div class="user-avatar" aria-hidden="true">{{ initials }}</div>
