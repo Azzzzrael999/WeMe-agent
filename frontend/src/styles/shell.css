@@ -86,7 +86,8 @@
   letter-spacing: .08em;
   text-transform: uppercase;
 }
-.workspace-nav a {
+.workspace-nav a,
+.recent-task-link {
   position: relative;
   display: flex;
   min-height: 40px;
@@ -99,9 +100,13 @@
   font-weight: 570;
   text-decoration: none;
 }
-.workspace-nav a:hover { color: var(--foreground); background: var(--accent); }
-.workspace-nav a.router-link-active { color: var(--primary); background: var(--primary-soft); font-weight: 680; }
-.workspace-shell--collapsed .workspace-nav a { justify-content: center; padding-inline: 0; }
+.workspace-nav a:hover,
+.recent-task-link:hover { color: var(--foreground); background: var(--accent); }
+.workspace-nav a.router-link-active,
+.recent-task-link.router-link-active { color: var(--primary); background: var(--primary-soft); font-weight: 680; }
+.workspace-shell--collapsed .workspace-nav a,
+.workspace-shell--collapsed .recent-task-link { justify-content: center; padding-inline: 0; }
+.recent-task-section { max-height: 248px; overflow-y: auto; border-top: 1px solid #e4e4e7; padding: 12px 10px; }
 .recent-task-link { align-items: flex-start !important; }
 .recent-task-copy { display: grid; min-width: 0; flex: 1; }
 .recent-task-copy strong { overflow: hidden; font-size: 12px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
@@ -196,7 +201,8 @@
   .workspace-shell--collapsed .workspace-user__copy,
   .workspace-shell--collapsed .recent-task-chevron,
   .workspace-shell--collapsed .conversation-search input { display: initial; }
-  .workspace-shell--collapsed .workspace-nav a { justify-content: flex-start; padding-inline: 10px; }
+  .workspace-shell--collapsed .workspace-nav a,
+  .workspace-shell--collapsed .recent-task-link { justify-content: flex-start; padding-inline: 10px; }
   .workspace-shell--collapsed .workspace-user { justify-content: flex-start; padding-inline: 12px; }
   .workspace-shell--collapsed .workspace-user > .icon-button { display: inline-grid; }
   .mobile-backdrop { position: fixed; inset: 0; z-index: 25; display: block; border: 0; background: rgb(24 24 27 / 38%); }
