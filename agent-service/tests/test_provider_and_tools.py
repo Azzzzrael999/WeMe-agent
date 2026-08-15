@@ -762,6 +762,10 @@ def test_route_evaluator_distinguishes_mutation_rules_from_mutation_request() ->
         Route.REQUIREMENT,
         Intent.CREATE_MEETING,
     )
+    assert evaluator.fallback("2026年8月28日2点帮我和李四开一小时会。") == (
+        Route.REQUIREMENT,
+        Intent.CREATE_MEETING,
+    )
     assert evaluator.fallback("调整参会人：赵六不参加，加上孙琪。") == (
         Route.CLARIFICATION,
         None,
@@ -899,6 +903,54 @@ def test_requirement_defaults_remove_stale_model_missing_fields() -> None:
     assert updated.meeting_request is not None
     assert updated.meeting_request.title == "架构评审"
     assert updated.meeting_request.meeting_type == "ARCHITECTURE_REVIEW"
+
+
+def test_requirement_resolves_first_person_to_current_authenticated_user() -> None:
+    provider = QueueProvider(
+        [
+            json.dumps(
+                {
+                    "requirementDraft": {
+                        "intent": "CREATE_MEETING",
+                        "durationMinutes": 60,
+                        "timeWindow": {
+                            "start": "2026-08-28T14:00:00+08:00",
+                            "end": "2026-08-28T15:00:00+08:00",
+                        },
+                        "requiredParticipantNames": ["李四"],
+                        "requiredFeatures": [],
+                        "fieldEvidence": [],
+                        "summary": "安排会议",
+                    },
+                    "missingFields": [],
+                },
+                ensure_ascii=False,
+            )
+        ]
+    )
+    state = AgentState(
+        thread_id="thread_first_person",
+        run_id="run_first_person",
+        trace_id="trc_first_person",
+        user_id=1001,
+        roles=["EMPLOYEE"],
+        message="2026年8月28日下午2点帮我和李四开一小时会。",
+        request_time=datetime.fromisoformat("2026-08-15T09:00:00+08:00"),
+        intent=Intent.CREATE_MEETING,
+    )
+
+    updated, _, _, _ = RequirementAgent(provider=provider, runner=StructuredModelRunner()).execute(
+        state
+    )
+
+    assert updated.requirement_draft is not None
+    assert updated.requirement_draft.includes_current_user is True
+    assert updated.meeting_request is not None
+    assert updated.meeting_request.includes_current_user is True
+    participant_item = next(
+        item for item in updated.requirement_items if item.field == "requiredParticipants"
+    )
+    assert participant_item.summary == "2人：当前登录用户（我）、李四"
 
 
 @pytest.mark.parametrize(

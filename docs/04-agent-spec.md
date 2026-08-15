@@ -56,6 +56,7 @@ Scheduling Agent 使用有界 `PLAN -> ACT -> OBSERVE -> VERIFY -> SOLVE/REPLAN`
 - 每个关键槽位记录 `EXPLICIT|DEFAULTED|DIRECTORY_RESOLVED|MISSING|AMBIGUOUS|CONFLICT`、来源文本、规则标识和 revision；非刚需可选项额外使用 `UNSPECIFIED|CLOSED`。最新用户明确值覆盖历史默认/通讯录推定；旧的明确值在用户未修改时继续保留。
 - 日期计算、时段映射、跨午夜、30分钟槽位、过去时间检查和“最好/必须”软硬语义由确定性 Normalizer/Evaluator 裁决；LLM 只抽取原始表达与意图。
 - “我的小组/同组人员”先提取为人员范围，不允许模型生成姓名。确定性节点调用 Java `resolve_participant_scope`，由 Java 从 AgentContext 的用户身份解析所属部门和 ACTIVE 名单；单一结果可以作为可纠正的 `DIRECTORY_RESOLVED`，无部门、空部门或多义范围进入澄清。
+- “我和李四”“我跟李四”“包括我”“我必须参加”等明确参会表达中的第一人称，由确定性节点映射为当前已鉴权登录用户；模型不得生成用户姓名或 ID。需求摘要显示“当前登录用户（我）”，排期、忙闲校验与草案写入使用 AgentContext 的 userId，确保该用户与显式姓名共同成为必需参会者。
 - 澄清计划固定包含 `verifiedFacts + appliedDefaults + directoryAssumptions + blockingQuestions + optionalPrompt`。可选设备/地点没有回复时采用无硬性要求，不得反复阻塞。
 - `WAITING_USER_INPUT` checkpoint 保留部分 Draft、槽位来源、revision 和已验证通讯录结果。`POST /agent-runs/{runId}/input` 在运行锁内校验归属、状态、revision 和 `clientRequestId`，合并新一轮 `RequirementDelta` 后从 Requirement 重新执行；同一 Run 的模型/Tool/图预算继续累计。
 - 人员修改必须先确定 ADD/REMOVE/REPLACE，再作用于上一版已验证名单；REMOVE 只允许删除旧名单中被用户点名且带删除语义的人员。人员变化后必须同步过滤 `resolvedEmployees`、重算容量并重新验证新增姓名。

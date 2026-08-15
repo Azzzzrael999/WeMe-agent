@@ -105,8 +105,8 @@ from app.tools.java import (
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "meeting-agent-prompts-v10"
-SCHEMA_VERSION = "meeting-agent-state-v6"
+PROMPT_VERSION = "meeting-agent-prompts-v11"
+SCHEMA_VERSION = "meeting-agent-state-v7"
 POST_MEETING_PROMPT_VERSION: Literal["post-meeting-analysis-v1"] = "post-meeting-analysis-v1"
 POST_MEETING_SCHEMA_VERSION: Literal["post-meeting-draft-v1"] = "post-meeting-draft-v1"
 
@@ -140,6 +140,8 @@ the old target selector into the destination. “27号同一时间” means the 
 “异常重排/资源失效/会议室不可用” is MODIFY_MEETING. Preserve an explicit 会议 ID/meetingId as
 targetMeetingId. Unless the user explicitly changes a constraint, inherit the original time,
 duration, required/optional participants and room features; the failed original room is excluded.
+The deterministic runtime, not you, resolves a first-person participant such as “我和李四” from
+the authenticated session. Do not invent a name or identity for “我”.
 Every populated user-derived field needs fieldEvidence whose source is a continuous verbatim
 substring of USER_MESSAGE. Do not call tools, create drafts, confirm, or expose reasoning."""
 
@@ -299,6 +301,7 @@ class RequirementAgent:
         draft = _apply_explicit_meeting_defaults(
             draft, state.message, request_time=state.request_time
         )
+        draft = _apply_current_user_participation(draft, state.message)
         if state.intent is not None and (
             not state.continuation_turn or not _source_changes_intent(state.message)
         ):
@@ -360,6 +363,7 @@ class RequirementAgent:
             draft = _apply_explicit_meeting_defaults(
                 draft, state.message, request_time=state.request_time
             )
+            draft = _apply_current_user_participation(draft, state.message)
             if state.intent is not None and (
                 not state.continuation_turn or not _source_changes_intent(state.message)
             ):
@@ -1455,7 +1459,10 @@ def _verified_clarification_facts(request: MeetingRequest | None) -> list[str]:
             "允许安排的时间范围为"
             f"{request.time_window.start.isoformat()}至{request.time_window.end.isoformat()}"
         )
-    names = [item.name for item in request.required_participants]
+    names = [
+        *(["当前登录用户（我）"] if request.includes_current_user else []),
+        *(item.name for item in request.required_participants),
+    ]
     if names:
         facts.append("必需参会者为" + "、".join(names))
     if request.required_features:
@@ -1707,6 +1714,25 @@ def _apply_explicit_meeting_defaults(
     except ValueError:
         updates.pop("time_window", None)
     return draft.model_copy(update=updates) if updates else draft
+
+
+def _apply_current_user_participation(
+    draft: RequirementDraft, source: str
+) -> RequirementDraft:
+    """Resolve first-person attendance from authenticated context, not model-supplied identity."""
+
+    if draft.intent not in {
+        Intent.CREATE_MEETING,
+        Intent.FIND_COMMON_TIME,
+        Intent.RECOMMEND_ROOM,
+    }:
+        return draft
+    normalized = re.sub(r"\s+", "", source)
+    attends = bool(
+        re.search(r"我(?:和|跟|与)|(?:和|跟|与)我", normalized)
+        or re.search(r"(?:包括我|我(?:本人|也)?(?:必须|需要|要)?参加)", normalized)
+    )
+    return draft.model_copy(update={"includes_current_user": attends})
 
 
 def _normalize_chinese_clock_tokens(source: str) -> str:
@@ -2076,6 +2102,9 @@ def _merge_requirement_drafts(
                 if explicit_names or scope_changed or participant_mutated
                 else previous.required_participant_names
             ),
+            "includes_current_user": (
+                current.includes_current_user or previous.includes_current_user
+            ),
             "participant_scope": (
                 current.participant_scope or previous.participant_scope
                 if participant_mutated
@@ -2334,7 +2363,11 @@ def _requirement_items(
             )
         )
     previous_participants = _previous_requirement_item(previous_items, "requiredParticipants")
-    if not draft.required_participant_names and draft.participant_scope != "ORGANIZER_ONLY":
+    if (
+        not draft.required_participant_names
+        and draft.participant_scope != "ORGANIZER_ONLY"
+        and not draft.includes_current_user
+    ):
         items.append(
             RequirementItem(
                 field="requiredParticipants",
@@ -2343,12 +2376,14 @@ def _requirement_items(
                 blocking=True,
             )
         )
-    elif draft.participant_scope == "ORGANIZER_ONLY":
+    elif draft.participant_scope == "ORGANIZER_ONLY" or (
+        draft.includes_current_user and not draft.required_participant_names
+    ):
         items.append(
             RequirementItem(
                 field="requiredParticipants",
                 status=RequirementSlotStatus.EXPLICIT,
-                summary="仅当前发起人",
+                summary="仅当前登录用户（我）",
                 source=source,
             )
         )
@@ -2357,7 +2392,11 @@ def _requirement_items(
             draft.participant_scope == "MY_DEPARTMENT" and not draft.participant_list_modified
         )
         participant_changed = _source_has_participant_mutation(source)
-        names = "、".join(draft.required_participant_names)
+        labels = [
+            *(["当前登录用户（我）"] if draft.includes_current_user else []),
+            *draft.required_participant_names,
+        ]
+        names = "、".join(labels)
         items.append(
             RequirementItem(
                 field="requiredParticipants",
@@ -2370,7 +2409,7 @@ def _requirement_items(
                     if previous_participants is not None
                     else RequirementSlotStatus.EXPLICIT
                 ),
-                summary=f"{len(draft.required_participant_names)}人：{names}",
+                summary=f"{len(labels)}人：{names}",
                 source=(
                     "我的小组/同组人员"
                     if directory
@@ -2520,6 +2559,7 @@ def _scheduling_system_prompt(*, state: AgentState, context: AgentContext) -> st
         "intent": request.intent.value,
         "targetMeetingId": request.target_meeting_id,
         "targetMeetingReference": request.target_meeting_reference,
+        "includesCurrentUser": request.includes_current_user,
         "participantNames": [item.name for item in request.required_participants],
         "participantIds": [
             item.employee_id

@@ -113,8 +113,8 @@ class MetadataRepository:
                     model_provider=None,
                     configured_model=None,
                     response_models=[],
-                    prompt_version="meeting-agent-prompts-v10",
-                    schema_version="meeting-agent-state-v6",
+                    prompt_version="meeting-agent-prompts-v11",
+                    schema_version="meeting-agent-state-v7",
                     duration_ms=None,
                     error_code=None,
                     finished_at=None,
@@ -450,8 +450,8 @@ def _apply_runtime(run: AgentRun, runtime: dict[str, object] | None) -> None:
         if isinstance(response_models, list)
         else []
     )
-    run.prompt_version = str(runtime.get("promptVersion") or "meeting-agent-prompts-v10")[:64]
-    run.schema_version = str(runtime.get("schemaVersion") or "meeting-agent-state-v6")[:64]
+    run.prompt_version = str(runtime.get("promptVersion") or "meeting-agent-prompts-v11")[:64]
+    run.schema_version = str(runtime.get("schemaVersion") or "meeting-agent-state-v7")[:64]
     run.input_tokens = _runtime_int(runtime.get("inputTokens"))
     run.output_tokens = _runtime_int(runtime.get("outputTokens"))
     run.cache_hit_tokens = _runtime_int(runtime.get("cacheHitTokens"))

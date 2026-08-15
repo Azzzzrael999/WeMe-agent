@@ -170,6 +170,8 @@ class RouteEvaluator:
             return Route.REQUIREMENT, intent
         if any(anchor in normalized for anchor in self._CREATE):
             return Route.REQUIREMENT, Intent.CREATE_MEETING
+        if re.search(r"开(?:一场|个)?(?:\d+分钟|[一二两三四五六七八九十]+小时)?会", source):
+            return Route.REQUIREMENT, Intent.CREATE_MEETING
         if "协调" in source and any(anchor in source for anchor in ("会议", "站会", "评审")):
             return Route.REQUIREMENT, Intent.CREATE_MEETING
         if find_anchor:
@@ -315,6 +317,7 @@ class RequirementNormalizer:
                 required_participants=[
                     Participant(name=name) for name in draft.required_participant_names
                 ],
+                includes_current_user=draft.includes_current_user,
                 optional_groups=draft.optional_groups,
                 required_features=list(
                     dict.fromkeys(_canonical_feature(item) for item in draft.required_features)

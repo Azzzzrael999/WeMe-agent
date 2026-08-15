@@ -248,6 +248,7 @@ class MeetingRequest(AgentSchema):
     duration_minutes: int = Field(ge=30, le=480, multiple_of=30)
     time_window: TimeWindow | None = None
     required_participants: list[Participant] = Field(default_factory=list, max_length=50)
+    includes_current_user: bool = False
     optional_groups: list[str] = Field(default_factory=list, max_length=20)
     required_features: list[str] = Field(default_factory=list, max_length=20)
     minimum_capacity: int | None = Field(default=None, ge=1, le=10000)
@@ -329,6 +330,7 @@ class RequirementDraft(AgentSchema):
     pending_start_at: datetime | None = None
     pending_start_ambiguous: bool = False
     required_participant_names: list[str] = Field(default_factory=list, max_length=50)
+    includes_current_user: bool = False
     participant_scope: Literal["MY_DEPARTMENT", "ORGANIZER_ONLY"] | None = None
     participant_list_modified: bool = False
     optional_groups: list[str] = Field(default_factory=list, max_length=20)
@@ -365,6 +367,7 @@ class RequirementExtraction(AgentSchema):
             required_participants=[
                 Participant(name=name) for name in draft.required_participant_names
             ],
+            includes_current_user=draft.includes_current_user,
             optional_groups=draft.optional_groups,
             required_features=draft.required_features,
             minimum_capacity=max(
@@ -866,8 +869,8 @@ class AgentState(AgentSchema):
     model_provider: str | None = Field(default=None, max_length=32)
     configured_model: str | None = Field(default=None, max_length=128)
     response_models: list[str] = Field(default_factory=list, max_length=12)
-    prompt_version: str = Field(default="meeting-agent-prompts-v10", max_length=64)
-    schema_version: str = Field(default="meeting-agent-state-v6", max_length=64)
+    prompt_version: str = Field(default="meeting-agent-prompts-v11", max_length=64)
+    schema_version: str = Field(default="meeting-agent-state-v7", max_length=64)
     input_tokens: int = Field(default=0, ge=0)
     output_tokens: int = Field(default=0, ge=0)
     cache_hit_tokens: int = Field(default=0, ge=0)
