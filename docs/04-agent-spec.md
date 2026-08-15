@@ -59,6 +59,7 @@ Scheduling Agent 使用有界 `PLAN -> ACT -> OBSERVE -> VERIFY -> SOLVE/REPLAN`
 - “我和李四”“我跟李四”“包括我”“我必须参加”等明确参会表达中的第一人称，由确定性节点映射为当前已鉴权登录用户；模型不得生成用户姓名或 ID。需求摘要显示“当前登录用户（我）”，排期、忙闲校验与草案写入使用 AgentContext 的 userId，确保该用户与显式姓名共同成为必需参会者。
 - 澄清计划固定包含 `verifiedFacts + appliedDefaults + directoryAssumptions + blockingQuestions + optionalPrompt`。可选设备/地点没有回复时采用无硬性要求，不得反复阻塞。
 - `WAITING_USER_INPUT` checkpoint 保留部分 Draft、槽位来源、revision 和已验证通讯录结果。`POST /agent-runs/{runId}/input` 在运行锁内校验归属、状态、revision 和 `clientRequestId`，合并新一轮 `RequirementDelta` 后从 Requirement 重新执行；同一 Run 的模型/Tool/图预算继续累计。
+- 前端最近任务按对话 `threadId` 聚合，而不是按单次 `runId` 平铺：每个对话只显示一项，标题保留首个问题、状态和跳转目标使用最近一次 Run，进入后恢复该线程已保存的全部用户问题与 Agent 回答。线程内的所有问题仍可被侧栏搜索。
 - 人员修改必须先确定 ADD/REMOVE/REPLACE，再作用于上一版已验证名单；REMOVE 只允许删除旧名单中被用户点名且带删除语义的人员。人员变化后必须同步过滤 `resolvedEmployees`、重算容量并重新验证新增姓名。
 - FAILED Run 的普通继续输入创建新 Run，并通过显式 `baseRunId` 继承最后有效 Requirement 基线。继承仅允许同用户、同 thread 的 FAILED Run；所有运行预算、候选、草案、HITL 令牌、业务结果和工具幂等状态必须重置。
 

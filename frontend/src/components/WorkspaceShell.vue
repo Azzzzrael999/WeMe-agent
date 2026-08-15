@@ -36,7 +36,7 @@
           <p class="nav-group-label">最近任务</p>
           <RouterLink
             v-for="task in filteredRecentTasks"
-            :key="task.runId"
+            :key="task.threadId"
             class="recent-task-link"
             :to="{ name: 'chat', query: { runId: task.runId } }"
             :title="task.question"
@@ -184,6 +184,7 @@ interface RecentTask {
   runId: string
   threadId: string
   question: string
+  searchText: string
   status: string
   updatedAt: number
 }
@@ -233,7 +234,7 @@ const filteredRecentTasks = computed(() => {
     return recentTasks.value
   }
   return recentTasks.value.filter((task) =>
-    task.question.toLocaleLowerCase('zh-CN').includes(keyword)
+    task.searchText.toLocaleLowerCase('zh-CN').includes(keyword)
     || task.runId.toLocaleLowerCase('zh-CN').includes(keyword),
   )
 })
@@ -264,8 +265,7 @@ function readRecentTasks(): void {
       recentTasks.value = []
       return
     }
-    const entries = Object.entries(parsed as Record<string, unknown>)
-    recentTasks.value = entries.flatMap(([runId, value], index) => {
+    const entries = Object.entries(parsed as Record<string, unknown>).flatMap(([runId, value], index) => {
       if (!SAFE_ID.test(runId) || typeof value !== 'object' || value === null) {
         return []
       }
@@ -282,10 +282,30 @@ function readRecentTasks(): void {
         runId,
         threadId: context.threadId,
         question: context.question.trim(),
+        searchText: context.question.trim(),
         status: typeof context.status === 'string' ? context.status : '',
         updatedAt: typeof context.updatedAt === 'number' ? context.updatedAt : index,
       }]
-    }).sort((left, right) => right.updatedAt - left.updatedAt).slice(0, 4)
+    }).sort((left, right) => left.updatedAt - right.updatedAt)
+
+    const byThread = new Map<string, RecentTask>()
+    for (const entry of entries) {
+      const existing = byThread.get(entry.threadId)
+      if (existing === undefined) {
+        byThread.set(entry.threadId, entry)
+        continue
+      }
+      byThread.set(entry.threadId, {
+        ...existing,
+        runId: entry.runId,
+        status: entry.status,
+        updatedAt: entry.updatedAt,
+        searchText: `${existing.searchText}\n${entry.question}`,
+      })
+    }
+    recentTasks.value = [...byThread.values()]
+      .sort((left, right) => right.updatedAt - left.updatedAt)
+      .slice(0, 4)
   } catch {
     recentTasks.value = []
   }
