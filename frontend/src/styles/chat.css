@@ -116,6 +116,9 @@
 .unsat-card__blockers li > svg { margin-top: 1px; flex: 0 0 auto; color: var(--danger); }
 .unsat-card__blockers b { color: var(--foreground); }
 .unsat-card__blockers code { margin-left: 4px; border-radius: 4px; padding: 1px 4px; color: var(--muted); background: var(--accent); font-size: 9px; }
+.unsat-card__conflict-pair { display: grid; gap: 3px; min-width: 0; }
+.unsat-card__conflict-pair p { margin: 0; }
+.unsat-card__conflict-pair p > span { display: inline-block; min-width: 60px; color: var(--foreground); font-weight: 650; }
 .unsat-card__suggestions li { position: relative; padding-left: 12px; color: var(--muted); font-size: 10px; }
 .unsat-card__suggestions li::before { position: absolute; top: 6px; left: 1px; width: 4px; height: 4px; border-radius: 50%; background: var(--primary); content: ''; }
 

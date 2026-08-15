@@ -3123,7 +3123,7 @@ def _enrich_unsat_analysis(
     for item in resolved:
         if item.employee_id is not None:
             names[item.employee_id] = item.name
-    names.setdefault(organizer_id, "会议发起人")
+    names.setdefault(organizer_id, "当前登录用户（我）")
     blockers = [
         blocker.model_copy(
             update={
@@ -3138,17 +3138,29 @@ def _enrich_unsat_analysis(
     ]
     if not blockers:
         return analysis
+    window = analysis.requested_window
+    request_window = _visible_conflict_time_range(window.start, window.end)
     visible = []
     for blocker in blockers[:5]:
         label = blocker.resource_name or f"员工 {blocker.resource_id}"
-        meeting = f"（会议 {blocker.meeting_id}）" if blocker.meeting_id is not None else ""
-        visible.append(
-            f"{label}在 {blocker.start_at:%H:%M}-{blocker.end_at:%H:%M} {blocker.reason}{meeting}"
+        existing = f"{label}的已有安排"
+        if blocker.meeting_id is not None:
+            existing += f"（会议 {blocker.meeting_id}）"
+        overlap_start = max(window.start, blocker.start_at)
+        overlap_end = min(window.end, blocker.end_at)
+        overlap = (
+            _visible_conflict_time_range(overlap_start, overlap_end)
+            if overlap_start < overlap_end
+            else "请求窗口内无直接重叠"
         )
-    window = analysis.requested_window
+        visible.append(
+            "本次待排请求"
+            f"（{request_window}，连续 {analysis.duration_minutes} 分钟）与{existing}冲突："
+            f"已有安排为 {_visible_conflict_time_range(blocker.start_at, blocker.end_at)}，"
+            f"重叠时段为 {overlap}；原因：{blocker.reason}"
+        )
     summary = (
-        f"{window.start:%Y-%m-%d %H:%M}-{window.end:%H:%M} 无法安排连续 "
-        f"{analysis.duration_minutes} 分钟：" + "；".join(visible) + "。"
+        "未找到满足全部硬约束的方案。" + "；".join(visible) + "。"
     )
     suggestions = list(analysis.relaxation_suggestions)
     latest_end = max(blocker.end_at for blocker in blockers)
@@ -3168,6 +3180,12 @@ def _enrich_unsat_analysis(
             "relaxation_suggestions": suggestions[:3],
         }
     )
+
+
+def _visible_conflict_time_range(start: datetime, end: datetime) -> str:
+    if start.date() == end.date():
+        return f"{start:%Y-%m-%d %H:%M}-{end:%H:%M}"
+    return f"{start:%Y-%m-%d %H:%M}-{end:%Y-%m-%d %H:%M}"
 
 
 def _scheduling_problem(

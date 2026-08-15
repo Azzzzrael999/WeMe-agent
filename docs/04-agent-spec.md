@@ -497,7 +497,7 @@ totalCost =
 }
 ```
 
-- `blockingIntervals` 最多 10 条，仅披露当前用户有权看到的员工显示名、时间与会议 ID，不披露其他会议标题或参会名单。
+- `blockingIntervals` 最多 10 条，仅披露当前用户有权看到的员工显示名、时间与会议 ID，不披露其他会议标题或参会名单。每一条用户可见说明必须明确成对关系：本次待排请求（请求窗口和时长）与哪位必需参会者或哪间会议室的已有安排冲突，并展示实际重叠时段；不得只罗列“存在冲突”。
 - `requestedWindow` 和 `durationMinutes` 必须来自本次已验证请求，不能引用用于选择目标会议的旧时间。
 - 无解时发送 `plan.unsat`，并以 `WAITING_USER_INPUT` 保留当前 checkpoint；恢复接口保留同一 `unsatAnalysis`，`run.completed.answerSummary` 使用该分析的可读摘要。用户明确接受分析中的建议时间后，从同一 Run 重新校验忙闲、会议室和全部硬约束，不能把“建议”直接当作已验证候选。
 

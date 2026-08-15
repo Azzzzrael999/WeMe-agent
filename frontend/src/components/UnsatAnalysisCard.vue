@@ -23,10 +23,17 @@
         <li v-for="(blocker, index) in analysis.blockingIntervals" :key="`${blocker.resourceType}-${blocker.resourceId}-${blocker.meetingId}-${index}`">
           <UserRound v-if="blocker.resourceType === 'EMPLOYEE'" :size="14" aria-hidden="true" />
           <Clock3 v-else :size="14" aria-hidden="true" />
-          <span>
-            <b>{{ blocker.resourceName ?? resourceFallback(blocker.resourceType, blocker.resourceId) }}</b>
-            {{ formatRange(blocker.startAt, blocker.endAt) }}：{{ blocker.reason }}
-          </span>
+          <div class="unsat-card__conflict-pair">
+            <p><span>本次待排请求</span>{{ requestRange }}</p>
+            <p>
+              <span>冲突对象</span>
+              <b>{{ blocker.resourceName ?? resourceFallback(blocker.resourceType, blocker.resourceId) }}的已有安排</b>
+              <code v-if="blocker.meetingId !== null">会议 {{ blocker.meetingId }}</code>
+              {{ formatRange(blocker.startAt, blocker.endAt) }}
+            </p>
+            <p><span>重叠时段</span>{{ overlapRange(blocker.startAt, blocker.endAt) }}</p>
+            <p><span>冲突原因</span>{{ blocker.reason }}</p>
+          </div>
         </li>
       </ul>
     </div>
@@ -46,6 +53,11 @@ import { computed } from 'vue'
 import type { AgentUnsatAnalysis } from '@/api/types'
 
 const props = defineProps<{ analysis: AgentUnsatAnalysis }>()
+
+const requestRange = computed(() => formatRange(
+  props.analysis.requestedWindow.start,
+  props.analysis.requestedWindow.end,
+))
 
 const categoryLabel = computed(() => ({
   REQUIRED_AVAILABILITY: '必需参会者时间冲突',
@@ -76,5 +88,18 @@ function formatRange(start: string, end: string): string {
 
 function resourceFallback(type: string, id: number | null): string {
   return `${type === 'ROOM' ? '会议室' : '资源'}${id === null ? '' : ` ${id}`}`
+}
+
+function overlapRange(start: string, end: string): string {
+  const requestStart = new Date(props.analysis.requestedWindow.start)
+  const requestEnd = new Date(props.analysis.requestedWindow.end)
+  const occupiedStart = new Date(start)
+  const occupiedEnd = new Date(end)
+  const overlapStart = new Date(Math.max(requestStart.getTime(), occupiedStart.getTime()))
+  const overlapEnd = new Date(Math.min(requestEnd.getTime(), occupiedEnd.getTime()))
+  if (Number.isNaN(overlapStart.getTime()) || Number.isNaN(overlapEnd.getTime()) || overlapStart >= overlapEnd) {
+    return '请求窗口内无直接重叠'
+  }
+  return formatRange(overlapStart.toISOString(), overlapEnd.toISOString())
 }
 </script>

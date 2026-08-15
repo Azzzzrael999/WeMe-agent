@@ -1282,6 +1282,9 @@ def test_reschedule_unsat_emits_and_recovers_named_blocking_evidence(
     ]
     assert "李四" in analysis["summary"]
     assert "会议 500" in analysis["summary"]
+    assert "本次待排请求" in analysis["summary"]
+    assert "与李四的已有安排（会议 500）冲突" in analysis["summary"]
+    assert "重叠时段为 2026-08-27 14:00-15:30" in analysis["summary"]
     assert analysis["relaxationSuggestions"][0].startswith("可尝试 2026-08-27 15:30")
     assert events[-1][0] == "run.completed"
     assert events[-1][1]["status"] == "WAITING_USER_INPUT"

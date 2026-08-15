@@ -945,7 +945,7 @@ event: plan.candidates
 data: {"runId":"run_uuid","candidates":[{"candidateId":"cand_uuid","roomId":101,"roomName":"研发楼301","building":"研发楼","startAt":"2026-08-19T15:00:00+08:00","endAt":"2026-08-19T16:30:00+08:00","totalCost":24,"costBreakdown":{"optionalParticipantConflict":0,"preferredTimeDeviation":0,"buildingDistance":0,"capacityWaste":24,"preferenceViolation":0,"roomChange":0}}]}
 
 event: plan.unsat
-data: {"runId":"run_uuid","unsatAnalysis":{"category":"REQUIRED_AVAILABILITY","summary":"2026-08-27 14:00-16:00 无法安排：李四在 14:00-15:30 已有会议（meetingId=123）。","requestedWindow":{"start":"2026-08-27T14:00:00+08:00","end":"2026-08-27T16:00:00+08:00"},"durationMinutes":120,"blockingIntervals":[{"resourceType":"EMPLOYEE","resourceId":1003,"resourceName":"李四","meetingId":123,"startAt":"2026-08-27T14:00:00+08:00","endAt":"2026-08-27T15:30:00+08:00","reason":"必需参会者已有会议"}],"relaxationSuggestions":["延长时间窗口","调整开始时间"]}}
+data: {"runId":"run_uuid","unsatAnalysis":{"category":"REQUIRED_AVAILABILITY","summary":"未找到满足全部硬约束的方案。本次待排请求（2026-08-27 14:00-16:00，连续 120 分钟）与李四的已有安排（会议 123）冲突：已有安排为 2026-08-27 14:00-15:30，重叠时段为 2026-08-27 14:00-15:30；原因：必需参会者已有会议。","requestedWindow":{"start":"2026-08-27T14:00:00+08:00","end":"2026-08-27T16:00:00+08:00"},"durationMinutes":120,"blockingIntervals":[{"resourceType":"EMPLOYEE","resourceId":1003,"resourceName":"李四","meetingId":123,"startAt":"2026-08-27T14:00:00+08:00","endAt":"2026-08-27T15:30:00+08:00","reason":"必需参会者已有会议"}],"relaxationSuggestions":["延长时间窗口","调整开始时间"]}}
 
 event: hitl.required
 data: {"runId":"run_uuid","status":"WAITING_CONFIRMATION","actionType":"CREATE","confirmationToken":"cfm_uuid","expiresAt":"2026-08-12T10:10:00+08:00","draft":{"title":"架构评审","roomId":101,"roomName":"研发楼301","startAt":"2026-08-19T15:00:00+08:00","endAt":"2026-08-19T16:30:00+08:00","requiredParticipants":[],"optionalParticipants":[]}}
@@ -958,7 +958,7 @@ data: {"runId":"run_uuid","status":"SUCCESS","meetingId":9001}
 ```
 
 - `plan.candidates` 最多包含 3 个成本升序且候选 ID 不重复的方案；每个候选都必须先通过 Python 独立硬约束验证器。无解不发送空候选事件，而应先发送结构化 `plan.unsat`，再以 `run.completed(status=WAITING_USER_INPUT)` 返回同一分析的可读摘要；用户接受建议后通过需求补充接口在同一 Run 重新校验，不得跳过工具查询直接生成草案。
-- `plan.unsat.unsatAnalysis` 必须包含请求窗口、会议时长、无解类别和有限建议；必需参会者冲突还必须包含最多 10 条 `blockingIntervals`。恢复视图使用同一结构，禁止只返回固定泛化文案。
+- `plan.unsat.unsatAnalysis` 必须包含请求窗口、会议时长、无解类别和有限建议；必需参会者冲突还必须包含最多 10 条 `blockingIntervals`。摘要与前端卡片必须逐条说明“本次待排请求 ↔ 资源的已有安排”的双方、已有安排的时间/会议 ID（若可见）和实际重叠时段；恢复视图使用同一结构，禁止只返回固定泛化文案。
 - `hitl.required.actionType` 固定为 `CREATE|RESCHEDULE|CANCEL`。CREATE 的 `draft` 保持上述扁平业务字段；RESCHEDULE 的 `draft` 为 `{"originalMeeting":MeetingView,"proposedMeeting":BookingDraftView}`；CANCEL 的 `draft` 为 `{"meeting":MeetingView}`。`GET /api/v1/agent/runs/{runId}` 的可恢复视图使用同一可辨别结构。
 - Scheduling 为成本最低候选调用一次 `create_booking_draft`，再发送 `hitl.required`；Java 创建草案不占用正式会议或槽位。`confirmationToken` 仅可在当前已鉴权用户的 HTTPS/SSE 会话中短暂传递，绝不写入 Trace、日志或持久化摘要。
 - `POST /api/v1/agent/runs/{runId}/resume` 的成功响应也是 `text/event-stream`。它只接受 `WAITING_CONFIRMATION` 状态和归属用户（或 ADMIN）；`ACCEPT` 才可调用 `confirm_booking`，`REJECT` 结束且不得调用 WRITE Tool，`EDIT` 仅接受 `roomId` 和/或 `startAt` 后重新进入 Requirement/Scheduling，不得直接确认编辑参数。
