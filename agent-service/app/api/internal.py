@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import time
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from contextlib import suppress
 from datetime import datetime
 from functools import lru_cache, wraps
 from queue import Empty, Queue
-from threading import Thread
 from typing import Annotated, Any, ParamSpec, TypeVar
 from zoneinfo import ZoneInfo
 
@@ -20,11 +18,33 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Resp
 from fastapi.responses import JSONResponse, StreamingResponse
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
+from app.api.internal_core.business_results import (
+    _callback_already_recorded,
+    _owned_run,
+    _preserved_constraints,
+    _record_business_result_step,
+    _record_callback_event,
+    _require_context_run,
+    _safe_callback_response,
+)
+from app.api.internal_core.run_support import (
+    _baseline_resolved_employees,
+    _load_checkpoint_or_503,
+    _resume_message_key,
+    _resume_user_message,
+    _sse,
+    _trace_for_visible_run,
+)
+from app.api.internal_core.sse import (
+    _SSE_PRODUCER_START_TIMEOUT_SECONDS,
+    _emit_workflow_sse_frames,
+    _start_sse_producer,
+    _streaming_response,
+)
 from app.checkpoints import RedisCheckpointSaver
 from app.config import Settings, get_settings
 from app.database.engine import get_engine
 from app.database.health import probe_database
-from app.models.metadata import AgentRun
 from app.persistence import MetadataRepository, question_summary
 from app.providers import ModelProvider, build_model_provider
 from app.providers.base import (
@@ -42,7 +62,6 @@ from app.schemas.agent import (
     BookingResultStatus,
     BusinessResultCallback,
     ConflictRepairFeedbackState,
-    Participant,
     PostMeetingDraftRequest,
     PostMeetingDraftResponse,
     ProcessedRequirementInput,
@@ -64,9 +83,6 @@ from app.workflow import (
 
 router = APIRouter(prefix="/internal/v1", tags=["internal"])
 logger = logging.getLogger(__name__)
-
-_SSE_STREAM_END = object()
-_SSE_PRODUCER_START_TIMEOUT_SECONDS = 5
 
 Params = ParamSpec("Params")
 ReturnT = TypeVar("ReturnT")
@@ -213,8 +229,7 @@ def create_post_meeting_draft(
     allowed_assignee_ids = {item.employee_id for item in body.participants}
     normalized_items = [
         item
-        if item.assignee_employee_id in allowed_assignee_ids
-        or item.assignee_employee_id is None
+        if item.assignee_employee_id in allowed_assignee_ids or item.assignee_employee_id is None
         else item.model_copy(update={"assignee_employee_id": None})
         for item in draft.action_items
     ]
@@ -290,16 +305,12 @@ def stream_agent_run(
                 and baseline is not None
                 and baseline.status is RunStatus.WAITING_CONFIRMATION
                 and baseline.draft_expires_at is not None
-                and baseline.draft_expires_at
-                <= datetime.now(ZoneInfo(settings.app_timezone))
+                and baseline.draft_expires_at <= datetime.now(ZoneInfo(settings.app_timezone))
             )
             if (
                 baseline is None
                 or baseline.requirement_draft is None
-                or (
-                    base_run.status != RunStatus.FAILED.value
-                    and not expired_confirmation_baseline
-                )
+                or (base_run.status != RunStatus.FAILED.value and not expired_confirmation_baseline)
             ):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -343,23 +354,15 @@ def stream_agent_run(
         model_provider=settings.agent_model_provider,
         configured_model=settings.deepseek_model or "fixture",
         intent=baseline.intent if baseline is not None else None,
-        requirement_draft=(
-            baseline.requirement_draft if baseline is not None else None
-        ),
-        requirement_items=(
-            list(baseline.requirement_items) if baseline is not None else []
-        ),
-        requirement_revision=(
-            baseline.requirement_revision if baseline is not None else 0
-        ),
+        requirement_draft=(baseline.requirement_draft if baseline is not None else None),
+        requirement_items=(list(baseline.requirement_items) if baseline is not None else []),
+        requirement_revision=(baseline.requirement_revision if baseline is not None else 0),
         continuation_turn=baseline is not None,
         continued_from_run_id=body.base_run_id if baseline is not None else None,
         optional_requirements_closed=(
             baseline.optional_requirements_closed if baseline is not None else False
         ),
-        resolved_employees=(
-            _baseline_resolved_employees(baseline) if baseline is not None else []
-        ),
+        resolved_employees=(_baseline_resolved_employees(baseline) if baseline is not None else []),
     )
 
     def produce(frames: Queue[object]) -> None:
@@ -378,9 +381,7 @@ def stream_agent_run(
                         "traceId": context.trace_id,
                         "status": RunStatus.RUNNING.value,
                         **(
-                            {"continuedFromRunId": body.base_run_id}
-                            if baseline is not None
-                            else {}
+                            {"continuedFromRunId": body.base_run_id} if baseline is not None else {}
                         ),
                     },
                 )
@@ -974,15 +975,19 @@ def get_agent_run(
                 "expiresAt": state.draft_expires_at.isoformat(),
                 "requirementBaselineAvailable": (
                     state.requirement_draft is not None
-                    and state.draft_expires_at
-                    <= datetime.now(ZoneInfo(settings.app_timezone))
+                    and state.draft_expires_at <= datetime.now(ZoneInfo(settings.app_timezone))
                 ),
             }
         )
-    elif state is not None and state.requirement_draft is not None and run.status in {
-        RunStatus.WAITING_USER_INPUT.value,
-        RunStatus.FAILED.value,
-    }:
+    elif (
+        state is not None
+        and state.requirement_draft is not None
+        and run.status
+        in {
+            RunStatus.WAITING_USER_INPUT.value,
+            RunStatus.FAILED.value,
+        }
+    ):
         view["requirementBaselineAvailable"] = run.status == RunStatus.FAILED.value
     return JSONResponse(view, headers={"Cache-Control": "no-store"})
 
@@ -1018,401 +1023,3 @@ def _workflow(
         context=context,
         checkpoint_saver=checkpoint_saver,
     )
-
-
-def _load_checkpoint_or_503(
-    *, workflow: WorkflowRun, thread_id: str, run_id: str
-) -> AgentState | None:
-    try:
-        return workflow.load_state(thread_id=thread_id, run_id=run_id)
-    except WorkflowError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="AGENT_CHECKPOINT_UNAVAILABLE",
-        ) from exc
-
-
-def _finish_stream(
-    *,
-    repository: MetadataRepository,
-    workflow: WorkflowRun,
-    fallback_state: AgentState,
-    duration_ms: int,
-    client_request_id: str,
-) -> Iterator[str]:
-    final_state = workflow.latest_state or fallback_state
-    if final_state.status in {RunStatus.WAITING_CONFIRMATION, RunStatus.WAITING_BUSINESS_RESULT}:
-        repository.update_run_progress(
-            run_id=final_state.run_id,
-            intent=final_state.intent,
-            status=final_state.status,
-            answer_summary=final_state.answer_summary,
-            model_call_count=final_state.model_call_count,
-            tool_call_count=final_state.tool_call_count,
-            duration_ms=duration_ms,
-            error_code=None,
-            runtime=_runtime_stats(final_state),
-        )
-        _record_assistant_message(
-            repository=repository,
-            state=final_state,
-            client_request_id=client_request_id,
-        )
-        return
-    repository.complete_run(
-        run_id=final_state.run_id,
-        intent=final_state.intent,
-        status=final_state.status,
-        answer_summary=final_state.answer_summary,
-        model_call_count=final_state.model_call_count,
-        tool_call_count=final_state.tool_call_count,
-        duration_ms=duration_ms,
-        error_code=None,
-        runtime=_runtime_stats(final_state),
-    )
-    _record_assistant_message(
-        repository=repository,
-        state=final_state,
-        client_request_id=client_request_id,
-    )
-    yield _sse(
-        "run.completed",
-        {
-            "runId": final_state.run_id,
-            "status": final_state.status.value,
-            "answerSummary": final_state.answer_summary or "已完成结构化处理",
-            "citations": [
-                citation.model_dump(by_alias=True, mode="json")
-                for citation in final_state.citations
-            ],
-        },
-    )
-
-
-def _fail_stream(
-    *,
-    repository: MetadataRepository,
-    workflow: WorkflowRun,
-    fallback_state: AgentState,
-    duration_ms: int,
-    error: WorkflowError,
-    client_request_id: str,
-) -> Iterator[str]:
-    failed_state = workflow.latest_state or fallback_state
-    terminal_code = (
-        "BUDGET_EXHAUSTED"
-        if error.code in {"AGENT_STEP_LIMIT_EXCEEDED", "BUDGET_EXHAUSTED"}
-        else error.code
-    )
-    repository.complete_run(
-        run_id=failed_state.run_id,
-        intent=failed_state.intent,
-        status=RunStatus.FAILED,
-        answer_summary=None,
-        model_call_count=failed_state.model_call_count,
-        tool_call_count=failed_state.tool_call_count,
-        duration_ms=duration_ms,
-        error_code=terminal_code,
-        runtime=_runtime_stats(failed_state),
-    )
-    _record_assistant_message(
-        repository=repository,
-        state=failed_state,
-        client_request_id=client_request_id,
-        content=error.message,
-        error_code=terminal_code,
-    )
-    yield _sse(
-        "run.failed",
-        {
-            "runId": failed_state.run_id,
-            "status": RunStatus.FAILED.value,
-            "errorCode": terminal_code,
-            "message": error.message,
-        },
-    )
-
-
-def _runtime_stats(state: AgentState) -> dict[str, object]:
-    return {
-        "modelProvider": state.model_provider,
-        "configuredModel": state.configured_model,
-        "responseModels": state.response_models,
-        "promptVersion": state.prompt_version,
-        "schemaVersion": state.schema_version,
-        "inputTokens": state.input_tokens,
-        "outputTokens": state.output_tokens,
-        "cacheHitTokens": state.cache_hit_tokens,
-        "cacheMissTokens": state.cache_miss_tokens,
-    }
-
-
-def _resume_message_key(run_id: str, generation: int, action: object) -> str:
-    digest = hashlib.sha256(
-        f"{run_id}:{generation}:{action}".encode()
-    ).hexdigest()
-    return f"resume_{digest[:48]}"
-
-
-def _resume_user_message(body: AgentResumeRequest) -> str:
-    labels = {
-        "ACCEPT": "确认执行会议草案",
-        "EDIT": "编辑会议草案并重新校验",
-        "REJECT": "拒绝会议草案",
-    }
-    message = labels[body.action.value]
-    if body.feedback is not None and body.feedback.strip():
-        return f"{message}：{body.feedback.strip()}"
-    return message
-
-
-def _record_assistant_message(
-    *,
-    repository: MetadataRepository,
-    state: AgentState,
-    client_request_id: str,
-    content: str | None = None,
-    error_code: str | None = None,
-) -> None:
-    visible_content = content or state.answer_summary or _paused_answer(state.status)
-    payload: dict[str, object] = {
-        "status": state.status.value,
-        "citations": [
-            citation.model_dump(by_alias=True, mode="json") for citation in state.citations
-        ],
-    }
-    if state.unsat_analysis is not None:
-        payload["unsatAnalysis"] = state.unsat_analysis.model_dump(by_alias=True, mode="json")
-    if error_code is not None:
-        payload["errorCode"] = error_code
-    try:
-        repository.record_message(
-            thread_id=state.thread_id,
-            run_id=state.run_id,
-            user_id=state.user_id,
-            role="ASSISTANT",
-            content=visible_content,
-            client_request_id=client_request_id,
-            visible_payload=payload,
-        )
-    except Exception:
-        logger.exception("Unable to persist visible Agent reply for run %s", state.run_id)
-
-
-def _paused_answer(run_status: RunStatus) -> str:
-    if run_status is RunStatus.WAITING_CONFIRMATION:
-        return "已生成会议草案，等待你的确认。"
-    if run_status is RunStatus.WAITING_BUSINESS_RESULT:
-        return "预约请求已受理，正在等待业务处理结果。"
-    if run_status is RunStatus.WAITING_USER_INPUT:
-        return "会议需求已保存，请补充缺失信息后继续。"
-    return "本次智能编排已更新。"
-
-
-def _baseline_resolved_employees(state: AgentState) -> list[Participant]:
-    draft = state.requirement_draft
-    if draft is None:
-        return []
-    names = set(draft.required_participant_names)
-    return [item for item in state.resolved_employees if item.name in names]
-
-
-def _owned_run(*, repository: MetadataRepository, run_id: str, context: AgentContext) -> AgentRun:
-    run = repository.get_run(run_id)
-    if run is None or (run.user_id != context.user_id and not context.is_admin):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AGENT_RUN_NOT_FOUND")
-    return run
-
-
-def _require_context_run(*, context: AgentContext, run_id: str) -> None:
-    if context.run_id != run_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="AGENT_CONTEXT_INVALID"
-        )
-
-
-def _safe_callback_response(
-    *, status_value: str, reason: str, candidate_count: int
-) -> JSONResponse:
-    return JSONResponse(
-        {
-            "status": status_value,
-            "reason": reason,
-            "candidateCount": candidate_count,
-        }
-    )
-
-
-def _callback_already_recorded(*, repository: MetadataRepository, event_id: str) -> bool:
-    try:
-        return repository.has_business_event(event_id)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="AGENT_METADATA_UNAVAILABLE",
-        ) from exc
-
-
-def _record_callback_event(
-    *, repository: MetadataRepository, run_id: str, body: BusinessResultCallback
-) -> None:
-    try:
-        inserted = repository.record_business_event_once(
-            event_id=body.event_id,
-            run_id=run_id,
-            request_no=body.request_no,
-            event_type=body.status.value,
-            payload=body.model_dump(by_alias=True, mode="json"),
-        )
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="AGENT_METADATA_UNAVAILABLE",
-        ) from exc
-    if not inserted:
-        # A concurrent delivery has already completed the same transition.
-        # The caller can safely treat the resulting 2xx response as a no-op.
-        return
-
-
-def _record_business_result_step(
-    *, repository: MetadataRepository, state: AgentState, summary: str
-) -> None:
-    repository.record_step(
-        step_id=f"step_{uuid.uuid4().hex}",
-        run_id=state.run_id,
-        sequence_no=state.step_count + 1,
-        agent_name="deterministic",
-        node_name="business_result",
-        status="SUCCEEDED",
-        input_summary="Process a validated asynchronous booking result.",
-        output_summary=summary,
-        duration_ms=0,
-    )
-
-
-def _preserved_constraints(state: AgentState) -> list[str]:
-    """Summarize immutable scheduling constraints without sensitive content."""
-
-    request = state.meeting_request
-    if request is None:
-        return ["ORIGINAL_MEETING_REQUEST"]
-    preserved = [
-        f"durationMinutes={request.duration_minutes}",
-        f"requiredParticipantCount={len(request.required_participants)}",
-        f"minimumCapacity={request.minimum_capacity or 1}",
-    ]
-    if request.time_window is not None:
-        preserved.append(
-            "timeWindow="
-            f"{request.time_window.start.isoformat()}/{request.time_window.end.isoformat()}"
-        )
-    if request.required_features:
-        preserved.append("requiredFeatures=" + ",".join(sorted(request.required_features)))
-    preserved.extend(
-        f"hard:{constraint.type}={constraint.value}"
-        for constraint in request.hard_constraints
-    )
-    return preserved[:20]
-
-
-def _trace_for_visible_run(
-    *, repository: MetadataRepository, run_id: str, context: AgentContext
-) -> dict[str, object]:
-    trace = repository.get_trace(run_id)
-    if trace is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AGENT_RUN_NOT_FOUND")
-    run = trace["run"]
-    if not isinstance(run, dict) or not isinstance(run.get("userId"), int):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="AGENT_METADATA_INVALID"
-        )
-    if run["userId"] != context.user_id and not context.is_admin:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AGENT_RUN_NOT_FOUND")
-    return trace
-
-
-def _streaming_response(generate: Iterator[str]) -> StreamingResponse:
-    return StreamingResponse(
-        generate,
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
-def _start_sse_producer(produce: Callable[[Queue[object]], None]) -> Iterator[str]:
-    """Run a LangGraph-producing operation on one stable thread.
-
-    Starlette/AnyIO may advance a synchronous ``StreamingResponse`` iterator
-    on different worker threads between yielded frames.  The response iterator
-    below only dequeues immutable strings; the graph iterator itself remains
-    entirely inside this producer thread, preserving both context affinity and
-    progressive SSE delivery.
-    """
-
-    frames: Queue[object] = Queue()
-
-    def worker() -> None:
-        try:
-            produce(frames)
-        except Exception:
-            # Endpoint-specific code emits a safe terminal event for expected
-            # workflow failures.  This guard only ensures a programming or
-            # infrastructure failure cannot leave the SSE response hanging.
-            logger.exception("Agent SSE producer crashed")
-        finally:
-            frames.put(_SSE_STREAM_END)
-
-    Thread(target=worker, name="agent-sse-producer", daemon=True).start()
-    return _queued_sse_frames(frames)
-
-
-def _queued_sse_frames(frames: Queue[object]) -> Iterator[str]:
-    while True:
-        frame = frames.get()
-        if frame is _SSE_STREAM_END:
-            return
-        if not isinstance(frame, str):
-            logger.error("Ignoring invalid Agent SSE producer frame")
-            continue
-        yield frame
-
-
-def _emit_workflow_sse_frames(
-    *,
-    frames: Queue[object],
-    repository: MetadataRepository,
-    workflow: WorkflowRun,
-    fallback_state: AgentState,
-    started_at: float,
-    operation: Callable[[], Iterator[tuple[str, dict[str, object]]]],
-    client_request_id: str,
-) -> None:
-    """Execute and frame a graph without letting its iterator leave its thread."""
-
-    try:
-        for event_name, payload in operation():
-            frames.put(_sse(event_name, payload))
-        for frame in _finish_stream(
-            repository=repository,
-            workflow=workflow,
-            fallback_state=fallback_state,
-            duration_ms=int((time.perf_counter() - started_at) * 1000),
-            client_request_id=client_request_id,
-        ):
-            frames.put(frame)
-    except WorkflowError as exc:
-        for frame in _fail_stream(
-            repository=repository,
-            workflow=workflow,
-            fallback_state=fallback_state,
-            duration_ms=int((time.perf_counter() - started_at) * 1000),
-            error=exc,
-            client_request_id=client_request_id,
-        ):
-            frames.put(frame)
-
-
-def _sse(event_name: str, data: dict[str, object]) -> str:
-    payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
-    return f"event: {event_name}\ndata: {payload}\n\n"
