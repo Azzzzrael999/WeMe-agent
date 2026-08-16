@@ -384,6 +384,80 @@ class AgentGatewaySseProxyIntegrationTest {
         .andExpect(jsonPath("$.code").value("AGENT_UNAVAILABLE"));
   }
 
+  @Test
+  void listsCurrentUsersServerBackedThreadsWithoutLeakingConfirmationTokens() throws Exception {
+    UPSTREAM_RESPONSE.set(
+        new UpstreamResponse(
+            200,
+            MediaType.APPLICATION_JSON_VALUE,
+            (ignoredRunId, ignoredTraceId) ->
+                """
+                {"items":[{"threadId":"thread_history_fixture","title":"架构评审","latestRunId":"run_history_fixture","latestStatus":"WAITING_CONFIRMATION","actionRequired":true,"visiblePayload":{"confirmationToken":"cfm_must_not_escape"}}],"total":1}
+                """
+                    .getBytes(StandardCharsets.UTF_8)));
+
+    mockMvc
+        .perform(
+            get("/api/v1/agent/threads")
+                .param("page", "1")
+                .param("size", "20")
+                .param("status", "WAITING_CONFIRMATION")
+                .header("Authorization", "Bearer " + userAccessToken())
+                .header("X-Trace-Id", TRACE_ID)
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Cache-Control", "no-store"))
+        .andExpect(jsonPath("$.data.total").value(1))
+        .andExpect(jsonPath("$.data.items[0].threadId").value("thread_history_fixture"))
+        .andExpect(jsonPath("$.data.items[0].actionRequired").value(true))
+        .andExpect(jsonPath("$.data.items[0].visiblePayload.confirmationToken").doesNotExist());
+
+    assertHistoryRequest("/internal/v1/agent-threads?page=1&size=20&status=WAITING_CONFIRMATION");
+  }
+
+  @Test
+  void returnsCurrentUsersThreadDetailAndMapsMissingThreadToStableError() throws Exception {
+    String threadId = "thread_history_fixture";
+    UPSTREAM_RESPONSE.set(
+        new UpstreamResponse(
+            200,
+            MediaType.APPLICATION_JSON_VALUE,
+            (ignoredRunId, ignoredTraceId) ->
+                """
+                {"thread":{"threadId":"thread_history_fixture","latestRunId":"run_history_fixture","latestStatus":"WAITING_CONFIRMATION"},"messages":[{"messageId":"msg_1","runId":"run_history_fixture","role":"USER","content":"安排一次架构评审","visiblePayload":{},"createdAt":"2026-08-15T10:00:00+08:00"}]}
+                """
+                    .getBytes(StandardCharsets.UTF_8)));
+
+    mockMvc
+        .perform(
+            get("/api/v1/agent/threads/{threadId}", threadId)
+                .header("Authorization", "Bearer " + userAccessToken())
+                .header("X-Trace-Id", TRACE_ID)
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Cache-Control", "no-store"))
+        .andExpect(jsonPath("$.data.thread.threadId").value(threadId))
+        .andExpect(jsonPath("$.data.messages[0].content").value("安排一次架构评审"));
+
+    assertHistoryRequest("/internal/v1/agent-threads/" + threadId);
+
+    UPSTREAM_RESPONSE.set(
+        new UpstreamResponse(
+            404,
+            MediaType.APPLICATION_JSON_VALUE,
+            (ignoredRunId, ignoredTraceId) ->
+                "{\"detail\":\"AGENT_THREAD_NOT_FOUND\"}".getBytes(StandardCharsets.UTF_8)));
+
+    mockMvc
+        .perform(
+            get("/api/v1/agent/threads/{threadId}", threadId)
+                .header("Authorization", "Bearer " + userAccessToken())
+                .header("X-Trace-Id", TRACE_ID)
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("AGENT_THREAD_NOT_FOUND"));
+  }
+
   private org.springframework.test.web.servlet.ResultActions streamRequest() throws Exception {
     return mockMvc.perform(
         post("/api/v1/agent/runs/stream")
@@ -447,6 +521,23 @@ class AgentGatewaySseProxyIntegrationTest {
     assertThat(context.runId()).isEqualTo(runId);
   }
 
+  private void assertHistoryRequest(String path) {
+    CapturedUpstreamRequest captured = CAPTURED_REQUEST.get();
+    assertThat(captured).isNotNull();
+    assertThat(captured.path()).isEqualTo(path);
+    assertThat(captured.method()).isEqualTo("GET");
+    assertThat(captured.accept()).isEqualTo(MediaType.APPLICATION_JSON_VALUE);
+    assertThat(captured.serviceToken()).isEqualTo(SERVICE_TOKEN);
+    assertThat(captured.traceId()).isEqualTo(TRACE_ID);
+    assertThat(captured.runId()).startsWith("history_");
+
+    AgentContextIdentity context =
+        agentContextTokenService.parse(captured.authorization().substring("Bearer ".length()));
+    assertThat(context.userId()).isEqualTo(1001L);
+    assertThat(context.traceId()).isEqualTo(TRACE_ID);
+    assertThat(context.runId()).isEqualTo(captured.runId());
+  }
+
   private String userAccessToken() {
     return jwtService.issue(1001, "zhangsan", java.util.List.of("EMPLOYEE"));
   }
@@ -468,6 +559,8 @@ class AgentGatewaySseProxyIntegrationTest {
       server.createContext(
           "/internal/v1/agent-runs/run_recovery_fixture/trace",
           AgentGatewaySseProxyIntegrationTest::handle);
+      server.createContext(
+          "/internal/v1/agent-threads", AgentGatewaySseProxyIntegrationTest::handle);
       server.start();
       return server;
     } catch (IOException exception) {
@@ -482,9 +575,13 @@ class AgentGatewaySseProxyIntegrationTest {
     }
     String runId = exchange.getRequestHeaders().getFirst("X-Run-Id");
     String traceId = exchange.getRequestHeaders().getFirst("X-Trace-Id");
+    String path = exchange.getRequestURI().getRawPath();
+    if (exchange.getRequestURI().getRawQuery() != null) {
+      path += "?" + exchange.getRequestURI().getRawQuery();
+    }
     CAPTURED_REQUEST.set(
         new CapturedUpstreamRequest(
-            exchange.getRequestURI().getPath(),
+            path,
             exchange.getRequestMethod(),
             exchange.getRequestHeaders().getFirst("Accept"),
             exchange.getRequestHeaders().getFirst("Upgrade"),

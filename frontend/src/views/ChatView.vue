@@ -29,6 +29,7 @@
         :submitted-message="submittedMessage"
         :answer-summary="answerSummary"
         :unsat-analysis="unsatAnalysis"
+        :citations="citations"
         :run-id="runId"
         :run-status="runStatus"
         :booking-request="bookingRequest"
@@ -96,6 +97,7 @@
       :run-status="runStatus"
       :candidates="candidates"
       :citations="citations"
+      :requirement-items="requirementItems"
       :action-type="actionType"
       :draft="hitlDraft"
       :confirmation-token="confirmationToken"
@@ -137,6 +139,8 @@ import type {
   AgentRunRecovery,
   AgentRunSummary,
   AgentStepEvent,
+  AgentThreadDetail,
+  AgentThreadList,
   AgentTraceStep,
   AgentTraceToolCall,
   AgentToolEvent,
@@ -185,6 +189,9 @@ const requirementRevision = ref(0)
 const requirementItems = ref<AgentRequirementItem[]>([])
 const requirementBaselineAvailable = ref(false)
 const replanPrefillLoaded = ref(false)
+const expiredRegenerationAttempts = new Set<string>()
+
+const EXPIRED_DRAFT_REGENERATION_MESSAGE = '原确认草案已过期，请保留已确认的时间窗口、时长、参会人和设备要求，重新读取当前会议室、人员忙闲等事实并生成新方案。'
 
 interface ConversationTurn {
   id: string
@@ -193,6 +200,7 @@ interface ConversationTurn {
   answer: string
   status: string
   unsatAnalysis?: AgentUnsatAnalysis | null
+  citations?: AgentCitation[]
 }
 
 interface StoredConversation {
@@ -207,15 +215,15 @@ interface StoredRunContext {
   updatedAt?: number
 }
 
-const CHAT_HISTORY_STORAGE_KEY = 'meetops.chat-history.v1'
-const CHAT_ACTIVE_RUN_STORAGE_KEY = 'meetops.chat-active-run.v1'
-const CHAT_ACTIVE_THREAD_STORAGE_KEY = 'meetops.chat-active-thread.v1'
-const CHAT_SUPPRESS_RESTORE_STORAGE_KEY = 'meetops.chat-suppress-restore.v1'
-const CHAT_RUN_CONTEXT_STORAGE_KEY = 'meetops.chat-run-context.v1'
-const CHAT_SHEET_OPENED_STORAGE_KEY = 'meetops.chat-sheet-opened.v1'
-const CHAT_SHEET_DISMISSED_STORAGE_KEY = 'meetops.chat-sheet-dismissed.v1'
-const CHAT_CONTEXT_EVENT = 'meetops:chat-context-updated'
-const NEW_CONVERSATION_EVENT = 'meetops:new-conversation'
+const CHAT_HISTORY_STORAGE_KEY = 'weme.chat-history.v1'
+const CHAT_ACTIVE_RUN_STORAGE_KEY = 'weme.chat-active-run.v1'
+const CHAT_ACTIVE_THREAD_STORAGE_KEY = 'weme.chat-active-thread.v1'
+const CHAT_SUPPRESS_RESTORE_STORAGE_KEY = 'weme.chat-suppress-restore.v1'
+const CHAT_RUN_CONTEXT_STORAGE_KEY = 'weme.chat-run-context.v1'
+const CHAT_SHEET_OPENED_STORAGE_KEY = 'weme.chat-sheet-opened.v1'
+const CHAT_SHEET_DISMISSED_STORAGE_KEY = 'weme.chat-sheet-dismissed.v1'
+const CHAT_CONTEXT_EVENT = 'weme:chat-context-updated'
+const NEW_CONVERSATION_EVENT = 'weme:new-conversation'
 const SAFE_RUN_ID = /^[A-Za-z0-9_-]{1,64}$/
 const MAX_PREFILL_LENGTH = 2000
 const conversationHistory = ref<ConversationTurn[]>([])
@@ -578,7 +586,12 @@ function handleSseMessage(messageEvent: SseMessage): void {
         hitlFeedback.value = ''
         unsatAnalysis.value = null
         runStatus.value = stringValue(payload, 'status') ?? 'WAITING_CONFIRMATION'
-        autoOpenOrchestration('requirements')
+        answerSummary.value = stringValue(payload, 'answerSummary') ?? answerSummary.value
+        if (payload.conflictRepair === true) {
+          openOrchestration('candidates')
+        } else {
+          autoOpenOrchestration('requirements')
+        }
       }
       return
     }
@@ -727,6 +740,59 @@ async function startRun(): Promise<void> {
   })
 }
 
+function expiredDraftRegenerationRequested(runIdToCheck: string): boolean {
+  return route.query.regenerate === 'expired'
+    && route.query.runId === runIdToCheck
+}
+
+function recoveryDraftExpired(recovery: AgentRunRecovery): boolean {
+  if (recovery.status !== 'WAITING_CONFIRMATION' || recovery.expiresAt === undefined) {
+    return false
+  }
+  const expiry = Date.parse(recovery.expiresAt)
+  return Number.isFinite(expiry) && expiry <= Date.now()
+}
+
+async function clearRegenerationQuery(): Promise<void> {
+  if (route.query.regenerate === undefined) return
+  const query: LocationQueryRaw = { ...route.query }
+  delete query.regenerate
+  await router.replace({ query })
+}
+
+async function regenerateExpiredDraft(recovery: AgentRunRecovery): Promise<void> {
+  if (expiredRegenerationAttempts.has(recovery.runId)) return
+  expiredRegenerationAttempts.add(recovery.runId)
+  await clearRegenerationQuery()
+
+  if (!recoveryDraftExpired(recovery) || !recovery.requirementBaselineAvailable) {
+    errorMessage.value = recoveryDraftExpired(recovery)
+      ? '原草案的需求基线暂时无法恢复。请在下方重新提交会议时间、时长、参会人和设备要求。'
+      : '当前草案仍在有效期内，请直接确认；如需调整，请编辑草案后重新校验。'
+    if (recoveryDraftExpired(recovery)) {
+      message.value = EXPIRED_DRAFT_REGENERATION_MESSAGE
+    }
+    return
+  }
+
+  const baseRunId = recovery.runId
+  const recoveryThreadId = recovery.threadId
+  archiveCurrentTurn()
+  clearRunState()
+  threadId.value = recoveryThreadId
+  submittedMessage.value = EXPIRED_DRAFT_REGENERATION_MESSAGE
+  message.value = ''
+  await consumeStream('/agent/runs/stream', {
+    threadId: recoveryThreadId,
+    message: EXPIRED_DRAFT_REGENERATION_MESSAGE,
+    clientRequestId: createClientRequestId(),
+    baseRunId,
+  })
+  if (errorMessage.value.length > 0) {
+    message.value = EXPIRED_DRAFT_REGENERATION_MESSAGE
+  }
+}
+
 function selectExample(prompt: string): void {
   message.value = prompt
 }
@@ -768,6 +834,7 @@ function currentConversationTurn(): ConversationTurn | null {
     answer,
     status: runStatus.value,
     unsatAnalysis: unsatAnalysis.value,
+    citations: citations.value,
   }
 }
 
@@ -950,12 +1017,15 @@ function resetConversation(): void {
   delete query.runId
   delete query.prefill
   delete query.sourceCaseId
+  delete query.regenerate
   void router.replace({ query })
   window.dispatchEvent(new CustomEvent(CHAT_CONTEXT_EVENT))
 }
 
-function applyRecovery(recovery: AgentRunRecovery): void {
-  restoreConversation(recovery.threadId, recovery.runId)
+function applyRecovery(recovery: AgentRunRecovery, serverHistoryLoaded = false): void {
+  if (!serverHistoryLoaded) {
+    restoreConversation(recovery.threadId, recovery.runId)
+  }
   runId.value = recovery.runId
   threadId.value = recovery.threadId
   runStatus.value = recovery.status
@@ -965,6 +1035,7 @@ function applyRecovery(recovery: AgentRunRecovery): void {
   requirementItems.value = recovery.requirementItems ?? []
   requirementBaselineAvailable.value = recovery.requirementBaselineAvailable ?? false
   unsatAnalysis.value = readUnsatAnalysis(recovery.unsatAnalysis)
+  citations.value = recovery.citations ?? citations.value
   const nextDraft = recovery.draft === undefined
     ? null
     : readHitlDraft(recovery.draft, recovery.actionType ?? recovery.operationType)
@@ -981,6 +1052,51 @@ function applyRecovery(recovery: AgentRunRecovery): void {
   }
 }
 
+function applyThreadHistory(detail: AgentThreadDetail, currentRunId: string): void {
+  const turns: ConversationTurn[] = []
+  let pendingUser: typeof detail.messages[number] | null = null
+  for (const entry of detail.messages) {
+    if (entry.role === 'USER') {
+      pendingUser = entry
+      continue
+    }
+    if (pendingUser === null) continue
+    const status = typeof entry.visiblePayload.status === 'string'
+      ? entry.visiblePayload.status
+      : detail.thread.latestStatus
+    turns.push({
+      id: `server-${entry.messageId}`,
+      runId: entry.runId,
+      question: pendingUser.content,
+      answer: entry.content,
+      status,
+      unsatAnalysis: readUnsatAnalysis(entry.visiblePayload.unsatAnalysis),
+      citations: readCitations(entry.visiblePayload.citations),
+    })
+    pendingUser = null
+  }
+
+  let currentIndex = -1
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    if (turns[index]?.runId === currentRunId) {
+      currentIndex = index
+      break
+    }
+  }
+  const current = currentIndex >= 0 ? turns.splice(currentIndex, 1)[0] : undefined
+  conversationHistory.value = turns
+  if (current !== undefined) {
+    submittedMessage.value = current.question
+    answerSummary.value = current.answer
+    runStatus.value = current.status
+    unsatAnalysis.value = current.unsatAnalysis ?? null
+    citations.value = current.citations ?? []
+  } else if (pendingUser?.runId === currentRunId) {
+    submittedMessage.value = pendingUser.content
+  }
+  threadId.value = detail.thread.threadId
+}
+
 async function loadRecovery(id: string): Promise<void> {
   if (recoveryLoading.value) {
     return
@@ -988,15 +1104,22 @@ async function loadRecovery(id: string): Promise<void> {
   recoveryLoading.value = true
   errorMessage.value = ''
   const requestedEpoch = recoveryEpoch
+  let expiredRegeneration: AgentRunRecovery | null = null
   try {
     const [recovery, trace] = await Promise.all([
       apiRequest<AgentRunRecovery>(`/agent/runs/${id}`),
       apiRequest<{ run: AgentRunSummary; steps: AgentTraceStep[]; toolCalls: AgentTraceToolCall[]; loopEvents?: unknown[] }>(`/agent/runs/${id}/trace`),
     ])
+    const detail = await apiRequest<AgentThreadDetail>(
+      `/agent/threads/${recovery.threadId}`,
+    ).catch(() => null)
     if (requestedEpoch !== recoveryEpoch || (runId.value !== null && runId.value !== id)) {
       return
     }
-    applyRecovery(recovery)
+    if (detail !== null) {
+      applyThreadHistory(detail, id)
+    }
+    applyRecovery(recovery, detail !== null)
     recoveryRetryAttempts = 0
     runMetrics.value = trace.run
     steps.value = trace.steps.map((step) => ({ ...step, runId: id }))
@@ -1018,6 +1141,9 @@ async function loadRecovery(id: string): Promise<void> {
     } else {
       clearRecoveryTimer()
     }
+    if (expiredDraftRegenerationRequested(id)) {
+      expiredRegeneration = recovery
+    }
   } catch (error) {
     if (
       error instanceof ApiError
@@ -1032,6 +1158,9 @@ async function loadRecovery(id: string): Promise<void> {
     errorMessage.value = error instanceof ApiError ? error.message : '无法加载当前任务。'
   } finally {
     recoveryLoading.value = false
+    if (expiredRegeneration !== null) {
+      void regenerateExpiredDraft(expiredRegeneration)
+    }
   }
 }
 
@@ -1102,6 +1231,7 @@ watch(runId, (nextRunId) => {
     const query: LocationQueryRaw = { ...route.query, runId: nextRunId }
     delete query.prefill
     delete query.sourceCaseId
+    delete query.regenerate
     void router.replace({ query })
   }
   if (nextRunId === null && currentRunId !== undefined) {
@@ -1168,6 +1298,20 @@ function handleNewConversation(): void {
   resetConversation()
 }
 
+async function restoreLatestThread(): Promise<void> {
+  try {
+    const result = await apiRequest<AgentThreadList>('/agent/threads?page=1&size=1')
+    const latestRunId = result.items[0]?.latestRunId
+    if (latestRunId === undefined || !SAFE_RUN_ID.test(latestRunId)) return
+    runId.value = latestRunId
+    runStatus.value = result.items[0]?.latestStatus ?? 'RUNNING'
+    await router.replace({ query: { ...route.query, runId: latestRunId } })
+    await loadRecovery(latestRunId)
+  } catch {
+    // The empty-state composer remains usable when history recovery is unavailable.
+  }
+}
+
 onMounted(() => {
   window.addEventListener(NEW_CONVERSATION_EVENT, handleNewConversation)
   const replanPrefill = readReplanPrefill(route.query.prefill)
@@ -1198,7 +1342,9 @@ onMounted(() => {
   if (activeRunId !== null && SAFE_RUN_ID.test(activeRunId)) {
     void router.replace({ query: { ...route.query, runId: activeRunId } })
     void loadRecovery(activeRunId)
+    return
   }
+  void restoreLatestThread()
 })
 
 onUnmounted(() => {

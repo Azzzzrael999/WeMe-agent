@@ -4,7 +4,7 @@
       <span><TriangleAlert :size="16" aria-hidden="true" /></span>
       <div>
         <strong>未找到满足全部硬约束的方案</strong>
-        <small>{{ categoryLabel }}</small>
+        <small>{{ categoryLabel }} <code>{{ analysis.category }}</code></small>
       </div>
     </header>
     <dl class="unsat-card__request">

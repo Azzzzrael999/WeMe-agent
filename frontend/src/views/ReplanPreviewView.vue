@@ -430,7 +430,7 @@ async function confirmResolution(): Promise<void> {
 async function openSmartReplan(): Promise<void> {
   const detail = selectedCase.value
   if (detail === null || detail.status !== 'OPEN') return
-  const prompt = `请处理异常重排单 ${detail.caseNo}。会议 ID ${detail.meetingId} 的原会议室“${detail.failedRoom.name}”已失效，原因是“${detail.failureReason}”。请先读取我可管理的会议事实；默认保留原会议时长、必需/可选参会人和设备要求，优先保持原时段，排除失效会议室，给出 Top 3，并在任何写入前让我确认。若我改变时间、地点、设备或参会人，请明确列出改变项、保留项和放宽原因，重新求解与验证后再生成 RESCHEDULE HITL 草案。`
+  const prompt = `处理我的会议室失效异常单。优先保持原时间、时长、参会人和设备要求不变。异常重排单 ${detail.caseNo} 对应会议 ID ${detail.meetingId}，原会议室“${detail.failedRoom.name}”已失效，原因是“${detail.failureReason}”。请先读取我可管理的会议事实，排除失效会议室，给出 Top 3，并在任何写入前让我确认。若我改变时间、地点、设备或参会人，请明确列出改变项、保留项和放宽原因，重新求解与验证后再生成 RESCHEDULE HITL 草案。`
   await router.push({ name: 'chat', query: { prefill: prompt, sourceCaseId: String(detail.id) } })
 }
 

@@ -32,6 +32,18 @@ def test_day_one_metadata_columns_match_data_contract() -> None:
             "created_at",
             "finished_at",
         },
+        "agent_message": {
+            "message_id",
+            "thread_id",
+            "run_id",
+            "user_id",
+            "sequence_no",
+            "role",
+            "content_text",
+            "visible_payload",
+            "client_request_id",
+            "created_at",
+        },
         "agent_step": {
             "step_id",
             "run_id",

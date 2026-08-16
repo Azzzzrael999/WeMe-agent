@@ -74,7 +74,20 @@ class RouteFeedback(AgentSchema):
 class RouteEvaluator:
     """Validate the initial business route using high-confidence Chinese anchors."""
 
-    _POLICY = ("规则", "制度", "规定", "限制", "能否", "是否允许", "使用条件", "政策")
+    _POLICY = (
+        "规则",
+        "制度",
+        "规定",
+        "限制",
+        "能否",
+        "是否允许",
+        "使用条件",
+        "政策",
+        "可以吗",
+        "能不能",
+        "可不可以",
+        "能直接",
+    )
     _CANCEL = ("取消", "撤销", "不订了")
     _MODIFY = (
         "改期",

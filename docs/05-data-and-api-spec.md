@@ -426,6 +426,28 @@ created_at DATETIME(3)
 finished_at DATETIME(3) NULL
 ```
 
+### 3.2.1 agent_message
+
+```text
+message_id VARCHAR(64) PK
+thread_id VARCHAR(64)
+run_id VARCHAR(64)
+user_id BIGINT
+sequence_no INT
+role VARCHAR(16)                    # USER/ASSISTANT
+content_text TEXT
+visible_payload JSON
+client_request_id VARCHAR(80)
+created_at DATETIME(3)
+UNIQUE(thread_id, sequence_no)
+UNIQUE(user_id, client_request_id, role)
+```
+
+- 该表是跨退出、跨账号切换后恢复用户可见对话的事实源，只保存用户提交的自然语言和已经展示给用户的 Agent 回答。
+- `visible_payload` 只允许保存状态、引用、无解分析等用户可见结构；不得保存确认令牌、JWT、Service Token、完整 Tool 原始结果、Prompt 或隐藏推理。
+- 用户输入与对应回答以同一个 `client_request_id` 幂等落库。SSE 断开不撤销已经持久化的输入或终态/暂停态回答。
+- 历史存量 Run 没有消息正文时，只能返回 `agent_run.question_summary/answer_summary` 并标记为历史摘要，不得从 Redis checkpoint 反向复制敏感状态。
+
 ### 3.3 agent_step
 
 ```text
@@ -822,6 +844,7 @@ Day 2 手动会议接口使用以下冻结响应数据；所有数据仍包在 4
 - 只有发起人或 ADMIN 可以修改、取消会议。
 - 发起人无论是否出现在请求数组中，都由服务端加入 REQUIRED；同一员工不能同时作为 REQUIRED 和 OPTIONAL。
 - `requiredParticipantIds` 与 `optionalParticipantIds` 合计最多 100 人；房间容量按去重后并包含发起人的总人数校验。
+- 手动表单允许用户输入姓名，而非在浏览器中输入或展示人员 ID；前端只使用 `GET /api/v1/directory/employees` 返回的在职员工目录作精确解析，并在提交前将姓名转换为上述两个 ID 数组。姓名不匹配、已停用、或存在多个同名员工时不得提交；用户可输入“姓名（部门）”消歧。公共会议 API 的请求字段保持不变。
 - 手动创建成功状态固定为 `CONFIRMED`，来源固定为 `MANUAL`。
 - `POST /api/v1/meetings` 强制使用 `Idempotency-Key`；同一用户、同一键、同一请求返回同一 `meetingId`，同一键对应不同请求返回 `IDEMPOTENCY_KEY_REUSED`。
 
@@ -870,10 +893,38 @@ POST /api/v1/agent/runs/{runId}/input
 POST /api/v1/agent/runs/{runId}/resume
 GET  /api/v1/agent/runs/{runId}
 GET  /api/v1/agent/runs/{runId}/trace
-GET  /api/v1/agent/threads
+GET  /api/v1/agent/threads?page=&size=&status=
+GET  /api/v1/agent/threads/{threadId}
 GET  /api/v1/agent/preferences
 DELETE /api/v1/agent/preferences
 ```
+
+会话列表由 Python 服务端持久化数据生成，前端 `sessionStorage` 只作为当前标签页的瞬时缓存：
+
+```json
+{
+  "items": [
+    {
+      "threadId": "thread_uuid",
+      "title": "下周三安排架构评审",
+      "latestRunId": "run_uuid",
+      "latestStatus": "WAITING_CONFIRMATION",
+      "intent": "CREATE_MEETING",
+      "questionPreview": "下周三安排架构评审",
+      "answerPreview": "已生成预约草案，等待确认",
+      "actionRequired": true,
+      "updatedAt": "2026-08-15T14:00:00+08:00"
+    }
+  ],
+  "total": 1
+}
+```
+
+- `status` 可选；提供时按该状态下每个 thread 最新的 Run 聚合，用于 `WAITING_CONFIRMATION` 待办发现。默认返回每个 thread 的最新 Run。
+- 列表严格使用当前 AgentContext 用户，不接受 `userId`，ADMIN 默认也只返回自己的会话。列表不得返回 `confirmationToken`。
+- `GET /threads/{threadId}` 返回上述 thread 摘要和按 `sequenceNo` 排序的 `messages`；消息固定使用 `messageId/runId/role/content/visiblePayload/createdAt/legacySummary`。
+- 前端登录后从列表恢复最近任务，进入 thread 后读取消息历史，再通过 `GET /runs/{latestRunId}` 获取当前可恢复状态。退出登录仍必须清空本地缓存，避免账号 B 短暂看到账号 A 的内容。
+- 待确认任务在 10 分钟确认有效期内可继续执行；过期后仍显示草案和历史，但确认操作禁用。“返回原会话重新生成”是显式用户动作：前端在原 thread 创建新 Run，Python 只从过期 Run 继承最后有效 Requirement 基线，清空旧候选、草案和确认令牌并重新读取当前事实；若基线已不可恢复，前端保留可再次提交的提示文本并要求用户补全需求。
 
 启动请求：
 
@@ -948,7 +999,7 @@ event: plan.unsat
 data: {"runId":"run_uuid","unsatAnalysis":{"category":"REQUIRED_AVAILABILITY","summary":"未找到满足全部硬约束的方案。本次待排请求（2026-08-27 14:00-16:00，连续 120 分钟）与李四的已有安排（会议 123）冲突：已有安排为 2026-08-27 14:00-15:30，重叠时段为 2026-08-27 14:00-15:30；原因：必需参会者已有会议。","requestedWindow":{"start":"2026-08-27T14:00:00+08:00","end":"2026-08-27T16:00:00+08:00"},"durationMinutes":120,"blockingIntervals":[{"resourceType":"EMPLOYEE","resourceId":1003,"resourceName":"李四","meetingId":123,"startAt":"2026-08-27T14:00:00+08:00","endAt":"2026-08-27T15:30:00+08:00","reason":"必需参会者已有会议"}],"relaxationSuggestions":["延长时间窗口","调整开始时间"]}}
 
 event: hitl.required
-data: {"runId":"run_uuid","status":"WAITING_CONFIRMATION","actionType":"CREATE","confirmationToken":"cfm_uuid","expiresAt":"2026-08-12T10:10:00+08:00","draft":{"title":"架构评审","roomId":101,"roomName":"研发楼301","startAt":"2026-08-19T15:00:00+08:00","endAt":"2026-08-19T16:30:00+08:00","requiredParticipants":[],"optionalParticipants":[]}}
+data: {"runId":"run_uuid","status":"WAITING_CONFIRMATION","answerSummary":"已生成满足当前条件的候选方案，请确认草案或切换其他编排选项。","conflictRepair":false,"actionType":"CREATE","confirmationToken":"cfm_uuid","expiresAt":"2026-08-12T10:10:00+08:00","draft":{"title":"架构评审","roomId":101,"roomName":"研发楼301","startAt":"2026-08-19T15:00:00+08:00","endAt":"2026-08-19T16:30:00+08:00","requiredParticipants":[],"optionalParticipants":[]}}
 
 event: booking.pending
 data: {"runId":"run_uuid","status":"WAITING_BUSINESS_RESULT","requestNo":"BR202608120001"}
@@ -959,8 +1010,9 @@ data: {"runId":"run_uuid","status":"SUCCESS","meetingId":9001}
 
 - `plan.candidates` 最多包含 3 个成本升序且候选 ID 不重复的方案；每个候选都必须先通过 Python 独立硬约束验证器。无解不发送空候选事件，而应先发送结构化 `plan.unsat`，再以 `run.completed(status=WAITING_USER_INPUT)` 返回同一分析的可读摘要；用户接受建议后通过需求补充接口在同一 Run 重新校验，不得跳过工具查询直接生成草案。
 - `plan.unsat.unsatAnalysis` 必须包含请求窗口、会议时长、无解类别和有限建议；必需参会者冲突还必须包含最多 10 条 `blockingIntervals`。摘要与前端卡片必须逐条说明“本次待排请求 ↔ 资源的已有安排”的双方、已有安排的时间/会议 ID（若可见）和实际重叠时段；恢复视图使用同一结构，禁止只返回固定泛化文案。
-- `hitl.required.actionType` 固定为 `CREATE|RESCHEDULE|CANCEL`。CREATE 的 `draft` 保持上述扁平业务字段；RESCHEDULE 的 `draft` 为 `{"originalMeeting":MeetingView,"proposedMeeting":BookingDraftView}`；CANCEL 的 `draft` 为 `{"meeting":MeetingView}`。`GET /api/v1/agent/runs/{runId}` 的可恢复视图使用同一可辨别结构。
+- `hitl.required.actionType` 固定为 `CREATE|RESCHEDULE|CANCEL`。CREATE 的 `draft` 保持上述扁平业务字段；RESCHEDULE 的 `draft` 为 `{"originalMeeting":MeetingView,"proposedMeeting":BookingDraftView}`；CANCEL 的 `draft` 为 `{"meeting":MeetingView}`。`answerSummary` 是本轮用户可见结论；`conflictRepair=true` 表示旧草案在 Java 最终确认时发生并发冲突，前端必须显示占用提示并切换到新的候选编排选项。`GET /api/v1/agent/runs/{runId}` 的可恢复视图使用同一可辨别结构。
 - Scheduling 为成本最低候选调用一次 `create_booking_draft`，再发送 `hitl.required`；Java 创建草案不占用正式会议或槽位。`confirmationToken` 仅可在当前已鉴权用户的 HTTPS/SSE 会话中短暂传递，绝不写入 Trace、日志或持久化摘要。
+- Java 最终确认返回 `BOOKING_CONFLICT` 后，Python 使用已校验的结构化 Requirement 确定性重新读取最新忙闲/房间事实，排除失败候选并重新运行 OR-Tools 与独立验证器；该冲突修复不新增模型调用，即使模型预算已经耗尽也不能直接将 Run 标为失败。
 - `POST /api/v1/agent/runs/{runId}/resume` 的成功响应也是 `text/event-stream`。它只接受 `WAITING_CONFIRMATION` 状态和归属用户（或 ADMIN）；`ACCEPT` 才可调用 `confirm_booking`，`REJECT` 结束且不得调用 WRITE Tool，`EDIT` 仅接受 `roomId` 和/或 `startAt` 后重新进入 Requirement/Scheduling，不得直接确认编辑参数。
 - 恢复是一次新的用户 HTTP 动作：Java 为它签发新的请求 `traceId` 与 AgentContext，但 `runId` 必须保持不变，持久化 Run 的初始 `traceId` 不得被覆盖。Python 只校验恢复请求的 Token 与上下文头彼此一致及其用户归属，不能要求该新 `traceId` 等于 Run 的初始 `traceId`；恢复后产生的 Tool 和 HOT `booking_request` 使用当前恢复动作的 `traceId`。
 - 一段 SSE 流以 `run.completed`、`run.failed`、`hitl.required` 或 `booking.pending` 之一结束。后两者表示 Run 已安全持久化并暂停，不能再追加 `run.completed` 或 `run.failed`；异步 `BOOKING_RESULT` 通过业务结果回调恢复其状态。
@@ -1438,6 +1490,8 @@ POST /internal/v1/agent-runs/{runId}/resume
 POST /internal/v1/agent-runs/{runId}/business-result
 GET  /internal/v1/agent-runs/{runId}
 GET  /internal/v1/agent-runs/{runId}/trace
+GET  /internal/v1/agent-threads?page=&size=&status=
+GET  /internal/v1/agent-threads/{threadId}
 GET  /internal/v1/health
 POST /internal/v1/post-meeting/drafts
 GET  /internal/v1/knowledge-documents
@@ -1554,11 +1608,11 @@ Day 5 的 `resume` 与 `business-result` 使用与 Stream 完全相同的 Java A
 - 单次时间窗口最大14天。
 - 单个会议最大100名参与者。
 - Tool结果正文默认不超过32KB，超出返回摘要和结果ID。
-新建 Run 请求可选携带失败基线：
+新建 Run 请求可选携带可恢复的需求基线：
 
 ```json
 {"threadId":"thread_uuid","message":"参会人去掉赵六","clientRequestId":"input_uuid","baseRunId":"run_failed_uuid"}
 ```
 
-- `baseRunId` 仅允许指向同一用户、同一 `threadId`、状态为 `FAILED` 且具有有效 Requirement checkpoint 的 Run；否则返回409 `REQUIREMENT_BASELINE_NOT_RECOVERABLE`。
+- `baseRunId` 仅允许指向同一用户、同一 `threadId`、具有有效 Requirement checkpoint 的 `FAILED` Run，或确认令牌已过期的 `WAITING_CONFIRMATION` Run；否则返回409 `REQUIREMENT_BASELINE_NOT_RECOVERABLE`。后者只供用户显式点击“返回原会话重新生成”使用，未过期草案不得绕过现有 HITL。
 - 新 Run 只继承需求基线，不继承调用预算、候选、草案、确认令牌、业务结果或工具幂等指纹。省略 `baseRunId` 明确表示全新需求。

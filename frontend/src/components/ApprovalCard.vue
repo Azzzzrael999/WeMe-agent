@@ -30,6 +30,14 @@
       确认令牌已过期，请返回智能编排重新生成草案。
     </p>
 
+    <RouterLink
+      v-if="expired"
+      class="ui-button ui-button--outline ui-button--sm approval-regenerate-link"
+      :to="{ name: 'chat', query: { runId, regenerate: 'expired' } }"
+    >
+      返回原会话重新生成
+    </RouterLink>
+
     <HitlReviewBar
       :action-type="actionType"
       :draft="draft"

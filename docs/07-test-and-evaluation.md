@@ -15,7 +15,7 @@
 - 原生 `tools/tool_calls` 请求和 `assistant -> tool -> assistant` 消息闭环。
 - 非法 JSON、额外参数、伪造 userId/runId、越权 Tool、重复指纹、模型提前结束和超预算。
 - Requirement 首次失败、结构化 feedback、一次修复成功/失败和需用户澄清。
-- Java CONFLICT 后重新读取事实、排除失败候选、保留硬约束、候选发生变化、最多2次重规划。
+- Java CONFLICT 后重新读取事实、排除失败候选、保留硬约束、候选发生变化、最多2次重规划；还必须覆盖模型预算在确认前恰好耗尽的情形，断言冲突修复不增加模型调用、Run 返回新的 `hitl.required` 而不是 `BUDGET_EXHAUSTED`。
 - `Hard Constraint Violation = 0`、`HITL Before Side Effects = 100%`、`Loop Normal Termination >= 99%`（fixture/integration）和重复 Tool 执行率为0。
 
 ## 1. 测试目标
@@ -163,7 +163,7 @@
 | 设备不足 | 候选被过滤 |
 | 90分钟会议 | 必须连续3个槽位 |
 | 偏好15点后 | 其他条件相同优先15点后 |
-| Top 3 | 方案不重复且按成本升序 |
+| Top 3 | 方案不重复、优先覆盖不同会议室且按成本升序 |
 | 无解 | 返回可解释冲突类别 |
 
 硬约束验证器独立于求解器实现，用于复核每个返回方案。
@@ -185,6 +185,15 @@
 - Markdown 编辑使用乐观版本并完整替换旧 chunks；过期版本返回冲突。
 - 删除清理 Qdrant 后保留 tombstone，重复部署期导入不会恢复；管理员显式上传同一 documentId 可以恢复。
 - 上传大小、扩展名、Base64、Front Matter、PDF 元数据与正文长度均有边界测试。
+- 启动预热后重复 query 命中有界向量缓存；Embedding 超时/失败时在 8 秒预算内走关键词降级，引用仍来自真实 Qdrant payload。
+- 长时间空闲后的保温任务不会创建第二份模型实例，失败只记录告警且不终止 API 进程。
+
+## 5.1 会话恢复与账号隔离测试
+
+- 账号 A 创建多轮会话并退出，账号 B 登录后列表与详情均不可见；账号 A 再登录可从服务端恢复完整用户可见历史。
+- 同一 `clientRequestId` 重放不会生成重复 USER/ASSISTANT 消息，不同正文复用同一 ID 被稳定拒绝。
+- 多个 `WAITING_CONFIRMATION` Run 可同时发现；列表不含确认令牌，具体 Run 恢复接口才可向所属用户返回令牌。
+- 10 分钟内的草案可继续确认；过期草案仍可见但前端禁用确认。点击重新生成后必须在原 thread 创建新 Run、重新读取当前事实并产生新 token，旧候选/token 不得复用；基线不可恢复时必须展示原因并保留可再次提交的文本。
 
 ## 6. Agent离线评测集
 

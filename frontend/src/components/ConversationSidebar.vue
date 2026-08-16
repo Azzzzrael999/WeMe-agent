@@ -3,7 +3,7 @@
     <div class="conversation-context__identity">
       <span class="conversation-context__mark" aria-hidden="true"><Sparkles :size="15" /></span>
       <div>
-        <strong>MeetOps 编排助手</strong>
+        <strong>WeMe 编排助手</strong>
         <small>你的智能企业会议助手</small>
       </div>
     </div>

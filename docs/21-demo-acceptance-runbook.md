@@ -32,7 +32,7 @@ Remove-Item Env:AGENT_CALLBACK_ENABLED
 
 - 8 个常驻服务均为 `healthy`：frontend、business-service、agent-service、mysql、redis、qdrant、rocketmq-namesrv、rocketmq-broker。
 - `rag-init`、`rocketmq-store-init`、`rocketmq-topic-init` 为 `Exited (0)`，这是正常的一次性任务终态。
-- 浏览器打开 `http://localhost` 可见 MeetOps 登录页。
+- 浏览器打开 `http://localhost` 可见 WeMe 登录页。
 - Agent 使用真实 DeepSeek；RAG 使用本地 BGE-M3、1024 维向量集合 `meeting_policies_bge_m3_v1`。
 
 推荐打开三个观察窗口：
@@ -392,7 +392,7 @@ timezone: Asia/Shanghai
 
 ## 适用范围
 
-本规则只用于 MeetOps 演示验收。
+本规则只用于 WeMe 演示验收。
 
 ## 规则正文
 

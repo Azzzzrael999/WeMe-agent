@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import math
 import re
+import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -63,10 +65,17 @@ class BgeM3EmbeddingProvider:
     device: str = "cpu"
     batch_size: int = 4
     max_length: int = 2048
+    query_cache_size: int = 128
+    query_cache_ttl_seconds: int = 3600
     dimension: int = BGE_M3_VECTOR_SIZE
     model_id: str = "bge-m3-local-dense-v1"
     _model: Any = field(default=None, init=False, repr=False)
     _lock: Lock = field(default_factory=Lock, init=False, repr=False)
+    _cache_lock: Lock = field(default_factory=Lock, init=False, repr=False)
+    _query_cache: OrderedDict[str, tuple[float, tuple[float, ...]]] = field(
+        default_factory=OrderedDict, init=False, repr=False
+    )
+    _last_query_cache_hit: bool = field(default=False, init=False, repr=False)
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         if not texts:
@@ -87,7 +96,30 @@ class BgeM3EmbeddingProvider:
         return self._validate_vectors(vectors, expected_count=len(texts))
 
     def embed_query(self, text: str) -> list[float]:
-        return self.embed_documents([text])[0]
+        normalized = re.sub(r"\s+", " ", text).strip()
+        cache_key = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+        now = time.monotonic()
+        if self.query_cache_size > 0 and self.query_cache_ttl_seconds > 0:
+            with self._cache_lock:
+                cached = self._query_cache.get(cache_key)
+                if cached is not None and now - cached[0] <= self.query_cache_ttl_seconds:
+                    self._query_cache.move_to_end(cache_key)
+                    self._last_query_cache_hit = True
+                    return list(cached[1])
+                if cached is not None:
+                    self._query_cache.pop(cache_key, None)
+        vector = self.embed_documents([normalized])[0]
+        self._last_query_cache_hit = False
+        if self.query_cache_size > 0 and self.query_cache_ttl_seconds > 0:
+            with self._cache_lock:
+                self._query_cache[cache_key] = (time.monotonic(), tuple(vector))
+                self._query_cache.move_to_end(cache_key)
+                while len(self._query_cache) > self.query_cache_size:
+                    self._query_cache.popitem(last=False)
+        return vector
+
+    def last_query_cache_hit(self) -> bool:
+        return self._last_query_cache_hit
 
     def _load_model(self) -> Any:
         if self._model is not None:
@@ -143,6 +175,8 @@ def _cached_embedding_provider(
     device: str,
     batch_size: int,
     max_length: int,
+    query_cache_size: int,
+    query_cache_ttl_seconds: int,
 ) -> EmbeddingProvider:
     if provider_name == "deterministic":
         return DeterministicEmbeddingProvider()
@@ -152,6 +186,8 @@ def _cached_embedding_provider(
             device=device,
             batch_size=batch_size,
             max_length=max_length,
+            query_cache_size=query_cache_size,
+            query_cache_ttl_seconds=query_cache_ttl_seconds,
         )
     raise EmbeddingError(f"unsupported embedding provider: {provider_name}")
 
@@ -163,4 +199,6 @@ def build_embedding_provider(settings: Settings) -> EmbeddingProvider:
         settings.rag_embedding_device,
         settings.rag_embedding_batch_size,
         settings.rag_embedding_max_length,
+        settings.rag_query_cache_size,
+        settings.rag_query_cache_ttl_seconds,
     )

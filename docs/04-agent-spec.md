@@ -35,6 +35,7 @@ Scheduling Agent 使用有界 `PLAN -> ACT -> OBSERVE -> VERIFY -> SOLVE/REPLAN`
 - Java `BOOKING_RESULT.CONFLICT` 仍是最终事实；Python 从回调、失败草案和原始约束派生 `ConflictRepairFeedback`。
 - Feedback 至少包含 conflictType、failedCandidateId、preservedConstraints、excludedCandidateIds、replanCount 和可向用户展示的变更原因。
 - 重规划必须重新读取 Java 忙闲/房间事实、排除失败候选、保留硬约束并重新经过 OR-Tools 与独立 Validator。
+- 最终确认已经提供可信的结构化冲突反馈，因此冲突后的事实刷新和求解走确定性节点，不再消耗模型调用额度；即使前序多轮需求补全已用完模型预算，也必须优先返回新的候选或结构化无解结果，不能以 `BUDGET_EXHAUSTED` 覆盖真实冲突。
 - 只有候选或约束发生真实变化才生成新草案；重复候选、超过2次冲突或必须放宽硬约束时停止并请求用户决策。
 
 ### 0.5 Trace 与评测
@@ -61,7 +62,9 @@ Scheduling Agent 使用有界 `PLAN -> ACT -> OBSERVE -> VERIFY -> SOLVE/REPLAN`
 - `WAITING_USER_INPUT` checkpoint 保留部分 Draft、槽位来源、revision 和已验证通讯录结果。`POST /agent-runs/{runId}/input` 在运行锁内校验归属、状态、revision 和 `clientRequestId`，合并新一轮 `RequirementDelta` 后从 Requirement 重新执行；同一 Run 的模型/Tool/图预算继续累计。
 - 前端最近任务按对话 `threadId` 聚合，而不是按单次 `runId` 平铺：每个对话只显示一项，标题保留首个问题、状态和跳转目标使用最近一次 Run，进入后恢复该线程已保存的全部用户问题与 Agent 回答。线程内的所有问题仍可被侧栏搜索。
 - 人员修改必须先确定 ADD/REMOVE/REPLACE，再作用于上一版已验证名单；REMOVE 只允许删除旧名单中被用户点名且带删除语义的人员。人员变化后必须同步过滤 `resolvedEmployees`、重算容量并重新验证新增姓名。
-- FAILED Run 的普通继续输入创建新 Run，并通过显式 `baseRunId` 继承最后有效 Requirement 基线。继承仅允许同用户、同 thread 的 FAILED Run；所有运行预算、候选、草案、HITL 令牌、业务结果和工具幂等状态必须重置。
+- FAILED Run 的普通继续输入创建新 Run，并通过显式 `baseRunId` 继承最后有效 Requirement 基线；确认令牌已经过期的 `WAITING_CONFIRMATION` Run 仅允许在用户显式点击重新生成时走同一入口。继承只允许同用户、同 thread 的上述两种来源；所有运行预算、候选、草案、HITL 令牌、业务结果和工具幂等状态必须重置。未过期待确认、成功或已拒绝 Run 不可作为基线。
+- 对话历史以 Python `agent_message` 为事实源。用户输入在执行工作流前幂等持久化，用户可见回答在暂停或终态时持久化；SSE 断开不得导致已提交消息从历史中消失。Trace 继续只保存摘要，两者不得混用。
+- 会话列表和详情只按当前 AgentContext `sub` 查询。退出时清除浏览器缓存是必要的账号隔离动作，重新登录后必须通过服务端 thread/message API 重建最近任务和完整用户可见历史。
 
 ## 1. 目标
 
@@ -459,7 +462,7 @@ totalCost =
 
 - 求得最优方案后记录结果。
 - 增加排除该候选的no-good约束。
-- 最多重复3次。
+- 最多重复3次；存在多个满足全部硬约束的会议室时，先为不同会议室各选取其最优候选，只有可行会议室不足3间时才用同一会议室的其他开始时间补足。
 - 返回每个方案的总成本和分项成本。
 
 ### 10.6 无解处理
@@ -573,6 +576,13 @@ totalCost =
 生产集合固定使用版本化新名称 `meeting_policies_bge_m3_v1`，不原地改写旧 64 维集合；运行时不自动注入内置 seed，4 条 `SEED_CHUNKS` 只供 `InMemoryPolicyRetriever` 测试使用。
 
 回答必须带文档名、标题路径和页码或chunkId。
+
+### 11.5 性能与降级
+
+- 常驻 API 启动时执行真实 BGE-M3 query embedding，并按环境变量配置的间隔周期保温；Embedding Provider、Qdrant Client 和 DeepSeek HTTP Client 必须在进程内复用。
+- 规范化 query 的向量允许使用有界进程内 TTL 缓存。缓存只保存 query 摘要键和向量，不保存用户身份、令牌或 Agent checkpoint。
+- Query embedding 默认最多等待 8 秒。超时或 Embedding 不可用时，从当前 Qdrant collection 的受控 payload 中执行有界关键词降级；降级结果仍必须经过 `open_policy_chunks` 并提供真实 chunk 引用。Qdrant 同时不可用时返回无证据状态，不允许模型补造制度。
+- 日志分别记录 `embeddingMs/vectorSearchMs/totalMs/cacheHit/fallback`，不得记录完整用户问题。Scheduling Tool Loop 最多 4 轮；确定性验证确认事实齐备后立即进入求解，不再要求额外的空 Tool 模型轮次。
 
 ## 12. 用户偏好
 

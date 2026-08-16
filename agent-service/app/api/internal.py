@@ -10,13 +10,13 @@ import uuid
 from collections.abc import Callable, Iterator
 from contextlib import suppress
 from datetime import datetime
-from functools import wraps
+from functools import lru_cache, wraps
 from queue import Empty, Queue
 from threading import Thread
 from typing import Annotated, Any, ParamSpec, TypeVar
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Path, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Response, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
@@ -92,16 +92,22 @@ def get_repository() -> MetadataRepository:
     return MetadataRepository(get_engine())
 
 
-def get_model_provider(
-    settings: Annotated[Settings, Depends(get_settings)],
-) -> ModelProvider:
-    return build_model_provider(settings)
+@lru_cache(maxsize=1)
+def _shared_model_provider() -> ModelProvider:
+    return build_model_provider(get_settings())
 
 
-def get_policy_retriever(
-    settings: Annotated[Settings, Depends(get_settings)],
-) -> PolicyRetriever:
-    return build_policy_retriever(settings)
+def get_model_provider() -> ModelProvider:
+    return _shared_model_provider()
+
+
+@lru_cache(maxsize=1)
+def _shared_policy_retriever() -> PolicyRetriever:
+    return build_policy_retriever(get_settings())
+
+
+def get_policy_retriever() -> PolicyRetriever:
+    return _shared_policy_retriever()
 
 
 def get_java_tools(
@@ -256,7 +262,7 @@ def stream_agent_run(
         repository.ensure_thread(
             thread_id=thread_id,
             user_id=context.user_id,
-            title="会议智能调度会话",
+            title=body.message,
         )
         if body.base_run_id is not None:
             base_run = repository.get_run(body.base_run_id)
@@ -264,7 +270,11 @@ def stream_agent_run(
                 base_run is None
                 or base_run.user_id != context.user_id
                 or base_run.thread_id != thread_id
-                or base_run.status != RunStatus.FAILED.value
+                or base_run.status
+                not in {
+                    RunStatus.FAILED.value,
+                    RunStatus.WAITING_CONFIRMATION.value,
+                }
             ):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -275,7 +285,22 @@ def stream_agent_run(
                 thread_id=base_run.thread_id,
                 run_id=base_run.run_id,
             )
-            if baseline is None or baseline.requirement_draft is None:
+            expired_confirmation_baseline = (
+                base_run.status == RunStatus.WAITING_CONFIRMATION.value
+                and baseline is not None
+                and baseline.status is RunStatus.WAITING_CONFIRMATION
+                and baseline.draft_expires_at is not None
+                and baseline.draft_expires_at
+                <= datetime.now(ZoneInfo(settings.app_timezone))
+            )
+            if (
+                baseline is None
+                or baseline.requirement_draft is None
+                or (
+                    base_run.status != RunStatus.FAILED.value
+                    and not expired_confirmation_baseline
+                )
+            ):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="REQUIREMENT_BASELINE_NOT_RECOVERABLE",
@@ -286,6 +311,14 @@ def stream_agent_run(
             trace_id=context.trace_id,
             user_id=context.user_id,
             question_summary=question_summary(body.message),
+        )
+        repository.record_message(
+            thread_id=thread_id,
+            run_id=context.run_id,
+            user_id=context.user_id,
+            role="USER",
+            content=body.message,
+            client_request_id=body.client_request_id,
         )
     except HTTPException:
         raise
@@ -359,6 +392,7 @@ def stream_agent_run(
                 fallback_state=initial_state,
                 started_at=started,
                 operation=lambda: workflow.stream(initial_state),
+                client_request_id=body.client_request_id,
             )
 
     return _streaming_response(_start_sse_producer(produce))
@@ -415,6 +449,17 @@ def resume_agent_run(
                         status_code=status.HTTP_409_CONFLICT,
                         detail="CONFIRMATION_TOKEN_INVALID",
                     )
+                resume_message_key = _resume_message_key(
+                    run_id, state.draft_generation, body.action
+                )
+                repository.record_message(
+                    thread_id=run.thread_id,
+                    run_id=run_id,
+                    user_id=context.user_id,
+                    role="USER",
+                    content=_resume_user_message(body),
+                    client_request_id=resume_message_key,
+                )
             except HTTPException as exc:
                 startup.put(exc)
                 return
@@ -438,6 +483,7 @@ def resume_agent_run(
                 fallback_state=state,
                 started_at=started,
                 operation=lambda: workflow.resume(state, body),
+                client_request_id=resume_message_key,
             )
 
     stream = _start_sse_producer(produce)
@@ -540,6 +586,14 @@ def continue_agent_run_input(
                         ][-20:],
                     }
                 )
+                repository.record_message(
+                    thread_id=run.thread_id,
+                    run_id=run_id,
+                    user_id=context.user_id,
+                    role="USER",
+                    content=body.message,
+                    client_request_id=body.client_request_id,
+                )
             except HTTPException as exc:
                 startup.put(exc)
                 return
@@ -572,6 +626,7 @@ def continue_agent_run_input(
                 fallback_state=continuation_state,
                 started_at=started,
                 operation=lambda: workflow.stream(continuation_state),
+                client_request_id=body.client_request_id,
             )
 
     stream = _start_sse_producer(produce)
@@ -804,6 +859,56 @@ def receive_business_result(
         ) from exc
 
 
+@router.get("/agent-threads")
+def list_agent_threads(
+    context: Annotated[AgentContext, Depends(get_agent_context)],
+    repository: Annotated[MetadataRepository, Depends(get_repository)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    size: Annotated[int, Query(ge=1, le=100)] = 20,
+    latest_status: Annotated[str | None, Query(alias="status", max_length=32)] = None,
+) -> JSONResponse:
+    allowed_statuses = {item.value for item in RunStatus}
+    if latest_status is not None and latest_status not in allowed_statuses:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="INVALID_STATUS",
+        )
+    try:
+        result = repository.list_threads(
+            user_id=context.user_id,
+            page=page,
+            size=size,
+            latest_status=latest_status,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AGENT_METADATA_UNAVAILABLE",
+        ) from exc
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/agent-threads/{thread_id}")
+def get_agent_thread(
+    thread_id: Annotated[str, Path(min_length=1, max_length=64)],
+    context: Annotated[AgentContext, Depends(get_agent_context)],
+    repository: Annotated[MetadataRepository, Depends(get_repository)],
+) -> JSONResponse:
+    try:
+        result = repository.get_thread(thread_id=thread_id, user_id=context.user_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AGENT_METADATA_UNAVAILABLE",
+        ) from exc
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="AGENT_THREAD_NOT_FOUND",
+        )
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+
 @router.get("/agent-runs/{run_id}")
 def get_agent_run(
     run_id: Annotated[str, Path(min_length=1, max_length=64)],
@@ -834,8 +939,22 @@ def get_agent_run(
         checkpoint_saver=checkpoint_saver,
     )
     state = _load_checkpoint_or_503(workflow=workflow, thread_id=run.thread_id, run_id=run_id)
-    if state is not None and state.unsat_analysis is not None:
-        view["unsatAnalysis"] = state.unsat_analysis.model_dump(by_alias=True, mode="json")
+    if state is not None:
+        view["citations"] = [
+            citation.model_dump(by_alias=True, mode="json") for citation in state.citations
+        ]
+        if state.unsat_analysis is not None:
+            view["unsatAnalysis"] = state.unsat_analysis.model_dump(by_alias=True, mode="json")
+        if state.requirement_draft is not None:
+            view.update(
+                {
+                    "requirementRevision": state.requirement_revision,
+                    "requirementItems": [
+                        item.model_dump(by_alias=True, mode="json")
+                        for item in state.requirement_items
+                    ],
+                }
+            )
     if (
         state is not None
         and state.status is RunStatus.WAITING_CONFIRMATION
@@ -853,23 +972,18 @@ def get_agent_run(
                 "draft": _visible_draft(state),
                 "confirmationToken": state.confirmation_token,
                 "expiresAt": state.draft_expires_at.isoformat(),
+                "requirementBaselineAvailable": (
+                    state.requirement_draft is not None
+                    and state.draft_expires_at
+                    <= datetime.now(ZoneInfo(settings.app_timezone))
+                ),
             }
         )
-    elif (
-        state is not None
-        and state.requirement_draft is not None
-        and run.status in {RunStatus.WAITING_USER_INPUT.value, RunStatus.FAILED.value}
-    ):
-        view.update(
-            {
-                "requirementRevision": state.requirement_revision,
-                "requirementItems": [
-                    item.model_dump(by_alias=True, mode="json")
-                    for item in state.requirement_items
-                ],
-                "requirementBaselineAvailable": run.status == RunStatus.FAILED.value,
-            }
-        )
+    elif state is not None and state.requirement_draft is not None and run.status in {
+        RunStatus.WAITING_USER_INPUT.value,
+        RunStatus.FAILED.value,
+    }:
+        view["requirementBaselineAvailable"] = run.status == RunStatus.FAILED.value
     return JSONResponse(view, headers={"Cache-Control": "no-store"})
 
 
@@ -924,6 +1038,7 @@ def _finish_stream(
     workflow: WorkflowRun,
     fallback_state: AgentState,
     duration_ms: int,
+    client_request_id: str,
 ) -> Iterator[str]:
     final_state = workflow.latest_state or fallback_state
     if final_state.status in {RunStatus.WAITING_CONFIRMATION, RunStatus.WAITING_BUSINESS_RESULT}:
@@ -938,6 +1053,11 @@ def _finish_stream(
             error_code=None,
             runtime=_runtime_stats(final_state),
         )
+        _record_assistant_message(
+            repository=repository,
+            state=final_state,
+            client_request_id=client_request_id,
+        )
         return
     repository.complete_run(
         run_id=final_state.run_id,
@@ -949,6 +1069,11 @@ def _finish_stream(
         duration_ms=duration_ms,
         error_code=None,
         runtime=_runtime_stats(final_state),
+    )
+    _record_assistant_message(
+        repository=repository,
+        state=final_state,
+        client_request_id=client_request_id,
     )
     yield _sse(
         "run.completed",
@@ -971,6 +1096,7 @@ def _fail_stream(
     fallback_state: AgentState,
     duration_ms: int,
     error: WorkflowError,
+    client_request_id: str,
 ) -> Iterator[str]:
     failed_state = workflow.latest_state or fallback_state
     terminal_code = (
@@ -988,6 +1114,13 @@ def _fail_stream(
         duration_ms=duration_ms,
         error_code=terminal_code,
         runtime=_runtime_stats(failed_state),
+    )
+    _record_assistant_message(
+        repository=repository,
+        state=failed_state,
+        client_request_id=client_request_id,
+        content=error.message,
+        error_code=terminal_code,
     )
     yield _sse(
         "run.failed",
@@ -1012,6 +1145,70 @@ def _runtime_stats(state: AgentState) -> dict[str, object]:
         "cacheHitTokens": state.cache_hit_tokens,
         "cacheMissTokens": state.cache_miss_tokens,
     }
+
+
+def _resume_message_key(run_id: str, generation: int, action: object) -> str:
+    digest = hashlib.sha256(
+        f"{run_id}:{generation}:{action}".encode()
+    ).hexdigest()
+    return f"resume_{digest[:48]}"
+
+
+def _resume_user_message(body: AgentResumeRequest) -> str:
+    labels = {
+        "ACCEPT": "确认执行会议草案",
+        "EDIT": "编辑会议草案并重新校验",
+        "REJECT": "拒绝会议草案",
+    }
+    message = labels[body.action.value]
+    if body.feedback is not None and body.feedback.strip():
+        return f"{message}：{body.feedback.strip()}"
+    return message
+
+
+def _record_assistant_message(
+    *,
+    repository: MetadataRepository,
+    state: AgentState,
+    client_request_id: str,
+    content: str | None = None,
+    error_code: str | None = None,
+) -> None:
+    visible_content = content or state.answer_summary or _paused_answer(state.status)
+    payload: dict[str, object] = {
+        "status": state.status.value,
+        "citations": [
+            citation.model_dump(by_alias=True, mode="json") for citation in state.citations
+        ],
+    }
+    if state.unsat_analysis is not None:
+        payload["unsatAnalysis"] = state.unsat_analysis.model_dump(by_alias=True, mode="json")
+    if error_code is not None:
+        payload["errorCode"] = error_code
+    try:
+        repository.record_message(
+            thread_id=state.thread_id,
+            run_id=state.run_id,
+            user_id=state.user_id,
+            role="ASSISTANT",
+            content=visible_content,
+            client_request_id=client_request_id,
+            visible_payload=payload,
+        )
+    except Exception:
+        logger.exception("Unable to persist visible Agent reply for run %s", state.run_id)
+
+
+def _paused_answer(run_status: RunStatus) -> str:
+    if run_status is RunStatus.WAITING_CONFIRMATION:
+        return "已生成会议草案，等待你的确认。"
+    if run_status is RunStatus.WAITING_BUSINESS_RESULT:
+        return "预约请求已受理，正在等待业务处理结果。"
+    if run_status is RunStatus.WAITING_USER_INPUT:
+        return "会议需求已保存，请补充缺失信息后继续。"
+    return "本次智能编排已更新。"
+
+
 def _baseline_resolved_employees(state: AgentState) -> list[Participant]:
     draft = state.requirement_draft
     if draft is None:
@@ -1189,6 +1386,7 @@ def _emit_workflow_sse_frames(
     fallback_state: AgentState,
     started_at: float,
     operation: Callable[[], Iterator[tuple[str, dict[str, object]]]],
+    client_request_id: str,
 ) -> None:
     """Execute and frame a graph without letting its iterator leave its thread."""
 
@@ -1200,6 +1398,7 @@ def _emit_workflow_sse_frames(
             workflow=workflow,
             fallback_state=fallback_state,
             duration_ms=int((time.perf_counter() - started_at) * 1000),
+            client_request_id=client_request_id,
         ):
             frames.put(frame)
     except WorkflowError as exc:
@@ -1209,6 +1408,7 @@ def _emit_workflow_sse_frames(
             fallback_state=fallback_state,
             duration_ms=int((time.perf_counter() - started_at) * 1000),
             error=exc,
+            client_request_id=client_request_id,
         ):
             frames.put(frame)
 

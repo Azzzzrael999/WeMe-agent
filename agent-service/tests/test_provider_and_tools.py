@@ -734,6 +734,10 @@ def test_clarification_response_rejects_internal_code_and_effect_claim() -> None
 def test_route_evaluator_distinguishes_mutation_rules_from_mutation_request() -> None:
     evaluator = RouteEvaluator()
 
+    assert evaluator.fallback("接待重要用户能直接使用vip会议室吗") == (
+        Route.POLICY,
+        Intent.QUERY_POLICY,
+    )
     assert evaluator.fallback("会议取消和改期有哪些规则？") == (
         Route.POLICY,
         Intent.QUERY_POLICY,
@@ -1478,7 +1482,7 @@ def test_participant_removal_and_addition_are_applied_in_one_continuation() -> N
 def test_create_continuation_time_change_does_not_become_reschedule() -> None:
     previous = RequirementDraft(
         intent=Intent.CREATE_MEETING,
-        duration_minutes=180,
+        duration_minutes=60,
         time_window=TimeWindow(
             start=datetime.fromisoformat("2026-08-25T13:00:00+08:00"),
             end=datetime.fromisoformat("2026-08-25T16:00:00+08:00"),
@@ -1526,6 +1530,10 @@ def test_create_continuation_time_change_does_not_become_reschedule() -> None:
     assert updated.intent is Intent.CREATE_MEETING
     assert updated.meeting_request is not None
     assert updated.meeting_request.intent is Intent.CREATE_MEETING
+    assert updated.meeting_request.duration_minutes == 60
+    assert updated.meeting_request.time_window is not None
+    assert updated.meeting_request.time_window.start.isoformat() == "2026-08-26T09:00:00+08:00"
+    assert updated.meeting_request.time_window.end.isoformat() == "2026-08-26T12:00:00+08:00"
 
 
 def test_requirement_derives_duration_only_from_explicit_fixed_interval() -> None:
@@ -1597,6 +1605,56 @@ def test_past_current_month_default_is_clarified_without_rolling_forward() -> No
     assert "TIME_WINDOW_IN_PAST" in updated.missing_fields
     assert updated.requirement_items[0].status.value == "CONFLICT"
     assert updated.requirement_items[0].blocking is True
+
+
+def test_spaced_absolute_date_and_first_person_enumeration_are_normalized() -> None:
+    message = (
+        "请在 2026 年 8 月 26 日 13:00 到 15:00 之间安排 60 分钟会议，"
+        "我，李四，王五，赵六，没有设备要求"
+    )
+    extraction = json.dumps(
+        {
+            "requirementDraft": {
+                "intent": "CREATE_MEETING",
+                "durationMinutes": 60,
+                "timeWindow": {
+                    "start": "2026-08-15T13:00:00+08:00",
+                    "end": "2026-08-15T15:00:00+08:00",
+                },
+                "requiredParticipantNames": ["李四", "王五", "赵六"],
+                "requiredFeatures": [],
+                "fieldEvidence": [],
+                "summary": "安排会议",
+            },
+            "missingFields": [],
+        },
+        ensure_ascii=False,
+    )
+    state = AgentState(
+        thread_id="thread_spaced_date",
+        run_id="run_spaced_date",
+        trace_id="trc_spaced_date",
+        user_id=1001,
+        roles=["EMPLOYEE"],
+        message=message,
+        request_time=datetime.fromisoformat("2026-08-15T09:00:00+08:00"),
+    )
+
+    updated, _, _, _ = RequirementAgent(
+        provider=QueueProvider([extraction]),
+        runner=StructuredModelRunner(),
+    ).execute(state)
+
+    assert updated.requirement_draft is not None
+    assert updated.requirement_draft.time_window is not None
+    assert updated.requirement_draft.time_window.start.isoformat() == "2026-08-26T13:00:00+08:00"
+    assert updated.requirement_draft.time_window.end.isoformat() == "2026-08-26T15:00:00+08:00"
+    assert updated.requirement_draft.includes_current_user is True
+    assert updated.optional_requirements_closed is True
+    optional = next(
+        item for item in updated.requirement_items if item.field == "optionalRequirements"
+    )
+    assert optional.status.value == "CLOSED"
 
 
 def test_requirement_uses_supervisor_create_intent_without_rewriting_faithful_fields() -> None:

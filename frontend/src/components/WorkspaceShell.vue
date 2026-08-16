@@ -9,9 +9,9 @@
       :inert="!mobileOpen && mobileViewport"
     >
       <div class="workspace-brand">
-        <div class="brand-mark" aria-hidden="true">M</div>
+        <div class="brand-mark" aria-hidden="true">W</div>
         <div class="workspace-brand__copy">
-          <strong>MeetOps</strong>
+          <strong>WeMe</strong>
           <span>会议协作编排</span>
         </div>
         <button class="icon-button mobile-close" type="button" aria-label="关闭导航" @click="closeMobileNavigation()">
@@ -173,16 +173,17 @@ import {
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, type Component } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 
+import { apiRequest } from '@/api/client'
+import type { AgentThreadList } from '@/api/types'
 import { authStore } from '@/auth/store'
 import { notificationStore } from '@/notifications/store'
 
-const CHAT_ACTIVE_RUN_STORAGE_KEY = 'meetops.chat-active-run.v1'
-const CHAT_ACTIVE_THREAD_STORAGE_KEY = 'meetops.chat-active-thread.v1'
-const CHAT_SUPPRESS_RESTORE_STORAGE_KEY = 'meetops.chat-suppress-restore.v1'
-const CHAT_RUN_CONTEXT_STORAGE_KEY = 'meetops.chat-run-context.v1'
-const CHAT_SESSION_STORAGE_PREFIX = 'meetops.chat-'
-const CHAT_CONTEXT_EVENT = 'meetops:chat-context-updated'
-const NEW_CONVERSATION_EVENT = 'meetops:new-conversation'
+const CHAT_ACTIVE_RUN_STORAGE_KEY = 'weme.chat-active-run.v1'
+const CHAT_ACTIVE_THREAD_STORAGE_KEY = 'weme.chat-active-thread.v1'
+const CHAT_SUPPRESS_RESTORE_STORAGE_KEY = 'weme.chat-suppress-restore.v1'
+const CHAT_RUN_CONTEXT_STORAGE_KEY = 'weme.chat-run-context.v1'
+const CHAT_CONTEXT_EVENT = 'weme:chat-context-updated'
+const NEW_CONVERSATION_EVENT = 'weme:new-conversation'
 const SAFE_ID = /^[A-Za-z0-9_-]{1,64}$/
 
 interface NavigationItem {
@@ -202,7 +203,7 @@ interface RecentTask {
 
 const router = useRouter()
 const route = useRoute()
-const collapsed = ref(window.localStorage.getItem('meetops.sidebar') === 'collapsed')
+const collapsed = ref(window.localStorage.getItem('weme.sidebar') === 'collapsed')
 const mobileOpen = ref(false)
 const mobileToggleRef = ref<HTMLButtonElement | null>(null)
 const sidebarRef = ref<HTMLElement | null>(null)
@@ -262,10 +263,10 @@ const currentSectionTitle = computed(() => {
     'meeting-lifecycle': '会前会后',
     'knowledge-documents': '知识库',
   }
-  return typeof route.name === 'string' ? labels[route.name] ?? 'MeetOps' : 'MeetOps'
+  return typeof route.name === 'string' ? labels[route.name] ?? 'WeMe' : 'WeMe'
 })
 
-function readRecentTasks(): void {
+function readLocalRecentTasks(): void {
   const storedActiveRun = window.sessionStorage.getItem(CHAT_ACTIVE_RUN_STORAGE_KEY)
   activeRunId.value = storedActiveRun !== null && SAFE_ID.test(storedActiveRun) ? storedActiveRun : null
 
@@ -322,6 +323,34 @@ function readRecentTasks(): void {
   }
 }
 
+async function readRecentTasks(): Promise<void> {
+  const storedActiveRun = window.sessionStorage.getItem(CHAT_ACTIVE_RUN_STORAGE_KEY)
+  activeRunId.value = storedActiveRun !== null && SAFE_ID.test(storedActiveRun)
+    ? storedActiveRun
+    : null
+  try {
+    const result = await apiRequest<AgentThreadList>('/agent/threads?page=1&size=20')
+    recentTasks.value = result.items.map((thread) => {
+      const question = thread.title.trim() || thread.questionPreview.trim() || '未命名智能编排'
+      const updatedAt = Date.parse(thread.updatedAt)
+      return {
+        runId: thread.latestRunId,
+        threadId: thread.threadId,
+        question,
+        searchText: [thread.title, thread.questionPreview, thread.answerPreview ?? ''].join('\n'),
+        status: thread.latestStatus,
+        updatedAt: Number.isFinite(updatedAt) ? updatedAt : 0,
+      }
+    }).slice(0, 4)
+    const suppressRestore = window.sessionStorage.getItem(CHAT_SUPPRESS_RESTORE_STORAGE_KEY) === 'true'
+    if (activeRunId.value === null && !suppressRestore) {
+      activeRunId.value = result.items[0]?.latestRunId ?? null
+    }
+  } catch {
+    readLocalRecentTasks()
+  }
+}
+
 function taskStatusLabel(status: string): string {
   if (status === 'RUNNING') return '运行中'
   if (status === 'WAITING_CONFIRMATION') return '待确认'
@@ -343,7 +372,7 @@ async function newOrchestration(): Promise<void> {
   } else {
     await router.push({ name: 'chat' })
   }
-  readRecentTasks()
+  void readRecentTasks()
 }
 
 function updateViewport(): void {
@@ -396,21 +425,16 @@ function handleNavigationKeydown(event: KeyboardEvent): void {
 async function logout(): Promise<void> {
   authStore.clearSession()
   notificationStore.setUnreadCount(0)
-  for (const key of Object.keys(window.sessionStorage)) {
-    if (key.startsWith(CHAT_SESSION_STORAGE_PREFIX)) {
-      window.sessionStorage.removeItem(key)
-    }
-  }
   await router.replace({ name: 'login' })
 }
 
 watch(collapsed, (value) => {
-  window.localStorage.setItem('meetops.sidebar', value ? 'collapsed' : 'expanded')
+  window.localStorage.setItem('weme.sidebar', value ? 'collapsed' : 'expanded')
 })
-watch(() => route.fullPath, () => readRecentTasks())
+watch(() => route.fullPath, () => void readRecentTasks())
 
 onMounted(() => {
-  readRecentTasks()
+  void readRecentTasks()
   window.addEventListener(CHAT_CONTEXT_EVENT, readRecentTasks)
   window.addEventListener('storage', readRecentTasks)
   window.addEventListener('resize', updateViewport)

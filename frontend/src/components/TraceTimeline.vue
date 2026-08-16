@@ -115,7 +115,7 @@ const activities = computed<TraceActivity[]>(() => {
     summary: toolSummary(tool),
     createdAt: 'createdAt' in tool ? tool.createdAt : null,
     durationMs: tool.durationMs,
-    errorCode: tool.status === 'FAILED' ? 'TOOL_CALL_FAILED' : null,
+    errorCode: toolErrorCode(tool),
     riskLevel: tool.riskLevel,
     inputSummary: toolArgs(tool) === null ? null : '仅展示服务端脱敏后的参数摘要。',
     outputSummary: toolSummary(tool),
@@ -170,6 +170,12 @@ function toolArgs(tool: Tool): Record<string, unknown> | null {
 }
 function toolSummary(tool: Tool): string {
   return 'resultSummary' in tool ? tool.resultSummary : tool.summary
+}
+
+function toolErrorCode(tool: Tool): string | null {
+  if (tool.status !== 'FAILED') return null
+  const args = toolArgs(tool)
+  return typeof args?.errorCode === 'string' ? args.errorCode : 'TOOL_CALL_FAILED'
 }
 function loopStatus(loop: AgentLoopEvent): string {
   if (loop.stopReason === 'COMPLETED' || loop.stopReason === 'READY_FOR_CONFIRMATION') return 'SUCCEEDED'

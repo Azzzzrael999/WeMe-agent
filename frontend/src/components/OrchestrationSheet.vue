@@ -40,7 +40,7 @@
               <div><span>需求解析</span><h3>需求与确认草案</h3></div>
               <StatusBadge v-if="actionType" status="PENDING" :label="operationLabel" />
             </div>
-            <RequirementSummary :action-type="actionType" :draft="draft" />
+            <RequirementSummary :action-type="actionType" :draft="draft" :items="requirementItems" />
             <section v-if="draft && actionType && confirmationToken" class="sheet-hitl-panel" aria-labelledby="sheet-hitl-title">
               <div class="sheet-hitl-panel__heading">
                 <span aria-hidden="true"><ShieldCheck :size="18" /></span>
@@ -113,6 +113,7 @@ import type {
   AgentHitlDraft,
   AgentLoopEvent,
   AgentOperationType,
+  AgentRequirementItem,
   AgentRunSummary,
   AgentStepEvent,
   AgentToolEvent,
@@ -134,6 +135,7 @@ const props = defineProps<{
   runStatus: string
   candidates: readonly AgentCandidate[]
   citations: readonly AgentCitation[]
+  requirementItems: readonly AgentRequirementItem[]
   actionType: AgentOperationType | null
   draft: AgentHitlDraft | null
   confirmationToken: string | null

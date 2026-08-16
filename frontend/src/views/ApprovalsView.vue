@@ -2,11 +2,10 @@
   <AppShell title="待我确认" eyebrow="工作台 / 待我确认">
     <template #actions>
       <button
-        v-if="activeRunId"
         class="ui-button ui-button--outline"
         type="button"
-        :disabled="loading || decisionBusy"
-        @click="loadApproval"
+        :disabled="loading || decisionRunId !== null"
+        @click="loadApprovals"
       >
         <RefreshCw :size="16" aria-hidden="true" />
         {{ loading ? '刷新中…' : '刷新' }}
@@ -22,39 +21,46 @@
             <span class="approval-count" :aria-label="`共 ${approvalCount} 项`">{{ approvalCount }}</span>
           </div>
         </div>
-        <label v-if="approval" class="approval-filter">
+        <label v-if="approvals.length > 0" class="approval-filter">
           <span>类型</span>
           <select disabled aria-label="审批类型筛选">
-            <option>{{ operationLabel }}</option>
+            <option>全部会议操作</option>
           </select>
         </label>
       </header>
 
-      <ErrorState v-if="errorMessage" :message="errorMessage" retryable @retry="loadApproval" />
-      <LoadingState v-else-if="loading" title="正在加载待确认方案" description="正在同步最新方案状态。" />
-
-      <ApprovalCard
-        v-else-if="approval"
-        :run-id="approval.runId"
-        :action-type="approval.actionType"
-        :draft="approval.draft"
-        :expires-at="approval.expiresAt"
-        :expired="expired"
-        :busy="decisionBusy"
-        :feedback="feedback"
-        @update:feedback="feedback = $event"
-        @accept="resumeRun('ACCEPT')"
-        @reject="resumeRun('REJECT')"
-        @edit="resumeRun('EDIT', $event)"
+      <ErrorState v-if="errorMessage" :message="errorMessage" retryable @retry="loadApprovals" />
+      <LoadingState
+        v-else-if="loading"
+        title="正在加载待确认方案"
+        description="正在同步当前账号的全部待确认草案。"
       />
+
+      <div v-else-if="approvals.length > 0" class="approval-list">
+        <ApprovalCard
+          v-for="item in approvals"
+          :key="item.runId"
+          :run-id="item.runId"
+          :action-type="item.actionType"
+          :draft="item.draft"
+          :expires-at="item.expiresAt"
+          :expired="expired(item)"
+          :busy="decisionRunId === item.runId"
+          :feedback="feedbackByRun[item.runId] ?? ''"
+          @update:feedback="setFeedback(item.runId, $event)"
+          @accept="resumeRun(item, 'ACCEPT')"
+          @reject="resumeRun(item, 'REJECT')"
+          @edit="resumeRun(item, 'EDIT', $event)"
+        />
+      </div>
 
       <div v-else class="approval-empty">
         <EmptyState
           title="没有需要确认的草案"
-          :description="emptyDescription"
+          description="当前账号暂无待确认的会议方案。其他账号的草案不会显示在这里。"
           icon="check"
         >
-          <RouterLink class="ui-button ui-button--default" :to="chatTarget">
+          <RouterLink class="ui-button ui-button--default" :to="{ name: 'chat' }">
             <Sparkles :size="16" aria-hidden="true" />
             返回智能编排
           </RouterLink>
@@ -67,7 +73,7 @@
 <script setup lang="ts">
 import { RefreshCw, Sparkles } from '@lucide/vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { RouterLink } from 'vue-router'
 
 import { readHitlDraft } from '@/api/agent-view'
 import { ApiError, apiRequest, apiSseRequest, type SseMessage } from '@/api/client'
@@ -76,6 +82,7 @@ import type {
   AgentOperationType,
   AgentResumeAction,
   AgentRunRecovery,
+  AgentThreadList,
 } from '@/api/types'
 import ApprovalCard from '@/components/ApprovalCard.vue'
 import AppShell from '@/components/AppShell.vue'
@@ -91,131 +98,126 @@ interface ApprovalViewModel {
   expiresAt?: string
 }
 
-const CHAT_ACTIVE_RUN_STORAGE_KEY = 'meetops.chat-active-run.v1'
-const SAFE_RUN_ID = /^[A-Za-z0-9_-]{1,64}$/
-
-const route = useRoute()
-const activeRunId = ref<string | null>(null)
-const approval = ref<ApprovalViewModel | null>(null)
+const approvals = ref<ApprovalViewModel[]>([])
 const loading = ref(false)
-const decisionBusy = ref(false)
+const decisionRunId = ref<string | null>(null)
 const errorMessage = ref('')
-const feedback = ref('')
+const feedbackByRun = ref<Record<string, string>>({})
 const now = ref(Date.now())
 let timer: ReturnType<typeof setInterval> | null = null
 
-const approvalCount = computed(() => approval.value === null ? 0 : 1)
-const operationLabel = computed(() => approval.value === null ? '' : ({
-  CREATE: '创建会议', RESCHEDULE: '会议改期', CANCEL: '取消会议',
-})[approval.value.actionType])
-const expired = computed(() => {
-  const expiresAt = approval.value?.expiresAt
-  if (expiresAt === undefined) return false
-  const expiry = Date.parse(expiresAt)
-  return Number.isFinite(expiry) && expiry <= now.value
-})
-const chatTarget = computed(() => activeRunId.value === null
-  ? { name: 'chat' as const }
-  : { name: 'chat' as const, query: { runId: activeRunId.value } })
-const emptyDescription = computed(() => activeRunId.value === null
-  ? '暂无需要确认的会议方案。'
-  : '当前任务没有需要确认的会议方案。')
+const approvalCount = computed(() => approvals.value.length)
 
-function resolveActiveRunId(): string | null {
-  const queryRunId = route.query.runId
-  if (typeof queryRunId === 'string' && SAFE_RUN_ID.test(queryRunId)) return queryRunId
-  const stored = window.sessionStorage.getItem(CHAT_ACTIVE_RUN_STORAGE_KEY)
-  return stored !== null && SAFE_RUN_ID.test(stored) ? stored : null
+function expired(approval: ApprovalViewModel): boolean {
+  if (approval.expiresAt === undefined) return false
+  const expiry = Date.parse(approval.expiresAt)
+  return Number.isFinite(expiry) && expiry <= now.value
 }
 
-async function loadApproval(): Promise<void> {
-  if (loading.value || decisionBusy.value) return
-  const runId = resolveActiveRunId()
-  activeRunId.value = runId
-  approval.value = null
-  feedback.value = ''
-  errorMessage.value = ''
-  if (runId === null) return
+function setFeedback(runId: string, feedback: string): void {
+  feedbackByRun.value = { ...feedbackByRun.value, [runId]: feedback }
+}
 
+function recoveryToApproval(recovery: AgentRunRecovery): ApprovalViewModel | null {
+  if (recovery.status !== 'WAITING_CONFIRMATION' || recovery.draft === undefined) return null
+  const parsed = readHitlDraft(recovery.draft, recovery.actionType ?? recovery.operationType)
+  if (
+    parsed === null
+    || typeof recovery.confirmationToken !== 'string'
+    || recovery.confirmationToken.length === 0
+  ) return null
+  return {
+    runId: recovery.runId,
+    actionType: parsed.actionType,
+    draft: parsed.draft,
+    confirmationToken: recovery.confirmationToken,
+    ...(recovery.expiresAt === undefined ? {} : { expiresAt: recovery.expiresAt }),
+  }
+}
+
+async function loadApprovals(): Promise<void> {
+  if (loading.value) return
   loading.value = true
+  errorMessage.value = ''
   try {
-    const recovery = await apiRequest<AgentRunRecovery>(`/agent/runs/${runId}`)
-    if (recovery.status !== 'WAITING_CONFIRMATION') return
-    const parsed = recovery.draft === undefined
-      ? null
-      : readHitlDraft(recovery.draft, recovery.actionType ?? recovery.operationType)
-    if (parsed === null || typeof recovery.confirmationToken !== 'string' || recovery.confirmationToken.length === 0) {
-      errorMessage.value = '当前任务正在等待确认，但暂时无法恢复确认方案。'
-      return
-    }
-    approval.value = {
-      runId: recovery.runId,
-      actionType: parsed.actionType,
-      draft: parsed.draft,
-      confirmationToken: recovery.confirmationToken,
-      ...(recovery.expiresAt === undefined ? {} : { expiresAt: recovery.expiresAt }),
+    const threads = await apiRequest<AgentThreadList>(
+      '/agent/threads?page=1&size=100&status=WAITING_CONFIRMATION',
+    )
+    const recoveries = await Promise.allSettled(
+      threads.items.map((thread) => apiRequest<AgentRunRecovery>(
+        `/agent/runs/${thread.latestRunId}`,
+      )),
+    )
+    approvals.value = recoveries.flatMap((result) => {
+      if (result.status !== 'fulfilled') return []
+      const approval = recoveryToApproval(result.value)
+      return approval === null ? [] : [approval]
+    })
+    if (recoveries.some((result) => result.status === 'rejected') && approvals.value.length === 0) {
+      errorMessage.value = '待确认任务已找到，但暂时无法恢复草案详情，请稍后重试。'
     }
   } catch (error) {
-    errorMessage.value = error instanceof ApiError ? error.message : '无法恢复当前待确认任务。'
+    approvals.value = []
+    errorMessage.value = error instanceof ApiError ? error.message : '无法加载当前账号的待确认任务。'
   } finally {
     loading.value = false
   }
 }
 
 async function resumeRun(
+  approval: ApprovalViewModel,
   action: AgentResumeAction,
   editedDraft?: { roomId?: number; startAt?: string },
 ): Promise<void> {
-  const current = approval.value
-  if (current === null || decisionBusy.value || expired.value) return
-
-  decisionBusy.value = true
+  if (decisionRunId.value !== null || expired(approval)) return
+  decisionRunId.value = approval.runId
   errorMessage.value = ''
-  let pausedAgain = false
   try {
     await apiSseRequest(
-      `/agent/runs/${current.runId}/resume`,
+      `/agent/runs/${approval.runId}/resume`,
       {
         action,
-        confirmationToken: current.confirmationToken,
+        confirmationToken: approval.confirmationToken,
         ...(editedDraft === undefined ? {} : { editedDraft }),
-        ...(feedback.value.trim().length === 0 ? {} : { feedback: feedback.value.trim() }),
+        ...((feedbackByRun.value[approval.runId] ?? '').trim().length === 0
+          ? {}
+          : { feedback: feedbackByRun.value[approval.runId]?.trim() }),
       },
-      (message) => {
-        pausedAgain = applyResumeEvent(message) || pausedAgain
-      },
+      (message) => applyResumeEvent(approval.runId, message),
     )
-    if (!pausedAgain) {
-      approval.value = null
-      await loadApproval()
-    }
+    feedbackByRun.value = { ...feedbackByRun.value, [approval.runId]: '' }
   } catch (error) {
     errorMessage.value = error instanceof ApiError ? error.message : '无法提交本次确认决定。'
   } finally {
-    decisionBusy.value = false
+    decisionRunId.value = null
   }
+  await loadApprovals()
 }
 
-function applyResumeEvent(message: SseMessage): boolean {
-  if (message.event !== 'hitl.required' || typeof message.data !== 'object' || message.data === null) return false
+function applyResumeEvent(runId: string, message: SseMessage): void {
+  if (message.event !== 'hitl.required' || typeof message.data !== 'object' || message.data === null) {
+    return
+  }
   const payload = message.data as Record<string, unknown>
   const parsed = readHitlDraft(payload.draft, payload.actionType ?? payload.operationType)
-  const confirmationToken = typeof payload.confirmationToken === 'string' ? payload.confirmationToken : null
-  if (parsed === null || confirmationToken === null || approval.value === null) return false
-  approval.value = {
-    runId: approval.value.runId,
-    actionType: parsed.actionType,
-    draft: parsed.draft,
-    confirmationToken,
-    ...(typeof payload.expiresAt === 'string' ? { expiresAt: payload.expiresAt } : {}),
-  }
-  feedback.value = ''
+  const confirmationToken = typeof payload.confirmationToken === 'string'
+    ? payload.confirmationToken
+    : null
+  if (parsed === null || confirmationToken === null) return
+  approvals.value = approvals.value.map((approval) => approval.runId === runId
+    ? {
+        runId,
+        actionType: parsed.actionType,
+        draft: parsed.draft,
+        confirmationToken,
+        ...(typeof payload.expiresAt === 'string' ? { expiresAt: payload.expiresAt } : {}),
+      }
+    : approval)
   now.value = Date.now()
-  return true
 }
 
 onMounted(() => {
-  void loadApproval()
+  void loadApprovals()
   timer = setInterval(() => { now.value = Date.now() }, 1000)
 })
 

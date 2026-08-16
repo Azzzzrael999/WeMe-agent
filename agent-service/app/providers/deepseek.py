@@ -81,33 +81,32 @@ class DeepSeekModelProvider:
         if not self.settings.deepseek_is_configured or not api_key:
             raise ModelProviderError("DEEPSEEK is not configured")
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-        owned_client = self.client is None
-        client = self.client or httpx.Client(timeout=self.settings.model_timeout_seconds)
-        try:
-            for attempt in range(self.settings.model_max_retries + 1):
-                try:
-                    response = client.post(
-                        self.settings.deepseek_base_url.rstrip("/") + "/chat/completions",
-                        headers=headers,
-                        json=payload,
-                    )
-                    if response.status_code == 429 or response.status_code >= 500:
-                        if attempt < self.settings.model_max_retries:
-                            time.sleep(0.1 * (2**attempt))
-                            continue
-                        raise ModelProviderError("DeepSeek temporary failure")
-                    response.raise_for_status()
-                    return response.json()
-                except httpx.HTTPStatusError as exc:
-                    raise ModelProviderError("DeepSeek request rejected") from exc
-                except httpx.RequestError as exc:
+        if self.client is None:
+            self.client = httpx.Client(
+                timeout=self.settings.model_timeout_seconds,
+                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+            )
+        for attempt in range(self.settings.model_max_retries + 1):
+            try:
+                response = self.client.post(
+                    self.settings.deepseek_base_url.rstrip("/") + "/chat/completions",
+                    headers=headers,
+                    json=payload,
+                )
+                if response.status_code == 429 or response.status_code >= 500:
                     if attempt < self.settings.model_max_retries:
                         time.sleep(0.1 * (2**attempt))
                         continue
-                    raise ModelProviderError("DeepSeek network failure") from exc
-        finally:
-            if owned_client:
-                client.close()
+                    raise ModelProviderError("DeepSeek temporary failure")
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPStatusError as exc:
+                raise ModelProviderError("DeepSeek request rejected") from exc
+            except httpx.RequestError as exc:
+                if attempt < self.settings.model_max_retries:
+                    time.sleep(0.1 * (2**attempt))
+                    continue
+                raise ModelProviderError("DeepSeek network failure") from exc
         raise ModelProviderError("DeepSeek retry loop ended unexpectedly")
 
     @staticmethod

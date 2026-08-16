@@ -9,7 +9,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
-@SpringBootTest
+@SpringBootTest(
+    properties =
+        "spring.datasource.url=jdbc:h2:mem:meeting_migration;MODE=MySQL;DATABASE_TO_LOWER=TRUE;CASE_INSENSITIVE_IDENTIFIERS=TRUE;DB_CLOSE_DELAY=-1")
 @ActiveProfiles("test")
 class Day1MigrationIntegrationTest {
 
@@ -88,7 +90,7 @@ class Day1MigrationIntegrationTest {
             java.util.Map.of(
                 "id", 1003L, "username", "lisi", "display_name", "李四", "department_id", 10L));
     assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM meeting_room", Integer.class))
-        .isEqualTo(21);
+        .isEqualTo(22);
     assertThat(
             jdbcTemplate.queryForObject(
                 "SELECT COUNT(DISTINCT room_type) FROM meeting_room", Integer.class))
@@ -108,6 +110,36 @@ class Day1MigrationIntegrationTest {
         .isEqualTo(1);
     assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM room_feature", Integer.class))
         .isEqualTo(8);
+  }
+
+  @Test
+  void demoSeedKeepsLiSiBusyThroughoutTheNoSolutionWindow() {
+    assertThat(
+            jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM meeting
+                WHERE meeting_no IN (
+                    'MTG-DEMO-LISI-20260826-1300',
+                    'MTG-DEMO-LISI-20260826-1400'
+                )
+                  AND organizer_id = 1003
+                  AND status = 'CONFIRMED'
+                """,
+                Integer.class))
+        .isEqualTo(2);
+    assertThat(
+            jdbcTemplate.queryForList(
+                """
+                SELECT slot_index
+                FROM employee_busy_slot
+                WHERE employee_id = 1003
+                  AND booking_date = '2026-08-26'
+                  AND slot_index BETWEEN 26 AND 29
+                ORDER BY slot_index
+                """,
+                Integer.class))
+        .containsExactly(26, 27, 28, 29);
   }
 
   @Test

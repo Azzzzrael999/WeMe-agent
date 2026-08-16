@@ -8,7 +8,7 @@
       rows="1"
       maxlength="4000"
       :disabled="disabled"
-      placeholder="告诉 MeetOps 会议目标、时间、参与者与资源要求…"
+      placeholder="告诉 WeMe 会议目标、时间、参与者与资源要求…"
       @input="update"
       @keydown="handleKeydown"
     />

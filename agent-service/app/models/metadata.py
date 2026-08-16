@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import BigInteger, Date, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import BigInteger, Date, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -30,6 +30,10 @@ class AgentThread(Base):
 
 class AgentRun(Base):
     __tablename__ = "agent_run"
+    __table_args__ = (
+        Index("idx_agent_run_user_thread_created", "user_id", "thread_id", "created_at"),
+        Index("idx_agent_run_user_status_created", "user_id", "status", "created_at"),
+    )
 
     run_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     thread_id: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -54,6 +58,33 @@ class AgentRun(Base):
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = timestamp_column()
     finished_at: Mapped[datetime | None] = timestamp_column(nullable=True)
+
+
+class AgentMessage(Base):
+    __tablename__ = "agent_message"
+    __table_args__ = (
+        UniqueConstraint("thread_id", "sequence_no", name="uk_agent_message_thread_sequence"),
+        UniqueConstraint(
+            "user_id",
+            "client_request_id",
+            "role",
+            name="uk_agent_message_user_request_role",
+        ),
+        Index("idx_agent_message_user_thread_created", "user_id", "thread_id", "created_at"),
+    )
+
+    message_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    thread_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    run_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    sequence_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    content_text: Mapped[str] = mapped_column(Text, nullable=False)
+    visible_payload: Mapped[dict[str, object]] = mapped_column(
+        mysql.JSON, nullable=False, default=dict
+    )
+    client_request_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = timestamp_column()
 
 
 class AgentStep(Base):

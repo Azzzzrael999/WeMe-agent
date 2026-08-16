@@ -380,7 +380,13 @@ class FixtureModelProvider:
                     "MY_DEPARTMENT"
                     if any(
                         value in message
-                        for value in ("我的小组", "同组人员", "小组会议", "组内人员")
+                        for value in (
+                            "我的小组",
+                            "同组人员",
+                            "小组会议",
+                            "组内人员",
+                            "组内的人",
+                        )
                     )
                     else "ORGANIZER_ONLY"
                     if any(value in message for value in ("只有我", "我自己参加", "就我一个人"))

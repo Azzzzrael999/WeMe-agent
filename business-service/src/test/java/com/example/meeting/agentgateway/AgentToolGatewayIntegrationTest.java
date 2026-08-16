@@ -193,6 +193,31 @@ class AgentToolGatewayIntegrationTest {
   }
 
   @Test
+  void recentMeetingToolKeepsOriginalRoomFeaturesAfterRoomIsDisabled() throws Exception {
+    long confirmedMeetingId =
+        createManualMeeting(101, "2026-09-03T09:00:00+08:00", "2026-09-03T10:00:00+08:00");
+    jdbcTemplate.update("UPDATE meeting_room SET status='INACTIVE' WHERE id=101");
+
+    MvcResult result =
+        performTool(
+                "/internal/v1/tools/get-recent-meeting",
+                "{\"limit\":5}",
+                identity("run_recent_inactive_room", "tool_recent_inactive_room"),
+                SERVICE_TOKEN,
+                true)
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.meetings[0].id").value(confirmedMeetingId))
+            .andReturn();
+
+    assertThat(
+            data(result)
+                .path("roomFeaturesByMeetingId")
+                .path(Long.toString(confirmedMeetingId))
+                .size())
+        .isGreaterThan(0);
+  }
+
+  @Test
   void rescheduleReadsExcludeOnlyTheAuthorizedTargetMeetingsOwnOccupancy() throws Exception {
     long targetMeetingId =
         createManualMeeting(101, "2026-09-11T09:00:00+08:00", "2026-09-11T11:00:00+08:00");

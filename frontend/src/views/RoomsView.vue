@@ -114,8 +114,8 @@
             <label><span>会议室</span><select v-model.number="meetingForm.roomId" disabled><option v-for="room in activeRooms" :key="room.id" :value="room.id">{{ room.name }}</option></select></label>
             <label><span>开始</span><input v-model="meetingForm.startAt" type="datetime-local" step="1800" required :disabled="meetingSubmitting" /></label>
             <label><span>结束</span><input v-model="meetingForm.endAt" type="datetime-local" step="1800" required :disabled="meetingSubmitting" /></label>
-            <EmployeeMultiSelect v-model="meetingForm.requiredParticipantIds" label="必须参会者" :employees="employeeDirectory" :excluded-ids="meetingForm.optionalParticipantIds" :disabled="meetingSubmitting" />
-            <EmployeeMultiSelect v-model="meetingForm.optionalParticipantIds" label="可选参会者" :employees="employeeDirectory" :excluded-ids="meetingForm.requiredParticipantIds" :disabled="meetingSubmitting" />
+            <ParticipantNameInput v-model="meetingForm.requiredParticipantIds" label="必须参会者" :employees="employeeDirectory" :excluded-ids="meetingForm.optionalParticipantIds" :disabled="meetingSubmitting" />
+            <ParticipantNameInput v-model="meetingForm.optionalParticipantIds" label="可选参会者" :employees="employeeDirectory" :excluded-ids="meetingForm.requiredParticipantIds" :disabled="meetingSubmitting" />
           </div>
           <p v-if="meetingError" class="error-message" role="alert">{{ meetingError }}</p>
           <footer class="product-sheet__actions">
@@ -205,7 +205,7 @@ import type {
 } from '../api/types'
 import { authStore } from '../auth/store'
 import AppShell from '../components/AppShell.vue'
-import EmployeeMultiSelect from '../components/EmployeeMultiSelect.vue'
+import ParticipantNameInput from '../components/ParticipantNameInput.vue'
 import ResourceTimeline, { type ResourceTimelineRow } from '../components/ResourceTimeline.vue'
 import RoomDirectory from '../components/RoomDirectory.vue'
 import StatusBadge from '../components/StatusBadge.vue'

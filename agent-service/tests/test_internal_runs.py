@@ -161,6 +161,7 @@ class FakeJavaTools:
     )
     busy_slots_by_employee: dict[int, list[dict[str, object]]] = field(default_factory=dict)
     reschedule_payloads: list[RescheduleDraftInput] = field(default_factory=list)
+    draft_expiry_override: datetime | None = None
     _draft_count: int = 0
 
     def resolve_employees(
@@ -329,7 +330,8 @@ class FakeJavaTools:
         self.draft_payloads.append(payload)
         response = CreateBookingDraftResponse(
             confirmation_token=f"cfm_fixture_{self._draft_count}",
-            expires_at=payload.start_at - timedelta(hours=1),
+            expires_at=self.draft_expiry_override
+            or payload.start_at - timedelta(hours=1),
             draft=BookingDraft(
                 title=payload.title,
                 room_id=payload.room_id,
@@ -694,6 +696,65 @@ def test_initial_hitl_persists_candidates_without_leaking_token_to_trace(
     assert trace["toolCalls"][-1]["riskLevel"] == "DRAFT"  # type: ignore[index]
 
 
+def test_thread_history_is_server_backed_and_strictly_user_isolated(
+    configured_app: None,
+) -> None:
+    run_id = f"run_{uuid.uuid4().hex}"
+    trace_id = f"trc_{uuid.uuid4().hex}"
+    with TestClient(app) as client:
+        events = _start(client, run_id, trace_id)
+        thread_id = next(
+            payload["threadId"] for name, payload in events if name == "run.started"
+        )
+        list_response = client.get(
+            "/internal/v1/agent-threads?status=WAITING_CONFIRMATION",
+            headers=_headers(run_id="history_list", trace_id="history_trace"),
+        )
+        detail_response = client.get(
+            f"/internal/v1/agent-threads/{thread_id}",
+            headers=_headers(run_id="history_detail", trace_id="history_trace"),
+        )
+        other_user_list = client.get(
+            "/internal/v1/agent-threads",
+            headers=_headers(
+                run_id="history_other",
+                trace_id="history_other_trace",
+                user_id=1002,
+                roles=["ADMIN"],
+            ),
+        )
+        other_user_detail = client.get(
+            f"/internal/v1/agent-threads/{thread_id}",
+            headers=_headers(
+                run_id="history_other_detail",
+                trace_id="history_other_trace",
+                user_id=1002,
+                roles=["ADMIN"],
+            ),
+        )
+
+    assert list_response.status_code == 200
+    assert list_response.headers["cache-control"] == "no-store"
+    assert list_response.json()["total"] == 1
+    item = list_response.json()["items"][0]
+    assert item["threadId"] == thread_id
+    assert item["latestRunId"] == run_id
+    assert item["actionRequired"] is True
+
+    assert detail_response.status_code == 200
+    messages = detail_response.json()["messages"]
+    assert [message["role"] for message in messages] == ["USER", "ASSISTANT"]
+    assert messages[0]["content"]
+    assert messages[1]["visiblePayload"]["status"] == "WAITING_CONFIRMATION"
+    serialized = json.dumps(detail_response.json(), ensure_ascii=False)
+    assert "confirmationToken" not in serialized
+    assert "cfm_fixture" not in serialized
+
+    assert other_user_list.status_code == 200
+    assert other_user_list.json() == {"items": [], "total": 0}
+    assert other_user_detail.status_code == 404
+
+
 def test_verified_controller_completes_partial_model_read_plan(
     configured_app: None,
     fixture_tools: FakeJavaTools,
@@ -846,6 +907,33 @@ def test_unresolved_employee_is_explained_as_user_action_not_workflow_failure(
     trace = metadata_repository.get_trace(run_id)
     assert trace is not None
     assert trace["run"]["status"] == "WAITING_USER_INPUT"  # type: ignore[index]
+
+
+def test_department_scope_deduplicates_explicit_current_user(
+    configured_app: None,
+    fixture_tools: FakeJavaTools,
+) -> None:
+    run_id = f"run_{uuid.uuid4().hex}"
+    trace_id = f"trc_{uuid.uuid4().hex}"
+    with TestClient(app) as client:
+        events = _start_with_message(
+            client,
+            run_id,
+            trace_id,
+            "安排在下周三下午，由我和我们组内的人参加。",
+        )
+
+    completed = next(payload for name, payload in events if name == "run.completed")
+    assert completed["status"] == "WAITING_USER_INPUT"
+    requirement = next(
+        payload for name, payload in events if name == "requirement.updated"
+    )
+    by_field = {item["field"]: item for item in requirement["items"]}  # type: ignore[index]
+    participants = by_field["requiredParticipants"]
+    assert participants["status"] == "DIRECTORY_RESOLVED"
+    assert participants["summary"] == "4人：张三、李四、王五、赵六"
+    assert "当前登录用户（我）" not in participants["summary"]
+    assert fixture_tools.calls == ["resolve_participant_scope"]
 
 
 def test_two_turn_requirement_completion_resumes_same_run_and_reaches_hitl(
@@ -1487,6 +1575,9 @@ def test_run_recovery_view_only_exposes_confirmation_for_current_waiting_checkpo
     assert recovery.headers["cache-control"] == "no-store"
     assert recovery.json()["confirmationToken"] == token
     assert recovery.json()["candidates"]
+    assert recovery.json()["requirementRevision"] >= 1
+    assert recovery.json()["requirementItems"]
+    assert recovery.json()["citations"] == []
     assert "confirmationToken" not in json.dumps(trace.json(), ensure_ascii=False)
     assert token not in json.dumps(trace.json(), ensure_ascii=False)
 
@@ -1520,12 +1611,31 @@ def test_accept_uses_fresh_trace_but_keeps_initial_trace_and_completes(
     write = trace["toolCalls"][-1]  # type: ignore[index]
     assert write["riskLevel"] == "WRITE"
     assert "cfm_fixture" not in json.dumps(write, ensure_ascii=False)
+    run = metadata_repository.get_run(run_id)
+    assert run is not None
+    thread = metadata_repository.get_thread(thread_id=run.thread_id, user_id=1001)
+    assert thread is not None
+    assert [message["role"] for message in thread["messages"]] == [
+        "USER",
+        "ASSISTANT",
+        "USER",
+        "ASSISTANT",
+    ]
+    assert thread["messages"][2]["content"] == "确认执行会议草案"
+    waiting_threads = metadata_repository.list_threads(
+        user_id=1001,
+        page=1,
+        size=20,
+        latest_status="WAITING_CONFIRMATION",
+    )
+    assert waiting_threads == {"items": [], "total": 0}
 
 
 def test_synchronous_conflict_replans_before_returning_to_hitl(
     configured_app: None,
     metadata_repository: MetadataRepository,
     fixture_tools: FakeJavaTools,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fixture_tools.confirm_results = ["CONFLICT"]
     fixture_tools.confirm_conflict_details = {
@@ -1538,11 +1648,22 @@ def test_synchronous_conflict_replans_before_returning_to_hitl(
     trace_id = f"trc_{uuid.uuid4().hex}"
     with TestClient(app) as client:
         token = _hitl_token(_start(client, run_id, trace_id))
-        response = client.post(
-            f"/internal/v1/agent-runs/{run_id}/resume",
-            headers=_headers(run_id=run_id, trace_id=f"trc_{uuid.uuid4().hex}"),
-            json={"action": "ACCEPT", "confirmationToken": token},
-        )
+        initial_run = metadata_repository.get_run(run_id)
+        assert initial_run is not None
+        initial_model_call_count = initial_run.model_call_count
+        assert initial_model_call_count > 0
+        # Reproduce the live demo failure: the initial multi-turn planning has
+        # consumed the entire configured model budget before Java detects the
+        # final room conflict.
+        with monkeypatch.context() as patch:
+            patch.setenv("AGENT_MAX_MODEL_CALLS", str(initial_model_call_count))
+            get_settings.cache_clear()
+            response = client.post(
+                f"/internal/v1/agent-runs/{run_id}/resume",
+                headers=_headers(run_id=run_id, trace_id=f"trc_{uuid.uuid4().hex}"),
+                json={"action": "ACCEPT", "confirmationToken": token},
+            )
+        get_settings.cache_clear()
 
     events = _events(response.text)
     assert response.status_code == 200
@@ -1551,6 +1672,11 @@ def test_synchronous_conflict_replans_before_returning_to_hitl(
         for name, payload in events
     )
     assert events[-1][0] == "hitl.required"
+    assert events[-1][1]["conflictRepair"] is True
+    assert events[-1][1]["answerSummary"] == (
+        "当前会议室已被占用，请切换其他的编排选项。"
+        "已重新读取最新占用情况并生成其他可用方案。"
+    )
     assert fixture_tools.calls.count("confirm_booking") == 1
     assert fixture_tools.calls.count("get_employee_free_busy") == 2
     assert fixture_tools.calls.count("search_available_rooms") == 2
@@ -1558,6 +1684,13 @@ def test_synchronous_conflict_replans_before_returning_to_hitl(
     trace = metadata_repository.get_trace(run_id)
     assert trace is not None
     assert trace["run"]["status"] == "WAITING_CONFIRMATION"  # type: ignore[index]
+    assert trace["run"]["modelCallCount"] == initial_model_call_count  # type: ignore[index]
+    failed_confirm = next(
+        item
+        for item in trace["toolCalls"]  # type: ignore[index]
+        if item["toolName"] == "confirm_booking" and item["status"] == "FAILED"
+    )
+    assert failed_confirm["sanitizedArgs"]["errorCode"] == "BOOKING_CONFLICT"
 
 
 def test_edit_revalidates_and_creates_new_draft_without_direct_write(
@@ -1976,6 +2109,104 @@ def test_new_run_rejects_a_non_failed_requirement_baseline(
                 "threadId": thread_id,
                 "message": "继续",
                 "clientRequestId": "invalid-baseline-source",
+                "baseRunId": base_run_id,
+            },
+        )
+
+    assert rejected.status_code == 409
+    assert rejected.json()["detail"] == "REQUIREMENT_BASELINE_NOT_RECOVERABLE"
+    assert metadata_repository.get_run(new_run_id) is None
+
+
+def test_expired_confirmation_seeds_a_new_run_without_reusing_hitl_state(
+    configured_app: None,
+    fixture_tools: FakeJavaTools,
+) -> None:
+    thread_id = f"thread_{uuid.uuid4().hex}"
+    base_run_id = f"run_{uuid.uuid4().hex}"
+    fixture_tools.draft_expiry_override = datetime.now(UTC) - timedelta(minutes=1)
+
+    with TestClient(app) as client:
+        base_response = client.post(
+            "/internal/v1/agent-runs/stream",
+            headers=_headers(
+                run_id=base_run_id,
+                trace_id=f"trc_{uuid.uuid4().hex}",
+            ),
+            json={
+                "threadId": thread_id,
+                "message": "25号下午帮张三和李四安排一个90分钟架构评审，10人，要大屏",
+                "clientRequestId": "expired-confirmation-source",
+            },
+        )
+        base_events = _events(base_response.text)
+        original_token = _hitl_token(base_events)
+
+        recovery = client.get(
+            f"/internal/v1/agent-runs/{base_run_id}",
+            headers=_headers(
+                run_id=base_run_id,
+                trace_id=f"trc_{uuid.uuid4().hex}",
+            ),
+        )
+        assert recovery.status_code == 200
+        assert recovery.json()["requirementBaselineAvailable"] is True
+
+        regenerated_run_id = f"run_{uuid.uuid4().hex}"
+        regenerated_response = client.post(
+            "/internal/v1/agent-runs/stream",
+            headers=_headers(
+                run_id=regenerated_run_id,
+                trace_id=f"trc_{uuid.uuid4().hex}",
+            ),
+            json={
+                "threadId": thread_id,
+                "message": "原草案已过期，请重新读取当前事实并生成新方案。",
+                "clientRequestId": "regenerate-expired-confirmation",
+                "baseRunId": base_run_id,
+            },
+        )
+
+    assert regenerated_response.status_code == 200
+    regenerated_events = _events(regenerated_response.text)
+    assert regenerated_events[0][1]["continuedFromRunId"] == base_run_id
+    regenerated_token = _hitl_token(regenerated_events)
+    assert regenerated_token != original_token
+    assert fixture_tools.confirm_calls == []
+
+
+def test_unexpired_confirmation_cannot_be_used_as_requirement_baseline(
+    configured_app: None,
+    metadata_repository: MetadataRepository,
+) -> None:
+    thread_id = f"thread_{uuid.uuid4().hex}"
+    base_run_id = f"run_{uuid.uuid4().hex}"
+    with TestClient(app) as client:
+        base_response = client.post(
+            "/internal/v1/agent-runs/stream",
+            headers=_headers(
+                run_id=base_run_id,
+                trace_id=f"trc_{uuid.uuid4().hex}",
+            ),
+            json={
+                "threadId": thread_id,
+                "message": "25号下午帮张三和李四安排一个90分钟架构评审，10人，要大屏",
+                "clientRequestId": "active-confirmation-source",
+            },
+        )
+        assert _events(base_response.text)[-1][0] == "hitl.required"
+
+        new_run_id = f"run_{uuid.uuid4().hex}"
+        rejected = client.post(
+            "/internal/v1/agent-runs/stream",
+            headers=_headers(
+                run_id=new_run_id,
+                trace_id=f"trc_{uuid.uuid4().hex}",
+            ),
+            json={
+                "threadId": thread_id,
+                "message": "重新生成",
+                "clientRequestId": "active-confirmation-regeneration",
                 "baseRunId": base_run_id,
             },
         )

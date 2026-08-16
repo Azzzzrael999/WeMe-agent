@@ -34,6 +34,11 @@ async function loadCurrentUser(): Promise<CurrentUser> {
 
 function clearSession(): void {
   clearAccessToken()
+  for (const key of Object.keys(window.sessionStorage)) {
+    if (key.startsWith('weme.chat-')) {
+      window.sessionStorage.removeItem(key)
+    }
+  }
   state.accessToken = null
   state.user = null
 }

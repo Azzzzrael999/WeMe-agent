@@ -33,6 +33,7 @@ public enum ErrorCode {
   DRAFT_ALREADY_USED(HttpStatus.CONFLICT, "草案已被处理"),
   TOOL_NOT_ALLOWED(HttpStatus.FORBIDDEN, "Agent 工具不允许执行"),
   AGENT_RUN_STATE_CONFLICT(HttpStatus.CONFLICT, "Agent 任务状态已变化，请刷新后重试"),
+  AGENT_THREAD_NOT_FOUND(HttpStatus.NOT_FOUND, "Agent 会话不存在或当前用户不可查看"),
   RAG_DOCUMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "会议制度文档不存在或已删除"),
   RAG_DOCUMENT_INVALID(HttpStatus.BAD_REQUEST, "会议制度文档格式或内容不符合要求"),
   RAG_DOCUMENT_CONFLICT(HttpStatus.CONFLICT, "会议制度文档已变化，请刷新后重试"),

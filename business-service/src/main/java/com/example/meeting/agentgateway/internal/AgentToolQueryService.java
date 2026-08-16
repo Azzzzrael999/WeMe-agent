@@ -222,7 +222,7 @@ public class AgentToolQueryService {
             .limit(request.limit())
             .toList();
     Map<Long, List<String>> featuresByRoom =
-        roomQueryService.findActiveRooms().items().stream()
+        roomQueryService.findAllRoomsForTrustedFacts().items().stream()
             .collect(
                 java.util.stream.Collectors.toMap(
                     RoomItemView::id,

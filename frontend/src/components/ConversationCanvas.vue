@@ -1,12 +1,12 @@
 <template>
   <section class="conversation-canvas" aria-labelledby="conversation-canvas-title">
-    <h2 id="conversation-canvas-title" class="sr-only">MeetOps 智能编排会话</h2>
+    <h2 id="conversation-canvas-title" class="sr-only">WeMe 智能编排会话</h2>
     <ConversationSidebar :run-id="runId" :status="runStatus" />
 
     <div ref="scrollRef" class="conversation-canvas__scroll" aria-live="polite">
       <div v-if="!hasConversation" class="conversation-empty">
         <span class="conversation-empty__mark" aria-hidden="true"><Sparkles :size="25" /></span>
-        <h2>把会议协调交给 MeetOps</h2>
+        <h2>把会议协调交给 WeMe</h2>
         <div class="quick-task-grid" aria-label="快捷编排任务">
           <template v-for="task in quickTasks" :key="task.label">
             <RouterLink v-if="task.to" :to="task.to">
@@ -29,9 +29,10 @@
           <article class="conversation-message conversation-message--assistant">
             <span class="conversation-assistant-mark" aria-hidden="true"><Sparkles :size="15" /></span>
             <div>
-              <span>MeetOps</span>
+              <span>WeMe</span>
               <p>{{ turn.answer }}</p>
               <UnsatAnalysisCard v-if="turn.unsatAnalysis" :analysis="turn.unsatAnalysis" />
+              <PolicyCitations v-if="turn.citations?.length" :citations="turn.citations" />
               <footer v-if="turn.runId">
                 <StatusBadge :status="turn.status || 'SUCCEEDED'" />
                 <RouterLink :to="{ name: 'agent-run', params: { runId: turn.runId } }">查看这次运行 <ArrowUpRight :size="13" aria-hidden="true" /></RouterLink>
@@ -46,11 +47,12 @@
         <article v-if="submittedMessage && (runId || answerSummary || streaming)" class="conversation-message conversation-message--assistant">
           <span class="conversation-assistant-mark" aria-hidden="true"><Sparkles :size="15" /></span>
           <div>
-            <span>MeetOps</span>
+            <span>WeMe</span>
             <p v-if="answerSummary">{{ answerSummary }}</p>
             <p v-else-if="streaming" class="streaming-copy"><LoaderCircle :size="15" aria-hidden="true" />正在理解需求并查询可验证的业务事实…</p>
             <p v-else>已保存当前任务，可继续查看编排结果。</p>
             <UnsatAnalysisCard v-if="unsatAnalysis" :analysis="unsatAnalysis" />
+            <PolicyCitations v-if="citations.length" :citations="citations" />
             <footer v-if="bookingRequest">
               <StatusBadge :status="bookingRequest.status" />
             </footer>
@@ -69,11 +71,12 @@ import { ArrowUpRight, Building2, CalendarPlus, ListChecks, LoaderCircle, Rotate
 import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 
-import type { AgentUnsatAnalysis, BookingRequest } from '@/api/types'
+import type { AgentCitation, AgentUnsatAnalysis, BookingRequest } from '@/api/types'
 import ErrorState from './ErrorState.vue'
 import LoadingState from './LoadingState.vue'
 import StatusBadge from './StatusBadge.vue'
 import ConversationSidebar from './ConversationSidebar.vue'
+import PolicyCitations from './PolicyCitations.vue'
 import UnsatAnalysisCard from './UnsatAnalysisCard.vue'
 
 export interface ConversationCanvasTurn {
@@ -83,6 +86,7 @@ export interface ConversationCanvasTurn {
   answer: string
   status: string
   unsatAnalysis?: AgentUnsatAnalysis | null
+  citations?: readonly AgentCitation[]
 }
 
 const props = defineProps<{
@@ -90,6 +94,7 @@ const props = defineProps<{
   submittedMessage: string
   answerSummary: string
   unsatAnalysis: AgentUnsatAnalysis | null
+  citations: readonly AgentCitation[]
   runId: string | null
   runStatus: string
   bookingRequest: BookingRequest | null

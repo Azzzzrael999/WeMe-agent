@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import { authStore } from '../auth/store'
 
-const CHAT_ACTIVE_RUN_STORAGE_KEY = 'meetops.chat-active-run.v1'
+const CHAT_ACTIVE_RUN_STORAGE_KEY = 'weme.chat-active-run.v1'
 const SAFE_RUN_ID = /^[A-Za-z0-9_-]{1,64}$/
 
 export const router = createRouter({

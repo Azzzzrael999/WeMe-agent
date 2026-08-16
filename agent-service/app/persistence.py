@@ -7,6 +7,7 @@ service tokens, and retrieved document bodies never enter these rows.
 from __future__ import annotations
 
 import re
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -19,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.models.metadata import (
     AgentBusinessEvent,
     AgentLoopEvent,
+    AgentMessage,
     AgentRun,
     AgentStep,
     AgentThread,
@@ -31,6 +33,19 @@ def safe_summary(value: str, limit: int = 180) -> str:
     collapsed = re.sub(r"\s+", " ", value).strip()
     redacted = re.sub(r"(?i)bearer\s+[\w.\-]+", "Bearer [REDACTED]", collapsed)
     redacted = re.sub(r"(?i)(api[_-]?key|token|password)\s*[:=]\s*\S+", r"\1=[REDACTED]", redacted)
+    return redacted[:limit]
+
+
+def safe_message_content(value: str, limit: int = 4000) -> str:
+    """Retain user-visible text while removing obvious credentials."""
+
+    normalized = value.strip()
+    redacted = re.sub(r"(?i)bearer\s+[\w.\-]+", "Bearer [REDACTED]", normalized)
+    redacted = re.sub(
+        r"(?i)(api[_-]?key|token|password)\s*[:=]\s*\S+",
+        r"\1=[REDACTED]",
+        redacted,
+    )
     return redacted[:limit]
 
 
@@ -83,6 +98,154 @@ class MetadataRepository:
             elif existing.user_id != user_id:
                 raise PermissionError("thread does not belong to the current user")
             session.commit()
+
+    def record_message(
+        self,
+        *,
+        thread_id: str,
+        run_id: str,
+        user_id: int,
+        role: str,
+        content: str,
+        client_request_id: str,
+        visible_payload: dict[str, object] | None = None,
+    ) -> str:
+        normalized_role = role.upper()
+        if normalized_role not in {"USER", "ASSISTANT"}:
+            raise ValueError("message role is invalid")
+        safe_content = safe_message_content(content)
+        if not safe_content:
+            raise ValueError("message content is empty")
+        raw_payload = _safe_visible_payload(visible_payload or {})
+        payload = raw_payload if isinstance(raw_payload, dict) else {}
+        with Session(self.engine) as session:
+            existing = session.scalar(
+                select(AgentMessage).where(
+                    AgentMessage.user_id == user_id,
+                    AgentMessage.client_request_id == client_request_id,
+                    AgentMessage.role == normalized_role,
+                )
+            )
+            if existing is not None:
+                if (
+                    existing.thread_id != thread_id
+                    or existing.run_id != run_id
+                    or existing.content_text != safe_content
+                ):
+                    raise ValueError("clientRequestId was reused with different message content")
+                return existing.message_id
+            thread = session.get(AgentThread, thread_id, with_for_update=True)
+            run = session.get(AgentRun, run_id)
+            if thread is None or run is None:
+                raise LookupError("message thread or run was not found")
+            if (
+                thread.user_id != user_id
+                or run.user_id != user_id
+                or run.thread_id != thread_id
+            ):
+                raise PermissionError("message does not belong to the current user")
+            sequence_no = int(
+                session.scalar(
+                    select(func.max(AgentMessage.sequence_no)).where(
+                        AgentMessage.thread_id == thread_id
+                    )
+                )
+                or 0
+            ) + 1
+            message_id = f"msg_{uuid.uuid4().hex}"
+            now = datetime.now(ZoneInfo("Asia/Shanghai"))
+            session.add(
+                AgentMessage(
+                    message_id=message_id,
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    user_id=user_id,
+                    sequence_no=sequence_no,
+                    role=normalized_role,
+                    content_text=safe_content,
+                    visible_payload=payload,
+                    client_request_id=client_request_id,
+                    created_at=now,
+                )
+            )
+            thread.updated_at = now
+            session.commit()
+            return message_id
+
+    def list_threads(
+        self,
+        *,
+        user_id: int,
+        page: int,
+        size: int,
+        latest_status: str | None = None,
+    ) -> dict[str, object]:
+        with Session(self.engine, expire_on_commit=False) as session:
+            statement = select(AgentRun).where(AgentRun.user_id == user_id)
+            runs = list(session.scalars(statement.order_by(AgentRun.created_at.desc())))
+            latest_by_thread: dict[str, AgentRun] = {}
+            for run in runs:
+                latest_by_thread.setdefault(run.thread_id, run)
+            pairs: list[tuple[AgentThread, AgentRun]] = []
+            for thread_id, run in latest_by_thread.items():
+                if latest_status is not None and run.status != latest_status:
+                    continue
+                thread = session.get(AgentThread, thread_id)
+                if thread is not None and thread.user_id == user_id:
+                    pairs.append((thread, run))
+            pairs.sort(
+                key=lambda pair: max(pair[0].updated_at, pair[1].created_at), reverse=True
+            )
+            total = len(pairs)
+            selected = pairs[(page - 1) * size : page * size]
+            return {
+                "items": [self._thread_view(session, thread, run) for thread, run in selected],
+                "total": total,
+            }
+
+    def get_thread(self, *, thread_id: str, user_id: int) -> dict[str, object] | None:
+        with Session(self.engine, expire_on_commit=False) as session:
+            thread = session.get(AgentThread, thread_id)
+            if thread is None or thread.user_id != user_id:
+                return None
+            latest_run = session.scalar(
+                select(AgentRun)
+                .where(AgentRun.thread_id == thread_id, AgentRun.user_id == user_id)
+                .order_by(AgentRun.created_at.desc())
+                .limit(1)
+            )
+            if latest_run is None:
+                return None
+            messages = list(
+                session.scalars(
+                    select(AgentMessage)
+                    .where(
+                        AgentMessage.thread_id == thread_id,
+                        AgentMessage.user_id == user_id,
+                    )
+                    .order_by(AgentMessage.sequence_no.asc())
+                )
+            )
+            message_views: list[dict[str, object]]
+            if messages:
+                message_views = [
+                    {
+                        "messageId": message.message_id,
+                        "runId": message.run_id,
+                        "role": message.role,
+                        "content": message.content_text,
+                        "visiblePayload": message.visible_payload,
+                        "createdAt": _timestamp(message.created_at),
+                        "legacySummary": False,
+                    }
+                    for message in messages
+                ]
+            else:
+                message_views = self._legacy_message_views(session, thread_id, user_id)
+            return {
+                "thread": self._thread_view(session, thread, latest_run),
+                "messages": message_views,
+            }
 
     def create_run(
         self,
@@ -436,6 +599,75 @@ class MetadataRepository:
             "finishedAt": _timestamp(run.finished_at),
         }
 
+    @staticmethod
+    def _thread_view(
+        session: Session, thread: AgentThread, run: AgentRun
+    ) -> dict[str, object]:
+        recent_messages = list(
+            session.scalars(
+                select(AgentMessage)
+                .where(AgentMessage.thread_id == thread.thread_id)
+                .order_by(AgentMessage.sequence_no.desc())
+                .limit(20)
+            )
+        )
+        latest_user = next(
+            (item.content_text for item in recent_messages if item.role == "USER"),
+            None,
+        )
+        latest_assistant = next(
+            (item.content_text for item in recent_messages if item.role == "ASSISTANT"), None
+        )
+        return {
+            "threadId": thread.thread_id,
+            "title": thread.title,
+            "latestRunId": run.run_id,
+            "latestStatus": run.status,
+            "intent": run.intent,
+            "questionPreview": latest_user or run.question_summary,
+            "answerPreview": latest_assistant or run.answer_summary,
+            "actionRequired": run.status == RunStatus.WAITING_CONFIRMATION.value,
+            "updatedAt": _timestamp(max(thread.updated_at, run.created_at)),
+        }
+
+    @staticmethod
+    def _legacy_message_views(
+        session: Session, thread_id: str, user_id: int
+    ) -> list[dict[str, object]]:
+        runs = list(
+            session.scalars(
+                select(AgentRun)
+                .where(AgentRun.thread_id == thread_id, AgentRun.user_id == user_id)
+                .order_by(AgentRun.created_at.asc())
+            )
+        )
+        result: list[dict[str, object]] = []
+        for run in runs:
+            result.append(
+                {
+                    "messageId": f"legacy_user_{run.run_id}",
+                    "runId": run.run_id,
+                    "role": "USER",
+                    "content": run.question_summary,
+                    "visiblePayload": {"status": run.status},
+                    "createdAt": _timestamp(run.created_at),
+                    "legacySummary": True,
+                }
+            )
+            if run.answer_summary:
+                result.append(
+                    {
+                        "messageId": f"legacy_assistant_{run.run_id}",
+                        "runId": run.run_id,
+                        "role": "ASSISTANT",
+                        "content": run.answer_summary,
+                        "visiblePayload": {"status": run.status},
+                        "createdAt": _timestamp(run.finished_at or run.created_at),
+                        "legacySummary": True,
+                    }
+                )
+        return result
+
 
 def _apply_runtime(run: AgentRun, runtime: dict[str, object] | None) -> None:
     if runtime is None:
@@ -460,3 +692,29 @@ def _apply_runtime(run: AgentRun, runtime: dict[str, object] | None) -> None:
 
 def _runtime_int(value: object) -> int:
     return value if isinstance(value, int) and value >= 0 else 0
+
+
+_FORBIDDEN_VISIBLE_KEYS = {
+    "authorization",
+    "confirmationtoken",
+    "jwt",
+    "password",
+    "servicetoken",
+    "token",
+}
+
+
+def _safe_visible_payload(value: object) -> object:
+    if isinstance(value, dict):
+        return {
+            str(key): _safe_visible_payload(item)
+            for key, item in value.items()
+            if str(key).replace("_", "").lower() not in _FORBIDDEN_VISIBLE_KEYS
+        }
+    if isinstance(value, list):
+        return [_safe_visible_payload(item) for item in value[:100]]
+    if isinstance(value, str):
+        return safe_message_content(value, 1000)
+    if isinstance(value, bool | int | float) or value is None:
+        return value
+    return safe_summary(str(value), 200)

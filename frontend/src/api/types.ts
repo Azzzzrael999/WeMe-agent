@@ -678,6 +678,39 @@ export interface AgentRunRecovery extends AgentRunSummary {
   requirementItems?: AgentRequirementItem[]
   requirementBaselineAvailable?: boolean
   unsatAnalysis?: AgentUnsatAnalysis
+  citations?: AgentCitation[]
+}
+
+export interface AgentThreadSummary {
+  threadId: string
+  title: string
+  latestRunId: string
+  latestStatus: string
+  intent: string | null
+  questionPreview: string
+  answerPreview: string | null
+  actionRequired: boolean
+  updatedAt: string
+}
+
+export interface AgentThreadList {
+  items: AgentThreadSummary[]
+  total: number
+}
+
+export interface AgentThreadMessage {
+  messageId: string
+  runId: string
+  role: 'USER' | 'ASSISTANT'
+  content: string
+  visiblePayload: Record<string, unknown>
+  createdAt: string
+  legacySummary: boolean
+}
+
+export interface AgentThreadDetail {
+  thread: AgentThreadSummary
+  messages: AgentThreadMessage[]
 }
 
 export type AgentLoopPhase = 'PLAN' | 'ACT' | 'OBSERVE' | 'VERIFY' | 'REPLAN' | string

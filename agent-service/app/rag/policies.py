@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import re
+import time
+from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -14,6 +18,8 @@ from app.schemas.agent import Citation
 
 MAX_SEARCH_CANDIDATES = 200
 NON_SUBSTANTIVE_POLICY_HEADINGS = {"rag 找不到依据"}
+logger = logging.getLogger(__name__)
+_EMBEDDING_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="rag-embedding")
 
 
 class PolicyRetrievalError(RuntimeError):
@@ -153,6 +159,8 @@ class QdrantPolicyRetriever:
     settings: Settings
     embedding_provider: EmbeddingProvider | None = None
     client: QdrantClient | None = None
+    _validated_dimension: int | None = None
+    _validated_at: float = 0.0
 
     def _qdrant(self) -> QdrantClient:
         if self.client is None:
@@ -161,36 +169,74 @@ class QdrantPolicyRetriever:
 
     def search(self, query: str, limit: int = 5) -> list[PolicyChunk]:
         candidate_limit = min(MAX_SEARCH_CANDIDATES, max(limit, limit * 20))
+        started = time.perf_counter()
+        embedding_started = started
+        fallback = False
+        provider: EmbeddingProvider | None = None
+        future: Future[list[float]] | None = None
         try:
             provider = self._embedding()
             self._validate_collection(provider.dimension)
+            future = _EMBEDDING_EXECUTOR.submit(provider.embed_query, query)
+            vector = future.result(timeout=self.settings.rag_embedding_timeout_seconds)
+            embedding_ms = int((time.perf_counter() - embedding_started) * 1000)
+            search_started = time.perf_counter()
             result = self._qdrant().query_points(
                 collection_name=self.settings.qdrant_collection,
-                query=provider.embed_query(query),
+                query=vector,
                 limit=candidate_limit,
                 with_payload=True,
             )
-        except EmbeddingError as exc:
-            raise PolicyRetrievalError("policy embedding model is unavailable") from exc
+            vector_search_ms = int((time.perf_counter() - search_started) * 1000)
+            chunks = self._chunks_from_points(list(result.points))
+        except (EmbeddingError, FutureTimeoutError) as exc:
+            if future is not None:
+                future.cancel()
+            fallback = True
+            embedding_ms = int((time.perf_counter() - embedding_started) * 1000)
+            search_started = time.perf_counter()
+            try:
+                chunks = self._lexical_fallback(query)
+            except Exception as fallback_exc:
+                raise PolicyRetrievalError(
+                    "policy embedding and fallback search failed"
+                ) from fallback_exc
+            vector_search_ms = int((time.perf_counter() - search_started) * 1000)
+            logger.warning(
+                "Policy embedding exceeded budget; using bounded lexical fallback "
+                "queryHash=%s reason=%s",
+                _query_hash(query),
+                type(exc).__name__,
+            )
         except PolicyRetrievalError:
             raise
         except Exception as exc:  # Qdrant client has several transport exception classes.
             raise PolicyRetrievalError("Qdrant policy search failed") from exc
-        chunks: list[PolicyChunk] = []
-        for point in result.points:
-            payload = point.payload
-            if not isinstance(payload, dict):
-                continue
-            chunk = _chunk_from_payload(payload, float(point.score))
-            if chunk is not None and not _is_non_substantive_policy_chunk(chunk):
-                chunks.append(chunk)
-        return sorted(
+        ranked = sorted(
             chunks,
             key=lambda chunk: (
                 -(_lexical_score(query, chunk) + chunk.score),
                 chunk.chunk_id,
             ),
         )[:limit]
+        cache_hit_reader = getattr(provider, "last_query_cache_hit", None)
+        cache_hit = (
+            bool(cache_hit_reader())
+            if callable(cache_hit_reader) and not fallback
+            else False
+        )
+        logger.info(
+            "Policy retrieval completed queryHash=%s embeddingMs=%d vectorSearchMs=%d "
+            "totalMs=%d cacheHit=%s fallback=%s resultCount=%d",
+            _query_hash(query),
+            embedding_ms,
+            vector_search_ms,
+            int((time.perf_counter() - started) * 1000),
+            cache_hit,
+            fallback,
+            len(ranked),
+        )
+        return ranked
 
     def open_candidates(
         self, *, candidates: list[PolicyChunk], selected_chunk_ids: list[str]
@@ -203,6 +249,9 @@ class QdrantPolicyRetriever:
         return self.embedding_provider
 
     def _validate_collection(self, expected_dimension: int) -> None:
+        now = time.monotonic()
+        if self._validated_dimension == expected_dimension and now - self._validated_at < 300:
+            return
         client = self._qdrant()
         if not client.collection_exists(self.settings.qdrant_collection):
             raise PolicyRetrievalError("Qdrant policy corpus is unavailable")
@@ -212,6 +261,41 @@ class QdrantPolicyRetriever:
             raise PolicyRetrievalError(
                 "Qdrant policy collection does not match the embedding model"
             )
+        self._validated_dimension = expected_dimension
+        self._validated_at = now
+
+    @staticmethod
+    def _chunks_from_points(points: list[Any]) -> list[PolicyChunk]:
+        chunks: list[PolicyChunk] = []
+        for point in points:
+            payload = point.payload
+            if not isinstance(payload, dict):
+                continue
+            score = float(point.score) if getattr(point, "score", None) is not None else 0.0
+            chunk = _chunk_from_payload(payload, score)
+            if chunk is not None and not _is_non_substantive_policy_chunk(chunk):
+                chunks.append(chunk)
+        return chunks
+
+    def _lexical_fallback(self, query: str) -> list[PolicyChunk]:
+        points: list[Any] = []
+        offset: Any = None
+        while len(points) < MAX_SEARCH_CANDIDATES:
+            batch, offset = self._qdrant().scroll(
+                collection_name=self.settings.qdrant_collection,
+                limit=min(100, MAX_SEARCH_CANDIDATES - len(points)),
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            points.extend(batch)
+            if offset is None or not batch:
+                break
+        chunks = self._chunks_from_points(points)
+        return sorted(
+            chunks,
+            key=lambda chunk: (-_lexical_score(query, chunk), chunk.chunk_id),
+        )
 
 
 def _chunk_from_payload(payload: dict[str, Any], score: float) -> PolicyChunk | None:
@@ -274,3 +358,9 @@ def build_policy_retriever(settings: Settings) -> PolicyRetriever:
         settings=settings,
         embedding_provider=build_embedding_provider(settings),
     )
+
+
+def _query_hash(query: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(query.strip().encode("utf-8")).hexdigest()[:12]

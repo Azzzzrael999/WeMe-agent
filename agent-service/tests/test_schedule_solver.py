@@ -214,6 +214,27 @@ def test_top_three_candidates_are_unique_and_cost_sorted() -> None:
     )
 
 
+def test_top_three_prioritizes_distinct_rooms_before_time_variants() -> None:
+    schedule_problem = problem(
+        rooms=[
+            room(101, capacity=4),
+            room(102, capacity=5),
+            room(103, capacity=6),
+        ],
+        duration_minutes=30,
+    )
+
+    result = ScheduleSolver().solve(problem=schedule_problem)
+
+    assert len(result.candidates) == 3
+    assert [candidate.room_id for candidate in result.candidates] == [101, 102, 103]
+    assert len({candidate.room_id for candidate in result.candidates}) == 3
+    assert all(candidate.start_at == at(13) for candidate in result.candidates)
+    assert [candidate.total_cost for candidate in result.candidates] == sorted(
+        candidate.total_cost for candidate in result.candidates
+    )
+
+
 def test_unsat_categories_follow_stable_diagnostic_order() -> None:
     facility_result = ScheduleSolver().solve(problem=problem(rooms=[room(capacity=1)]))
     assert facility_result.unsat is not None

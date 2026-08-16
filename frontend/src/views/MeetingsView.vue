@@ -224,7 +224,7 @@ import { ApiError, apiRequest } from '../api/client'
 import type { EmployeeDirectoryItem, EmployeeDirectoryResult, Meeting, MeetingListResult, MeetingMutation, MeetingRoom, MeetingUpdateMutation, RoomListResult } from '../api/types'
 import { authStore } from '../auth/store'
 import AppShell from '../components/AppShell.vue'
-import EmployeeMultiSelect from '../components/EmployeeMultiSelect.vue'
+import ParticipantNameInput from '../components/ParticipantNameInput.vue'
 import MeetingCalendar from '../components/MeetingCalendar.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import { useModalFocus } from '../composables/useModalFocus'
@@ -277,7 +277,7 @@ const MeetingFormFields = defineComponent({
       }, [h('option', { value: 0, disabled: true }, '请选择会议室'), ...props.rooms.map((room) => h('option', { value: room.id }, `${room.name}（${room.capacity} 人）`))])]),
       field('开始时间', 'startAt', { type: 'datetime-local', step: 1800, required: true }),
       field('结束时间', 'endAt', { type: 'datetime-local', step: 1800, required: true }),
-      h(EmployeeMultiSelect, {
+      h(ParticipantNameInput, {
         label: '必须参会者',
         modelValue: props.modelValue.requiredParticipantIds,
         employees: props.employees,
@@ -285,7 +285,7 @@ const MeetingFormFields = defineComponent({
         disabled: props.disabled,
         'onUpdate:modelValue': (value: number[]) => update('requiredParticipantIds', value),
       }),
-      h(EmployeeMultiSelect, {
+      h(ParticipantNameInput, {
         label: '可选参会者',
         modelValue: props.modelValue.optionalParticipantIds,
         employees: props.employees,

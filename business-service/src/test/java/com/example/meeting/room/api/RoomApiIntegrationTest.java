@@ -38,7 +38,7 @@ class RoomApiIntegrationTest {
                 .header("X-Trace-Id", "trc_rooms"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.traceId").value("trc_rooms"))
-        .andExpect(jsonPath("$.data.total").value(20))
+        .andExpect(jsonPath("$.data.total").value(21))
         .andExpect(jsonPath("$.data.items[*].status", everyItem(is("ACTIVE"))))
         .andExpect(
             jsonPath(
@@ -52,6 +52,7 @@ class RoomApiIntegrationTest {
                     "STANDARD",
                     "VIP",
                     "VIP",
+                    "HUDDLE",
                     "HUDDLE",
                     "VIDEO",
                     "VIDEO",

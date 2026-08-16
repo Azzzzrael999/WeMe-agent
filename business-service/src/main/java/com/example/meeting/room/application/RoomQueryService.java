@@ -31,6 +31,12 @@ public class RoomQueryService {
   }
 
   @Transactional(readOnly = true)
+  public RoomListView findAllRoomsForTrustedFacts() {
+    List<RoomItemView> items = toViews(meetingRoomMapper.findAllRoomsWithFeatures());
+    return new RoomListView(items, items.size());
+  }
+
+  @Transactional(readOnly = true)
   public RoomListView findVisibleRooms(AuthenticatedUser actor) {
     List<RoomWithFeatureRow> rows =
         actor.roles().contains("ADMIN")

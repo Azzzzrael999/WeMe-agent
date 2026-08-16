@@ -14,7 +14,11 @@ from sqlalchemy.pool import StaticPool
 from app.config import Settings
 from app.database.base import Base
 from app.models.metadata import RagDocument
-from app.rag.embeddings import DeterministicEmbeddingProvider
+from app.rag.embeddings import (
+    BgeM3EmbeddingProvider,
+    DeterministicEmbeddingProvider,
+    EmbeddingError,
+)
 from app.rag.ingestion import (
     IngestedChunk,
     QdrantVectorIndex,
@@ -64,6 +68,18 @@ class RecordingVectorIndex:
             raise RagIngestionError("fixture vector failure")
         self.documents.pop(document_id, None)
         self.current_documents.pop(document_id, None)
+
+
+class FailingQueryEmbeddingProvider:
+    dimension = 64
+    model_id = "failing-query-fixture"
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return DeterministicEmbeddingProvider().embed_documents(texts)
+
+    def embed_query(self, text: str) -> list[float]:
+        del text
+        raise EmbeddingError("fixture embedding unavailable")
 
 
 @pytest.fixture
@@ -305,6 +321,57 @@ def test_qdrant_ingestion_retrieves_real_vip_chunk(rag_engine: Engine) -> None:
     assert retriever.open_candidates(
         candidates=candidates, selected_chunk_ids=[selected.chunk_id]
     ) == [selected]
+
+
+def test_query_embedding_cache_avoids_duplicate_model_calls(tmp_path: Path) -> None:
+    class Encoded:
+        def tolist(self) -> list[list[float]]:
+            return [[0.0] * 1024]
+
+    class FakeModel:
+        calls = 0
+
+        def encode(self, texts: list[str], **_: object) -> Encoded:
+            assert texts == ["VIP room policy"]
+            self.calls += 1
+            return Encoded()
+
+    model = FakeModel()
+    provider = BgeM3EmbeddingProvider(model_path=str(tmp_path))
+    provider._model = model
+
+    first = provider.embed_query(" VIP   room policy ")
+    second = provider.embed_query("VIP room policy")
+
+    assert first == second
+    assert model.calls == 1
+    assert provider.last_query_cache_hit() is True
+
+
+def test_embedding_failure_uses_bounded_lexical_fallback(rag_engine: Engine) -> None:
+    client = QdrantClient(":memory:")
+    collection = "meeting_policies_fallback_test"
+    service = RagIngestionService(
+        RagDocumentRepository(rag_engine),
+        QdrantVectorIndex(
+            url="http://unused",
+            collection_name=collection,
+            embedding_provider=DeterministicEmbeddingProvider(),
+            client=client,
+        ),
+    )
+    service.ingest_file(POLICY_SOURCE_DIR / "07-vip-executive-room-policy.md")
+    settings = Settings().model_copy(update={"qdrant_collection": collection})
+    retriever = QdrantPolicyRetriever(
+        settings=settings,
+        embedding_provider=FailingQueryEmbeddingProvider(),
+        client=client,
+    )
+
+    candidates = retriever.search("VIP", limit=5)
+
+    assert candidates
+    assert candidates[0].document_id == "doc_vip_executive_room_policy"
 
 
 def test_runtime_retriever_does_not_seed_a_missing_collection() -> None:

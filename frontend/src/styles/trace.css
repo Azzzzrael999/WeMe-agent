@@ -14,6 +14,9 @@
 .approval-card .hitl-draft-summary { margin-top: 20px; }
 .approval-card__meta { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
 .approval-card__meta span { display: inline-flex; align-items: center; gap: 6px; }
+.approval-list { display: grid; gap: 20px; padding: 24px; }
+.approval-list .approval-card { margin: 0; }
+.approval-regenerate-link { margin-top: 12px; }
 .approval-expired { display: flex; align-items: center; gap: 8px; border: 1px solid #fecaca; border-radius: 10px; padding: 10px 12px; color: var(--danger); background: var(--danger-bg); }
 
 .hitl-review-bar { position: sticky; z-index: 15; bottom: 12px; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 16px 0 0; border: 1px solid var(--border-strong); border-radius: var(--radius-card); padding: 12px; background: var(--surface); box-shadow: 0 12px 32px rgb(24 24 27 / 12%); }

@@ -26,9 +26,9 @@ class Settings(BaseSettings):
         default="fixture", validation_alias="AGENT_MODEL_PROVIDER"
     )
     model_timeout_seconds: float = Field(
-        default=45.0, validation_alias="MODEL_TIMEOUT_SECONDS", gt=0, le=120
+        default=20.0, validation_alias="MODEL_TIMEOUT_SECONDS", gt=0, le=120
     )
-    model_max_retries: int = Field(default=2, validation_alias="MODEL_MAX_RETRIES", ge=0, le=3)
+    model_max_retries: int = Field(default=1, validation_alias="MODEL_MAX_RETRIES", ge=0, le=3)
     business_service_url: str = Field(
         default="http://business-service:8080", validation_alias="BUSINESS_SERVICE_URL"
     )
@@ -70,6 +70,27 @@ class Settings(BaseSettings):
     )
     rag_embedding_max_length: int = Field(
         default=2048, validation_alias="RAG_EMBEDDING_MAX_LENGTH", ge=128, le=8192
+    )
+    rag_embedding_timeout_seconds: float = Field(
+        default=8.0,
+        validation_alias="RAG_EMBEDDING_TIMEOUT_SECONDS",
+        gt=0,
+        le=30,
+    )
+    rag_keepalive_interval_seconds: int = Field(
+        default=180,
+        validation_alias="RAG_KEEPALIVE_INTERVAL_SECONDS",
+        ge=0,
+        le=3600,
+    )
+    rag_query_cache_size: int = Field(
+        default=128, validation_alias="RAG_QUERY_CACHE_SIZE", ge=0, le=2048
+    )
+    rag_query_cache_ttl_seconds: int = Field(
+        default=3600,
+        validation_alias="RAG_QUERY_CACHE_TTL_SECONDS",
+        ge=0,
+        le=24 * 60 * 60,
     )
     rag_source_dir: str = Field(
         default="/app/rag-documents", validation_alias="RAG_SOURCE_DIR", min_length=1

@@ -119,7 +119,7 @@ def markdown(title: str, body: str) -> bytes:
 
 
 def multipart_file(file_content: bytes) -> tuple[bytes, str]:
-    boundary = f"----meetops-{uuid.uuid4().hex}"
+    boundary = f"----weme-{uuid.uuid4().hex}"
     prefix = (
         f"--{boundary}\r\n"
         f'Content-Disposition: form-data; name="file"; filename="{FILE_NAME}"\r\n'

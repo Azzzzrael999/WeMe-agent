@@ -111,7 +111,7 @@ class RagDocumentManagementService:
     ) -> RagDocument:
         safe_name, suffix = _validate_file(file_name=file_name, media_type=media_type)
         raw = _decode_upload(content_base64)
-        with self._mutation_lock, tempfile.TemporaryDirectory(prefix="meetops-rag-") as temp_dir:
+        with self._mutation_lock, tempfile.TemporaryDirectory(prefix="weme-rag-") as temp_dir:
             source = Path(temp_dir) / safe_name
             source.write_bytes(raw)
             if suffix == ".pdf":
@@ -151,7 +151,7 @@ class RagDocumentManagementService:
                 raise RagDocumentConflictError("document management version is stale")
             if current.media_type != "text/markdown":
                 raise RagDocumentInvalidError("PDF documents must be replaced by upload")
-            with tempfile.TemporaryDirectory(prefix="meetops-rag-") as temp_dir:
+            with tempfile.TemporaryDirectory(prefix="weme-rag-") as temp_dir:
                 safe_name = (
                     current.file_name
                     if current.file_name.endswith(".md")

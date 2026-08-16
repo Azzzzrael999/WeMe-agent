@@ -96,6 +96,7 @@ from app.tools.java import (
     FreeBusyInput,
     JavaReadToolClient,
     JavaToolError,
+    RecentMeetingInput,
     RescheduleDraftInput,
     SearchRoomsInput,
     ToolOutcome,
@@ -460,9 +461,16 @@ class RequirementAgent:
                     else:
                         outcomes.append(outcome)
                         resolved_employees = members
+                        scope_includes_current_user = any(
+                            item.employee_id == self.context.user_id for item in members
+                        )
                         merged = merged.model_copy(
                             update={
                                 "required_participant_names": [item.name for item in members],
+                                "includes_current_user": (
+                                    merged.includes_current_user
+                                    and not scope_includes_current_user
+                                ),
                                 "minimum_capacity": max(
                                     merged.minimum_capacity or 1,
                                     len({item.employee_id for item in members}),
@@ -711,7 +719,15 @@ class SchedulingAgent:
         model_calls = 0
         tool_usage: list[ModelCompletion] = []
         loop_iteration = state.loop_iteration
-        max_iterations = 6
+        deterministic_conflict_replan = state.conflict_repair_feedback is not None
+        # The failed confirm already gives us a trusted, structured reason to
+        # replan. Re-read the canonical Java facts and run the deterministic
+        # solver directly so a late concurrency conflict cannot fail merely
+        # because the preceding multi-turn conversation consumed its LLM
+        # budget.
+        max_iterations = 0 if deterministic_conflict_replan else 4
+        if deterministic_conflict_replan:
+            loop_iteration += 1
         for _ in range(max_iterations):
             if state.model_call_count + model_calls + 1 > self.max_model_calls:
                 raise WorkflowError("AGENT_STEP_LIMIT_EXCEEDED", "调度模型调用预算已耗尽")
@@ -900,10 +916,8 @@ class SchedulingAgent:
                         role="system",
                         content=_scheduling_system_prompt(state=state, context=context),
                     )
-            # Even when deterministic facts are now complete, send the
-            # resulting role=tool observations back through one assistant
-            # turn. A tool-free response is the explicit protocol boundary
-            # that lets the verifier advance to deterministic solving.
+            if _read_facts_ready(request, free_busy_data, rooms_data, recent_data):
+                break
         # A model may stop after only part of the canonical READ plan even
         # after bounded verifier feedback. Complete the remaining free-busy
         # and room reads deterministically from the already validated request
@@ -923,7 +937,12 @@ class SchedulingAgent:
                 (
                     item
                     for item in missing
-                    if item in {"get_employee_free_busy", "search_available_rooms"}
+                    if item
+                    in {
+                        "get_recent_meeting",
+                        "get_employee_free_busy",
+                        "search_available_rooms",
+                    }
                 ),
                 None,
             )
@@ -950,7 +969,47 @@ class SchedulingAgent:
                 raise WorkflowError(exc.code, "确定性事实补全未通过安全校验") from exc
             outcomes.append(gated_result.outcome)
             fingerprints.add(gated_result.fingerprint)
-            if tool_name == "get_employee_free_busy":
+            if tool_name == "get_recent_meeting":
+                recent_data = gated_result.outcome.data
+                matches, visible_meetings = _resolve_target_meeting(
+                    recent_data,
+                    request=request,
+                    message=state.message,
+                    request_time=state.request_time,
+                )
+                if len(matches) != 1:
+                    answer = _target_meeting_clarification(
+                        matches=matches,
+                        visible_meetings=visible_meetings,
+                    )
+                    return (
+                        _apply_completions(state, tool_usage).model_copy(
+                            update={
+                                "missing_fields": ["uniqueTargetMeeting"],
+                                "answer_summary": answer,
+                                "status": RunStatus.WAITING_USER_INPUT,
+                                "next_route": Route.FINAL,
+                                "stop_reason": LoopStopReason.NEED_CLARIFICATION.value,
+                                "loop_iteration": loop_iteration,
+                                "executed_tool_fingerprints": sorted(fingerprints),
+                            }
+                        ),
+                        answer,
+                        outcomes,
+                        model_calls,
+                    )
+                state, request = _hydrate_mutation_target(
+                    state=state,
+                    request=request,
+                    meeting=matches[0],
+                    recent_data=recent_data,
+                )
+                resolved = [
+                    Participant(name=item.display_name, employee_id=item.employee_id)
+                    for item in matches[0].participants
+                    if item.participant_type == "REQUIRED"
+                ]
+            elif tool_name == "get_employee_free_busy":
                 free_busy_data = gated_result.outcome.data
             else:
                 rooms_data = gated_result.outcome.data
@@ -1009,6 +1068,7 @@ class SchedulingAgent:
             except JavaToolError as exc:
                 raise WorkflowError(exc.code, "取消预览创建暂不可用") from exc
             outcomes.append(outcome)
+            answer = "已生成取消预览，等待用户确认。"
             return (
                 usage_state.model_copy(
                     update={
@@ -1018,12 +1078,13 @@ class SchedulingAgent:
                         "confirmation_token": cancellation.confirmation_token,
                         "draft_expires_at": cancellation.expires_at,
                         "draft_generation": generation,
+                        "answer_summary": answer,
                         "status": RunStatus.WAITING_CONFIRMATION,
                         "next_route": Route.HITL,
                         "stop_reason": LoopStopReason.READY_FOR_CONFIRMATION.value,
                     }
                 ),
-                "已生成取消预览，等待用户确认",
+                answer,
                 outcomes,
                 model_calls,
             )
@@ -1208,6 +1269,12 @@ class SchedulingAgent:
         except JavaToolError as exc:
             raise WorkflowError(exc.code, "预约草案创建暂不可用") from exc
         outcomes.append(draft_outcome)
+        answer = (
+            "当前会议室已被占用，请切换其他的编排选项。"
+            "已重新读取最新占用情况并生成其他可用方案。"
+            if deterministic_conflict_replan
+            else "已生成满足当前条件的候选方案，请确认草案或切换其他编排选项。"
+        )
         return (
             usage_state.model_copy(
                 update={
@@ -1226,13 +1293,14 @@ class SchedulingAgent:
                     "confirm_idempotency_key": None,
                     "pending_request_no": None,
                     "business_result": None,
+                    "answer_summary": answer,
                     "status": RunStatus.WAITING_CONFIRMATION,
                     "next_route": Route.HITL,
                     "stop_reason": LoopStopReason.READY_FOR_CONFIRMATION.value,
                     **common_update,
                 }
             ),
-            "已生成并校验候选方案，等待用户确认草案",
+            answer,
             outcomes,
             model_calls,
         )
@@ -1535,7 +1603,10 @@ def _apply_explicit_meeting_defaults(
             if reference in source:
                 updates["target_meeting_reference"] = reference
                 break
-    if any(value in source for value in ("我的小组", "同组人员", "小组会议", "组内人员")):
+    if any(
+        value in source
+        for value in ("我的小组", "同组人员", "小组会议", "组内人员", "组内的人")
+    ):
         updates["participant_scope"] = "MY_DEPARTMENT"
     elif (
         any(value in source for value in ("只有我", "我自己参加", "就我一个人", "我必须参加"))
@@ -1731,6 +1802,7 @@ def _apply_current_user_participation(
     attends = bool(
         re.search(r"我(?:和|跟|与)|(?:和|跟|与)我", normalized)
         or re.search(r"(?:包括我|我(?:本人|也)?(?:必须|需要|要)?参加)", normalized)
+        or re.search(r"(?:^|[，,、])我(?:[，,、]|$)", normalized)
     )
     return draft.model_copy(update={"includes_current_user": attends})
 
@@ -1759,33 +1831,34 @@ def _normalize_chinese_clock_tokens(source: str) -> str:
 
 
 def _deterministic_target_date(source: str, request_time: datetime) -> Any:
+    compact = re.sub(r"\s+", "", source)
     try:
-        iso_date = re.search(r"\b(\d{4})-(\d{2})-(\d{2})\b", source)
+        iso_date = re.search(r"\b(\d{4})-(\d{2})-(\d{2})\b", compact)
         if iso_date is not None:
             return request_time.date().replace(
                 year=int(iso_date.group(1)),
                 month=int(iso_date.group(2)),
                 day=int(iso_date.group(3)),
             )
-        if "今天" in source or "今日" in source:
+        if "今天" in compact or "今日" in compact:
             return request_time.date()
-        if "明天" in source:
+        if "明天" in compact:
             return (request_time + timedelta(days=1)).date()
-        if "后天" in source:
+        if "后天" in compact:
             return (request_time + timedelta(days=2)).date()
-        absolute = re.search(r"(\d{4})年(\d{1,2})月(\d{1,2})[日号]", source)
+        absolute = re.search(r"(\d{4})年(\d{1,2})月(\d{1,2})[日号]", compact)
         if absolute is not None:
             return request_time.date().replace(
                 year=int(absolute.group(1)),
                 month=int(absolute.group(2)),
                 day=int(absolute.group(3)),
             )
-        month_day = re.search(r"(\d{1,2})月(\d{1,2})[日号]", source)
+        month_day = re.search(r"(\d{1,2})月(\d{1,2})[日号]", compact)
         if month_day is not None:
             return request_time.date().replace(
                 month=int(month_day.group(1)), day=int(month_day.group(2))
             )
-        day_only = re.search(r"(?<!月)(?<!\d)(\d{1,2})号", source)
+        day_only = re.search(r"(?<!月)(?<!\d)(\d{1,2})号", compact)
         if day_only is not None:
             return request_time.date().replace(day=int(day_only.group(1)))
     except ValueError:
@@ -1793,7 +1866,7 @@ def _deterministic_target_date(source: str, request_time: datetime) -> Any:
     weekdays = {"一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5, "日": 6, "天": 6}
     weekday = re.search(
         r"(下周|下星期|本周|这周|本星期|这星期|周|星期)([一二三四五六日天])",
-        source,
+        compact,
     )
     if weekday is not None:
         target = weekdays[weekday.group(2)]
@@ -2093,7 +2166,11 @@ def _merge_requirement_drafts(
             "intent": (current.intent if _source_changes_intent(source) else previous.intent),
             "title": current.title or previous.title,
             "meeting_type": current.meeting_type or previous.meeting_type,
-            "duration_minutes": current.duration_minutes or previous.duration_minutes,
+            "duration_minutes": (
+                current.duration_minutes
+                if _source_changes_meeting_duration(source)
+                else previous.duration_minutes
+            ),
             "time_window": time_window,
             "pending_start_at": pending_start_at,
             "pending_start_ambiguous": pending_start_ambiguous,
@@ -2219,7 +2296,16 @@ def _source_describes_fixed_interval(source: str) -> bool:
 def _closes_optional_requirements(source: str) -> bool:
     return any(
         marker in source
-        for marker in ("没别的要求", "没有其他要求", "其他没有", "没其他要求", "无其他要求")
+        for marker in (
+            "没别的要求",
+            "没有其他要求",
+            "其他没有",
+            "没其他要求",
+            "无其他要求",
+            "没有设备要求",
+            "无设备要求",
+            "不需要额外设备",
+        )
     )
 
 
@@ -2452,9 +2538,10 @@ def _requirement_items(
 
 
 def _time_rule_id(source: str) -> str | None:
-    date_default = bool(re.search(r"(?<!月)(?<!\d)\d{1,2}号", source))
+    compact = re.sub(r"\s+", "", source)
+    date_default = bool(re.search(r"(?<!月)(?<!\d)\d{1,2}号", compact))
     weekday_default = bool(
-        re.search(r"(?:本周|这周|本星期|这星期|周|星期)[一二三四五六日天]", source)
+        re.search(r"(?:本周|这周|本星期|这星期|周|星期)[一二三四五六日天]", compact)
     )
     daypart = _daypart_window(source)
     if date_default and daypart is not None:
@@ -2462,8 +2549,8 @@ def _time_rule_id(source: str) -> str | None:
     if weekday_default and daypart is not None:
         return "CURRENT_WEEK_AND_DAYPART"
     explicit_date = bool(
-        re.search(r"(?:今天|今日|明天|后天|\d{4}年|\d{1,2}月|\d{1,2}号)", source)
-        or re.search(r"(?:下周|下星期|本周|这周|周|星期)[一二三四五六日天]", source)
+        re.search(r"(?:今天|今日|明天|后天|\d{4}年|\d{1,2}月|\d{1,2}号)", compact)
+        or re.search(r"(?:下周|下星期|本周|这周|周|星期)[一二三四五六日天]", compact)
     )
     time_only = bool(re.search(r"(?:\d{1,2}:\d{2}|\d{1,2}点)", source))
     if time_only and not explicit_date:
@@ -2614,6 +2701,15 @@ def _canonical_fact_read_call(
     context: AgentContext,
     index: int,
 ) -> ModelToolCall:
+    if name == "get_recent_meeting":
+        payload: FreeBusyInput | SearchRoomsInput | RecentMeetingInput = RecentMeetingInput(
+            limit=5
+        )
+        return ModelToolCall(
+            id=f"deterministic-fact-{index}-{name}",
+            name=name,
+            arguments=payload.model_dump_json(by_alias=True),
+        )
     window = request.time_window
     if window is None:
         raise WorkflowError("TIME_WINDOW_REQUIRED", "缺少可调度时间窗口")
@@ -2627,7 +2723,7 @@ def _canonical_fact_read_call(
         request.target_meeting_id if request.intent is Intent.MODIFY_MEETING else None
     )
     if name == "get_employee_free_busy":
-        payload: FreeBusyInput | SearchRoomsInput = FreeBusyInput(
+        payload = FreeBusyInput(
             employee_ids=employee_ids,
             from_=window.start,
             to=window.end,
@@ -2666,7 +2762,6 @@ def _missing_read_tools(
         missing.append("resolve_employees")
     if (
         request.intent in {Intent.MODIFY_MEETING, Intent.CANCEL_MEETING}
-        and request.target_meeting_id is None
         and recent_data is None
     ):
         missing.append("get_recent_meeting")
@@ -3523,7 +3618,10 @@ class WorkflowRun:
         # CREATE scheduling has three READ calls plus one DRAFT call; reserve
         # the upper bound before performing external effects.
         tool_increment = 4 if state.intent in {None, Intent.CREATE_MEETING} else 1
-        self._ensure_limits(state, model_increment=1, tool_increment=tool_increment)
+        model_increment = 0 if state.conflict_repair_feedback is not None else 1
+        self._ensure_limits(
+            state, model_increment=model_increment, tool_increment=tool_increment
+        )
         started = time.perf_counter()
         sequence_no = state.step_count + 1
         initial_loop = _loop_event(
@@ -3625,6 +3723,8 @@ class WorkflowRun:
                     {
                         "runId": updated.run_id,
                         "status": RunStatus.WAITING_CONFIRMATION.value,
+                        "answerSummary": updated.answer_summary,
+                        "conflictRepair": updated.conflict_repair_feedback is not None,
                         "confirmationToken": updated.confirmation_token,
                         "expiresAt": updated.draft_expires_at.isoformat(),
                         "actionType": (
@@ -3755,6 +3855,7 @@ class WorkflowRun:
                     tool_call_id=state.confirm_tool_call_id or "tool_unknown",
                     summary="预约确认被 Java 最终并发裁决拒绝",
                     duration_ms=int((time.perf_counter() - started) * 1000),
+                    error_code=exc.details.get("conflict.type", "BOOKING_CONFLICT"),
                 )
                 updated = _synchronous_conflict_replan_state(state=state, error=exc)
                 updated = updated.model_copy(update={"step_count": sequence_no})
@@ -4005,13 +4106,14 @@ class WorkflowRun:
         tool_call_id: str,
         summary: str,
         duration_ms: int,
+        error_code: str,
     ) -> None:
         self.repository.record_tool_call(
             tool_call_id=tool_call_id,
             run_id=state.run_id,
             tool_name=tool_name,
             risk_level=risk_level,
-            sanitized_args={"riskGuard": "HITL_ACCEPTED"},
+            sanitized_args={"riskGuard": "HITL_ACCEPTED", "errorCode": error_code},
             result_summary=summary,
             status="FAILED",
             duration_ms=duration_ms,
@@ -4026,6 +4128,7 @@ class WorkflowRun:
                 "status": "FAILED",
                 "summary": summary,
                 "durationMs": duration_ms,
+                "errorCode": error_code,
             },
         )
 

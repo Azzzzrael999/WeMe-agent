@@ -133,7 +133,7 @@ class HardConstraintValidator:
 
 @dataclass(frozen=True)
 class ScheduleSolver:
-    """CP-SAT single-choice model with deterministic no-good Top-3 exclusion."""
+    """CP-SAT single-choice model with deterministic room-diverse Top-K selection."""
 
     builder: CandidateSetBuilder = CandidateSetBuilder()
     validator: HardConstraintValidator = HardConstraintValidator()
@@ -146,45 +146,84 @@ class ScheduleSolver:
             return ScheduleSolveResult(candidates=(), unsat=_analyze_unsat(problem, built))
 
         costs = [_cost_breakdown(problem, seed) for seed in built.seeds]
-        model = cp_model.CpModel()
-        decisions = [model.NewBoolVar(f"candidate_{index}") for index in range(len(built.seeds))]
-        model.Add(sum(decisions) == 1)
-
-        # The second term is a stable tie-breaker only. It never changes the
-        # visible objective cost, because the multiplier exceeds all indexes.
-        tie_multiplier = len(decisions) + 1
-        model.Minimize(
-            sum(
-                decision * (cost.total * tie_multiplier + index)
-                for index, (decision, cost) in enumerate(zip(decisions, costs, strict=True))
-            )
+        selected: list[ScheduleCandidate] = []
+        selected_indexes: set[int] = set()
+        selected_room_ids: set[int] = set()
+        distinct_room_target = min(
+            top_k, len({seed.room.room_id for seed in built.seeds})
         )
 
-        selected: list[ScheduleCandidate] = []
-        for _ in range(top_k):
-            solver = cp_model.CpSolver()
-            solver.parameters.num_search_workers = 1
-            solver.parameters.random_seed = 0
-            status = solver.Solve(model)
-            if solver.StatusName(status) not in {"OPTIMAL", "FEASIBLE"}:
-                break
-            selected_index = next(
-                index for index, decision in enumerate(decisions) if solver.Value(decision) == 1
+        while len(selected) < distinct_room_target:
+            selected_index = _solve_candidate_index(
+                seeds=built.seeds,
+                costs=costs,
+                excluded_indexes=selected_indexes,
+                excluded_room_ids=selected_room_ids,
             )
+            if selected_index is None:
+                break
             candidate = _visible_candidate(built.seeds[selected_index], costs[selected_index])
             violations = self.validator.validate(problem=problem, candidate=candidate)
             if violations:
                 codes = ",".join(violation.code for violation in violations)
                 raise ScheduleSolverError(f"independent hard-constraint validation failed: {codes}")
             selected.append(candidate)
-            # No-good exclusion for the one-hot decision: subsequent solves
-            # must choose a different candidate, yielding the next optimum.
-            model.Add(decisions[selected_index] == 0)
+            selected_indexes.add(selected_index)
+            selected_room_ids.add(candidate.room_id)
+
+        while len(selected) < top_k:
+            selected_index = _solve_candidate_index(
+                seeds=built.seeds,
+                costs=costs,
+                excluded_indexes=selected_indexes,
+                excluded_room_ids=set(),
+            )
+            if selected_index is None:
+                break
+            candidate = _visible_candidate(built.seeds[selected_index], costs[selected_index])
+            violations = self.validator.validate(problem=problem, candidate=candidate)
+            if violations:
+                codes = ",".join(violation.code for violation in violations)
+                raise ScheduleSolverError(f"independent hard-constraint validation failed: {codes}")
+            selected.append(candidate)
+            selected_indexes.add(selected_index)
 
         ordered = tuple(
             sorted(selected, key=lambda candidate: (candidate.total_cost, candidate.candidate_id))
         )
         return ScheduleSolveResult(candidates=ordered, unsat=None)
+
+
+def _solve_candidate_index(
+    *,
+    seeds: tuple[CandidateSeed, ...],
+    costs: list[CandidateCostBreakdown],
+    excluded_indexes: set[int],
+    excluded_room_ids: set[int],
+) -> int | None:
+    model = cp_model.CpModel()
+    decisions = [model.NewBoolVar(f"candidate_{index}") for index in range(len(seeds))]
+    model.Add(sum(decisions) == 1)
+    for index, seed in enumerate(seeds):
+        if index in excluded_indexes or seed.room.room_id in excluded_room_ids:
+            model.Add(decisions[index] == 0)
+
+    # The second term is a stable tie-breaker only. It never changes the
+    # visible objective cost, because the multiplier exceeds all indexes.
+    tie_multiplier = len(decisions) + 1
+    model.Minimize(
+        sum(
+            decision * (cost.total * tie_multiplier + index)
+            for index, (decision, cost) in enumerate(zip(decisions, costs, strict=True))
+        )
+    )
+    solver = cp_model.CpSolver()
+    solver.parameters.num_search_workers = 1
+    solver.parameters.random_seed = 0
+    status = solver.Solve(model)
+    if solver.StatusName(status) not in {"OPTIMAL", "FEASIBLE"}:
+        return None
+    return next(index for index, decision in enumerate(decisions) if solver.Value(decision) == 1)
 
 
 def _window_slot_starts(problem: SchedulingProblem) -> list[datetime]:

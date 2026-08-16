@@ -91,6 +91,29 @@ public class AgentSseProxyService {
     return get("/internal/v1/agent-runs/" + runId + "/trace", runId, actor, traceId, true);
   }
 
+  public JsonNode listThreads(
+      int page, int size, String status, AuthenticatedUser actor, String traceId) {
+    StringBuilder path =
+        new StringBuilder("/internal/v1/agent-threads?page=")
+            .append(page)
+            .append("&size=")
+            .append(size);
+    if (status != null && !status.isBlank()) {
+      path.append("&status=").append(status);
+    }
+    return get(path.toString(), historyContextId(), actor, traceId, true, null);
+  }
+
+  public JsonNode getThread(String threadId, AuthenticatedUser actor, String traceId) {
+    return get(
+        "/internal/v1/agent-threads/" + threadId,
+        historyContextId(),
+        actor,
+        traceId,
+        true,
+        ErrorCode.AGENT_THREAD_NOT_FOUND);
+  }
+
   private UpstreamStream open(
       String path, String runId, Object body, AuthenticatedUser actor, String traceId) {
     String contextToken = tokenService.issue(actor, traceId, runId);
@@ -135,6 +158,16 @@ public class AgentSseProxyService {
       AuthenticatedUser actor,
       String traceId,
       boolean omitConfirmationToken) {
+    return get(path, runId, actor, traceId, omitConfirmationToken, null);
+  }
+
+  private JsonNode get(
+      String path,
+      String runId,
+      AuthenticatedUser actor,
+      String traceId,
+      boolean omitConfirmationToken,
+      ErrorCode notFoundError) {
     String contextToken = tokenService.issue(actor, traceId, runId);
     try {
       HttpRequest request =
@@ -150,6 +183,9 @@ public class AgentSseProxyService {
               .build();
       HttpResponse<String> response =
           httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      if (response.statusCode() == 404 && notFoundError != null) {
+        throw new BusinessException(notFoundError);
+      }
       if (response.statusCode() < 200 || response.statusCode() >= 300) {
         throw new BusinessException(ErrorCode.AGENT_UNAVAILABLE);
       }
@@ -162,6 +198,10 @@ public class AgentSseProxyService {
       Thread.currentThread().interrupt();
       throw new BusinessException(ErrorCode.AGENT_UNAVAILABLE);
     }
+  }
+
+  private String historyContextId() {
+    return "history_" + UUID.randomUUID().toString().replace("-", "");
   }
 
   private JsonNode readJson(String value) {
