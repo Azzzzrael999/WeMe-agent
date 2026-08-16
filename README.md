@@ -1,12 +1,12 @@
-# WeMe
+# WeMe-agent
 
-> 基于 LangGraph 多 Agent 编排与 Spring Boot 业务底座的智能会议协作平台
+> &emsp;&emsp;基于 LangGraph 多 Agent 编排与 Spring Boot 业务底座的智能会议协作平台
 
-> &emsp;&emsp;WeMe 是一个由多 Agent 驱动的企业会议协作工作台。用户可以通过自然语言创建、查询、修改或取消会议，系统会在多轮对话中持续维护人员、时间、容量和设备等需求，主动澄清缺失或歧义信息，并结合真实的组织与会议室数据生成可解释的候选方案。除了会议调度，WeMe 还覆盖带来源的企业制度问答、会前准备、会议提醒、会后纪要和行动项跟踪。
+WeMe 是一个由多 Agent 驱动的企业会议协作工作台。用户可以通过自然语言创建、查询、修改或取消会议，系统会在多轮对话中持续维护人员、时间、容量和设备等需求，主动澄清缺失或歧义信息，并结合真实的组织与会议室数据生成可解释的候选方案。除了会议调度，WeMe 还覆盖带来源的企业制度问答、会前准备、会议提醒、会后纪要和行动项跟踪。
 
-> &emsp;&emsp;在 Agent 层，WeMe 使用 LangGraph 组织多个职责明确的 Agent 节点。Supervisor Agent 负责意图识别和任务路由，Requirement Agent 负责需求抽取、增量修改与信息澄清，Scheduling Agent 负责查询人员忙闲和会议室资源并组织候选调度，Policy Agent 负责企业制度检索和来源引用。各 Agent 通过共享的结构化状态、需求证据和检查点协作，可以根据用户补充、条件变化或调度冲突在不同节点间继续流转，而不需要重新开始任务。
+在 Agent 层，WeMe 使用 LangGraph 组织多个职责明确的 Agent 节点。Supervisor Agent 负责意图识别和任务路由，Requirement Agent 负责需求抽取、增量修改与信息澄清，Scheduling Agent 负责查询人员忙闲和会议室资源并组织候选调度，Policy Agent 负责企业制度检索和来源引用。各 Agent 通过共享的结构化状态、需求证据和检查点协作，可以根据用户补充、条件变化或调度冲突在不同节点间继续流转，而不需要重新开始任务。
 
-> &emsp;&emsp;Agent 负责理解和规划，Java 业务系统负责权限、事务和最终执行。模型只能通过受约束的 Tool Gateway 查询授权数据，OR-Tools 和确定性规则负责校验时间、容量、设备及必需参会人等硬约束；创建、改期和取消只会先生成预览草案，经用户确认后才由 Spring Boot 服务写入正式业务数据。MySQL 唯一约束、Redis 占位、幂等控制和异步消息链路进一步处理并发预约、重复请求与故障恢复，使 Agent 的每次决策和业务操作都可验证、可恢复、可追溯。
+Agent 负责理解和规划，Java 业务系统负责权限、事务和最终执行。模型只能通过受约束的 Tool Gateway 查询授权数据，OR-Tools 和确定性规则负责校验时间、容量、设备及必需参会人等硬约束；创建、改期和取消只会先生成预览草案，经用户确认后才由 Spring Boot 服务写入正式业务数据。MySQL 唯一约束、Redis 占位、幂等控制和异步消息链路进一步处理并发预约、重复请求与故障恢复，使 Agent 的每次决策和业务操作都可验证、可恢复、可追溯。
 
 ## 项目演示
 
@@ -29,7 +29,6 @@ https://github.com/user-attachments/assets/a50d30f6-a52a-4945-9599-5beab7f2a41f
 - [使用流程](#使用流程)
 - [测试与评测](#测试与评测)
 - [文档索引](#文档索引)
-- [Contributors](#contributors)
 - [许可证](#许可证)
 
 ## 核心能力
@@ -546,14 +545,6 @@ WeMe/
 | [docs/TESTING_AND_EVALUATION.md](docs/TESTING_AND_EVALUATION.md) | 测试分层、执行命令、评测指标、已有结果与限制 |
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | 服务启动、模型、RAG、SSE、消息堆积和数据冲突排查 |
 | [.env.example](.env.example) | 全部运行配置及镜像基线示例 |
-
-## Contributors
-
-<a href="https://github.com/azrael0425">
-  <img src="https://github.com/azrael0425.png?size=96" width="80" alt="Azrael" />
-  <br />
-  <sub><strong>Azrael</strong></sub>
-</a>
 
 ## 许可证
 
