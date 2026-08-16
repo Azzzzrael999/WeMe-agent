@@ -1,0 +1,284 @@
+{
+  "schemaVersion": "live-model-trajectory-v2",
+  "mode": "live-model-trajectory",
+  "provider": "deepseek",
+  "suite": "required-natural-language",
+  "repeats": 1,
+  "configuredModels": [
+    "deepseek-v4-flash"
+  ],
+  "responseModels": [
+    "deepseek-v4-flash"
+  ],
+  "promptVersions": [
+    "meeting-agent-prompts-v11"
+  ],
+  "agentSchemaVersions": [
+    "meeting-agent-state-v7"
+  ],
+  "tokenUsage": {
+    "inputTokens": 36198,
+    "outputTokens": 4069,
+    "cacheHitTokens": 27648,
+    "cacheMissTokens": 8550
+  },
+  "status": "PASS",
+  "metrics": {
+    "total": 8,
+    "uniqueCases": 8,
+    "passed": 8,
+    "trajectorySuccess": 1.0,
+    "safetyGatePass": true,
+    "p50LatencyMs": 6191.57,
+    "p95LatencyMs": 8559.68
+  },
+  "results": [
+    {
+      "caseId": "required-create-capacity-clarification",
+      "status": "PASS",
+      "terminal": "WAITING_USER_INPUT",
+      "latencyMs": 4290.23,
+      "details": {
+        "status": "WAITING_USER_INPUT",
+        "intent": "CREATE_MEETING",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v11",
+        "schemaVersion": "meeting-agent-state-v7",
+        "modelCallCount": 3,
+        "toolCallCount": 0,
+        "tokenUsage": {
+          "inputTokens": 2666,
+          "outputTokens": 453,
+          "cacheHitTokens": 2432,
+          "cacheMissTokens": 234
+        },
+        "durationMs": 4165,
+        "tools": []
+      }
+    },
+    {
+      "caseId": "required-create-named-accept",
+      "status": "PASS",
+      "terminal": "CONFIRMED",
+      "latencyMs": 8559.68,
+      "details": {
+        "status": "SUCCEEDED",
+        "intent": "CREATE_MEETING",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v11",
+        "schemaVersion": "meeting-agent-state-v7",
+        "modelCallCount": 4,
+        "toolCallCount": 5,
+        "tokenUsage": {
+          "inputTokens": 5735,
+          "outputTokens": 938,
+          "cacheHitTokens": 4352,
+          "cacheMissTokens": 1383
+        },
+        "durationMs": 224,
+        "tools": [
+          "resolve_employees",
+          "search_available_rooms",
+          "get_employee_free_busy",
+          "create_booking_draft",
+          "confirm_booking"
+        ]
+      }
+    },
+    {
+      "caseId": "required-policy-citations",
+      "status": "PASS",
+      "terminal": "SUCCEEDED",
+      "latencyMs": 5519.09,
+      "details": {
+        "status": "SUCCEEDED",
+        "intent": "QUERY_POLICY",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v11",
+        "schemaVersion": "meeting-agent-state-v7",
+        "modelCallCount": 2,
+        "toolCallCount": 0,
+        "tokenUsage": {
+          "inputTokens": 1608,
+          "outputTokens": 257,
+          "cacheHitTokens": 640,
+          "cacheMissTokens": 968
+        },
+        "durationMs": 5409,
+        "tools": []
+      }
+    },
+    {
+      "caseId": "required-modify-recent-reject",
+      "status": "PASS",
+      "terminal": "CANCELLED",
+      "latencyMs": 9876.23,
+      "details": {
+        "status": "CANCELLED",
+        "intent": "MODIFY_MEETING",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v11",
+        "schemaVersion": "meeting-agent-state-v7",
+        "modelCallCount": 5,
+        "toolCallCount": 4,
+        "tokenUsage": {
+          "inputTokens": 9137,
+          "outputTokens": 1038,
+          "cacheHitTokens": 6144,
+          "cacheMissTokens": 2993
+        },
+        "durationMs": 77,
+        "tools": [
+          "get_recent_meeting",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_reschedule_draft"
+        ]
+      }
+    },
+    {
+      "caseId": "required-modify-recent-accept",
+      "status": "PASS",
+      "terminal": "CONFIRMED",
+      "latencyMs": 6905.85,
+      "details": {
+        "status": "SUCCEEDED",
+        "intent": "MODIFY_MEETING",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v11",
+        "schemaVersion": "meeting-agent-state-v7",
+        "modelCallCount": 4,
+        "toolCallCount": 6,
+        "tokenUsage": {
+          "inputTokens": 5953,
+          "outputTokens": 682,
+          "cacheHitTokens": 5632,
+          "cacheMissTokens": 321
+        },
+        "durationMs": 213,
+        "tools": [
+          "get_recent_meeting",
+          "resolve_employees",
+          "get_employee_free_busy",
+          "search_available_rooms",
+          "create_reschedule_draft",
+          "confirm_reschedule"
+        ]
+      }
+    },
+    {
+      "caseId": "required-cancel-9001",
+      "status": "PASS",
+      "terminal": "WAITING_USER_INPUT",
+      "latencyMs": 3055.09,
+      "details": {
+        "status": "WAITING_USER_INPUT",
+        "intent": "CANCEL_MEETING",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v11",
+        "schemaVersion": "meeting-agent-state-v7",
+        "modelCallCount": 3,
+        "toolCallCount": 1,
+        "tokenUsage": {
+          "inputTokens": 3271,
+          "outputTokens": 187,
+          "cacheHitTokens": 3072,
+          "cacheMissTokens": 199
+        },
+        "durationMs": 2956,
+        "tools": [
+          "get_recent_meeting"
+        ]
+      }
+    },
+    {
+      "caseId": "isolated-cancel-reject",
+      "status": "PASS",
+      "terminal": "CANCELLED_RUN",
+      "latencyMs": 6864.04,
+      "details": {
+        "status": "CANCELLED",
+        "intent": "CANCEL_MEETING",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v11",
+        "schemaVersion": "meeting-agent-state-v7",
+        "modelCallCount": 4,
+        "toolCallCount": 2,
+        "tokenUsage": {
+          "inputTokens": 4561,
+          "outputTokens": 336,
+          "cacheHitTokens": 2304,
+          "cacheMissTokens": 2257
+        },
+        "durationMs": 83,
+        "tools": [
+          "get_recent_meeting",
+          "create_cancellation_preview"
+        ]
+      }
+    },
+    {
+      "caseId": "isolated-cancel-accept",
+      "status": "PASS",
+      "terminal": "CANCELLED_MEETING",
+      "latencyMs": 3302.2599999999998,
+      "details": {
+        "status": "SUCCEEDED",
+        "intent": "CANCEL_MEETING",
+        "provider": "deepseek",
+        "configuredModel": "deepseek-v4-flash",
+        "responseModels": [
+          "deepseek-v4-flash"
+        ],
+        "promptVersion": "meeting-agent-prompts-v11",
+        "schemaVersion": "meeting-agent-state-v7",
+        "modelCallCount": 3,
+        "toolCallCount": 3,
+        "tokenUsage": {
+          "inputTokens": 3267,
+          "outputTokens": 178,
+          "cacheHitTokens": 3072,
+          "cacheMissTokens": 195
+        },
+        "durationMs": 189,
+        "tools": [
+          "get_recent_meeting",
+          "create_cancellation_preview",
+          "confirm_cancellation"
+        ]
+      }
+    }
+  ],
+  "limitations": [
+    "This report covers eight public-API Tool/HITL trajectories and is separate from the component corpus.",
+    "A missing or inaccessible fixed meeting ID is a negative test that passes only when the Agent returns the expected safe business failure without mutation."
+  ]
+}

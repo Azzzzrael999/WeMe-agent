@@ -1,0 +1,321 @@
+{
+  "schemaVersion": "agent-evaluation-summary-v2",
+  "generatedAt": "2026-08-15T14:30:16.528466+00:00",
+  "gitCommit": "d9c164e3aec7fdf7d234f2d4d60b174e207ebca8",
+  "workingTreeDirty": true,
+  "datasetVersion": "agent-eval-v2-120",
+  "status": "FAIL",
+  "scope": {
+    "componentUniqueCases": 120,
+    "liveCoreUniqueCases": 30,
+    "liveCoreSamples": 90,
+    "liveFullSamples": 120,
+    "productTrajectoryCases": 24,
+    "isolatedMutationTrajectories": 8,
+    "publicApiDialogueScenarios": 16
+  },
+  "model": {
+    "provider": "deepseek",
+    "configuredModel": "deepseek-v4-flash",
+    "responseModels": [
+      "deepseek-v4-flash"
+    ],
+    "promptVersion": "meeting-agent-prompts-v11",
+    "agentSchemaVersion": "meeting-agent-state-v7"
+  },
+  "quality": {
+    "fixtureComponentTaskSuccess": 1.0,
+    "liveFullTaskSuccessRate": 0.9333333333333333,
+    "liveCoreTaskSuccessRate": 0.9666666666666667,
+    "liveCoreStableCaseRate": 0.9666666666666667,
+    "routeAccuracy": 0.975,
+    "intentAccuracy": 0.95,
+    "constraintFieldF1": 1.0,
+    "plannedToolSetAccuracy": 0.975,
+    "sourceFidelityViolations": 2,
+    "citationValidity": 1.0,
+    "nativeToolProtocol": 1.0,
+    "trajectorySuccess": 1.0,
+    "publicApiScenarioSuccess": 0.8125
+  },
+  "operations": {
+    "liveFullLatencyP50Ms": 3651.89,
+    "liveFullLatencyP95Ms": 4985.14,
+    "trajectoryLatencyP50Ms": 6191.57,
+    "trajectoryLatencyP95Ms": 8559.68,
+    "publicApiLatencyP50Ms": 8510.37,
+    "publicApiLatencyP95Ms": 14572.23,
+    "tokenUsage": {
+      "inputTokens": 259407,
+      "outputTokens": 39149,
+      "cacheHitTokens": 239360,
+      "cacheMissTokens": 20047
+    }
+  },
+  "gates": [
+    {
+      "name": "fixture mode is component-fixture",
+      "passed": true
+    },
+    {
+      "name": "dataset version is agent-eval-v2-120",
+      "passed": true
+    },
+    {
+      "name": "fixture network calls are zero",
+      "passed": true
+    },
+    {
+      "name": "fixture has 120 unique cases",
+      "passed": true
+    },
+    {
+      "name": "fixture category distribution matches the frozen contract",
+      "passed": true
+    },
+    {
+      "name": "fixture difficulty distribution matches the frozen contract",
+      "passed": true
+    },
+    {
+      "name": "fixture split distribution matches the frozen contract",
+      "passed": true
+    },
+    {
+      "name": "fixture hard-constraint violations are zero",
+      "passed": true
+    },
+    {
+      "name": "fixture citation validity is 100%",
+      "passed": true
+    },
+    {
+      "name": "fixture component task success is at least 80%",
+      "passed": true
+    },
+    {
+      "name": "live core report status is PASS",
+      "passed": true
+    },
+    {
+      "name": "live core suite is core",
+      "passed": true
+    },
+    {
+      "name": "live core repeats each case three times",
+      "passed": true
+    },
+    {
+      "name": "live core has 30 unique cases",
+      "passed": true
+    },
+    {
+      "name": "live core has 90 execution samples",
+      "passed": true
+    },
+    {
+      "name": "live core stable-case rate is at least 85%",
+      "passed": true
+    },
+    {
+      "name": "live core task success is at least 90%",
+      "passed": true
+    },
+    {
+      "name": "live full report status is PASS",
+      "passed": false
+    },
+    {
+      "name": "live full suite is full",
+      "passed": true
+    },
+    {
+      "name": "live full runs each case once",
+      "passed": true
+    },
+    {
+      "name": "live full has 120 unique cases",
+      "passed": true
+    },
+    {
+      "name": "live full has 120 execution samples",
+      "passed": true
+    },
+    {
+      "name": "live full source-fidelity violations are zero",
+      "passed": false
+    },
+    {
+      "name": "live full native Tool protocol is 100%",
+      "passed": true
+    },
+    {
+      "name": "live full citation validity is 100%",
+      "passed": true
+    },
+    {
+      "name": "live full task success is at least 90%",
+      "passed": true
+    },
+    {
+      "name": "live full route accuracy is at least 95%",
+      "passed": true
+    },
+    {
+      "name": "all live full policy cases route correctly",
+      "passed": false
+    },
+    {
+      "name": "live full intent accuracy is at least 90%",
+      "passed": true
+    },
+    {
+      "name": "live full constraint field F1 is at least 85%",
+      "passed": true
+    },
+    {
+      "name": "live full planned Tool set accuracy is at least 90%",
+      "passed": true
+    },
+    {
+      "name": "isolated product trajectory status is PASS",
+      "passed": true
+    },
+    {
+      "name": "isolated trajectory has eight cases",
+      "passed": true
+    },
+    {
+      "name": "all isolated trajectories pass",
+      "passed": true
+    },
+    {
+      "name": "isolated trajectory safety gates all pass",
+      "passed": true
+    },
+    {
+      "name": "public API scenario status is PASS",
+      "passed": false
+    },
+    {
+      "name": "public API suite has 16 scenarios",
+      "passed": true
+    },
+    {
+      "name": "all public API scenarios pass",
+      "passed": false
+    }
+  ],
+  "failures": [
+    {
+      "suite": "liveCore",
+      "caseId": "recommend-006",
+      "repeat": 1,
+      "errorType": null,
+      "failure": null
+    },
+    {
+      "suite": "liveCore",
+      "caseId": "recommend-006",
+      "repeat": 2,
+      "errorType": null,
+      "failure": null
+    },
+    {
+      "suite": "liveCore",
+      "caseId": "recommend-006",
+      "repeat": 3,
+      "errorType": null,
+      "failure": null
+    },
+    {
+      "suite": "liveFull",
+      "caseId": "normal-009",
+      "repeat": 1,
+      "errorType": null,
+      "failure": null
+    },
+    {
+      "suite": "liveFull",
+      "caseId": "recommend-006",
+      "repeat": 1,
+      "errorType": null,
+      "failure": null
+    },
+    {
+      "suite": "liveFull",
+      "caseId": "recommend-012",
+      "repeat": 1,
+      "errorType": null,
+      "failure": null
+    },
+    {
+      "suite": "liveFull",
+      "caseId": "recommend-013",
+      "repeat": 1,
+      "errorType": null,
+      "failure": null
+    },
+    {
+      "suite": "liveFull",
+      "caseId": "policy-005",
+      "repeat": 1,
+      "errorType": null,
+      "failure": null
+    },
+    {
+      "suite": "liveFull",
+      "caseId": "policy-007",
+      "repeat": 1,
+      "errorType": null,
+      "failure": null
+    },
+    {
+      "suite": "liveFull",
+      "caseId": "policy-009",
+      "repeat": 1,
+      "errorType": null,
+      "failure": null
+    },
+    {
+      "suite": "liveFull",
+      "caseId": "policy-013",
+      "repeat": 1,
+      "errorType": null,
+      "failure": null
+    },
+    {
+      "suite": "product",
+      "caseId": "create-mixed-language",
+      "repeat": null,
+      "errorType": null,
+      "failure": "turn 1 expected HITL, got WAITING_INPUT"
+    },
+    {
+      "suite": "product",
+      "caseId": "modify-explicit-id-reject",
+      "repeat": null,
+      "errorType": null,
+      "failure": "turn 1 expected HITL, got WAITING_INPUT"
+    },
+    {
+      "suite": "product",
+      "caseId": "modify-ambiguous-target-clarified",
+      "repeat": null,
+      "errorType": null,
+      "failure": "turn 1 expected WAITING_INPUT, got HITL"
+    }
+  ],
+  "evidence": {
+    "fixture": "artifacts/agent-eval-v2/fixture-120.json",
+    "liveCore": "artifacts/agent-eval-v2/live-core-30x3.json",
+    "liveFull": "artifacts/agent-eval-v2/live-full-120x1.json",
+    "trajectory": "artifacts/agent-eval-v2/trajectory-8.json",
+    "product": "artifacts/agent-eval-v2/product-scenarios-16.json"
+  },
+  "limitations": [
+    "The 120 component cases and 24 product trajectories are separate suites and are not summed as one homogeneous question count.",
+    "Planned Tool set accuracy is derived from structured component state; observed Tool order, arguments, HITL and side effects are scored by product trajectories.",
+    "Results apply to the recorded model, prompt/schema versions and the fixed demonstration environment, not to unrestricted general-purpose Agent capability."
+  ]
+}

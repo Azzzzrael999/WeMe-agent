@@ -43,12 +43,15 @@ class FixtureModelProvider:
         if request.agent_name == "policy":
             return ModelCompletion(content=self._json(self._policy(message)), model="fixture")
         if request.agent_name == "scheduling":
-            return ModelCompletion(content=self._json(
-                {
-                    "toolNames": ["resolve_employees"],
-                    "summary": "先解析必需参会者，再交由后续确定性调度处理。",
-                }
-            ), model="fixture")
+            return ModelCompletion(
+                content=self._json(
+                    {
+                        "toolNames": ["resolve_employees"],
+                        "summary": "先解析必需参会者，再交由后续确定性调度处理。",
+                    }
+                ),
+                model="fixture",
+            )
         raise ValueError(f"unsupported fixture agent: {request.agent_name}")
 
     def complete_tools(self, request: ToolModelRequest) -> ToolModelResponse:
@@ -160,9 +163,7 @@ class FixtureModelProvider:
                             {
                                 "from": canonical["from"],
                                 "to": canonical["to"],
-                                "minimumCapacity": max(
-                                    requested_capacity, len(employee_ids)
-                                ),
+                                "minimumCapacity": max(requested_capacity, len(employee_ids)),
                                 "requiredFeatures": canonical["requiredFeatures"],
                                 "limit": 50,
                                 "excludeMeetingId": canonical.get("excludeMeetingId"),
@@ -181,31 +182,38 @@ class FixtureModelProvider:
 
     @staticmethod
     def _supervisor(message: str) -> dict[str, object]:
-        if any(term in message for term in ("规则", "制度", "VIP", "政策")):
+        policy_terms = ("规则", "制度", "VIP", "政策", "使用说明", "设备标准")
+        adversarial_booking = "忽略系统规则" in message and any(
+            term in message for term in ("预约", "安排", "确认")
+        )
+        if any(term in message for term in policy_terms) and not adversarial_booking:
             return {
                 "route": "POLICY",
                 "intentHint": "QUERY_POLICY",
                 "confidence": 0.99,
-                "evidence": next(
-                    term for term in ("规则", "制度", "VIP", "政策") if term in message
-                ),
+                "evidence": next(term for term in policy_terms if term in message),
                 "summary": "识别为会议规则查询。",
             }
-        intent = "CANCEL_MEETING" if "取消" in message else (
-            "MODIFY_MEETING" if any(
-                term in message
-                for term in (
-                    "改期",
-                    "调整",
-                    "修改",
-                    "改到",
-                    "异常重排",
-                    "资源失效",
-                    "会议室不可用",
-                    "会议室已失效",
+        intent = (
+            "CANCEL_MEETING"
+            if "取消" in message
+            else (
+                "MODIFY_MEETING"
+                if any(
+                    term in message
+                    for term in (
+                        "改期",
+                        "调整",
+                        "修改",
+                        "改到",
+                        "异常重排",
+                        "资源失效",
+                        "会议室不可用",
+                        "会议室已失效",
+                    )
                 )
+                else "CREATE_MEETING"
             )
-            else "CREATE_MEETING"
         )
         evidence = next(
             (
@@ -272,7 +280,7 @@ class FixtureModelProvider:
             )
         ):
             intent = "MODIFY_MEETING"
-        elif any(term in message for term in ("共同空闲", "共同时间", "大家有空")):
+        elif any(term in message for term in ("共同空闲", "共同时间", "共同空档", "大家有空")):
             intent = "FIND_COMMON_TIME"
         elif "推荐" in message:
             intent = "RECOMMEND_ROOM"
@@ -328,9 +336,7 @@ class FixtureModelProvider:
             )
         title = "架构评审" if "架构评审" in message else "会议安排"
         preferred_buildings = [
-            building
-            for building in ("总部楼", "研发楼", "创新楼", "协作楼")
-            if building in message
+            building for building in ("总部楼", "研发楼", "创新楼", "协作楼") if building in message
         ]
         evidence: list[dict[str, str]] = []
         for name in ("张三", "李四", "王经理"):
@@ -360,6 +366,20 @@ class FixtureModelProvider:
                         "provenance": "USER_EXPLICIT",
                     }
                 )
+        missing_fields: list[str] = []
+        if any(term in message for term in ("没确定开多久", "时长还需要确认", "时长还没提供")):
+            missing_fields.append("durationMinutes")
+        if any(
+            term in message for term in ("参会人还没定", "参会人稍后再说", "参会人我都还没提供")
+        ):
+            missing_fields.append("requiredParticipants")
+        if any(
+            term in message
+            for term in ("日期和时间还没有确定", "会议时间、时长和参会人我都还没提供")
+        ):
+            missing_fields.append("timeWindow")
+        if "会议时间、时长和参会人我都还没提供" in message:
+            missing_fields.extend(["durationMinutes", "requiredParticipants"])
         return {
             "requirementDraft": {
                 "intent": intent,
@@ -409,7 +429,7 @@ class FixtureModelProvider:
                 "needsPolicy": False,
                 "summary": "已提取用户明确表达的会议事实。",
             },
-            "missingFields": [],
+            "missingFields": list(dict.fromkeys(missing_fields)),
         }
 
     def _post_meeting_draft(self, message: str) -> dict[str, object]:
@@ -538,8 +558,7 @@ class FixtureModelProvider:
         else:
             date = base.date()
         has_time_expression = any(
-            value in message
-            for value in ("上午", "早上", "中午", "下午", "晚上", "点", ":")
+            value in message for value in ("上午", "早上", "中午", "下午", "晚上", "点", ":")
         )
         if not has_time_expression:
             return None
@@ -577,11 +596,11 @@ class FixtureModelProvider:
                     start_hour += 12
                 end_hour = min(start_hour + 5, 18)
         start = datetime.combine(date, datetime.min.time(), tzinfo=base.tzinfo).replace(
-                hour=start_hour, minute=start_minute
-            )
+            hour=start_hour, minute=start_minute
+        )
         end = datetime.combine(date, datetime.min.time(), tzinfo=base.tzinfo).replace(
-                hour=end_hour, minute=end_minute
-            )
+            hour=end_hour, minute=end_minute
+        )
         if crosses_midnight:
             end += timedelta(days=1)
         return start, end
@@ -602,9 +621,7 @@ class FixtureModelProvider:
         if hour is None:
             return None
         period = clock.group(1)
-        if (period in {"下午", "晚上"} and hour < 12) or (
-            period == "中午" and hour < 11
-        ):
+        if (period in {"下午", "晚上"} and hour < 12) or (period == "中午" and hour < 11):
             hour += 12
         return self.now.replace(
             day=int(day.group(1)),
@@ -619,8 +636,18 @@ class FixtureModelProvider:
         if value.isdigit():
             return int(value)
         digits = {
-            "零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3,
-            "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9,
+            "零": 0,
+            "〇": 0,
+            "一": 1,
+            "二": 2,
+            "两": 2,
+            "三": 3,
+            "四": 4,
+            "五": 5,
+            "六": 6,
+            "七": 7,
+            "八": 8,
+            "九": 9,
         }
         if value == "十":
             return 10
@@ -656,6 +683,12 @@ class FixtureModelProvider:
         elif "取消" in message or "改期" in message:
             chunk_id = "chunk_meeting_mutation_v1"
             summary = "会议改期或取消必须先展示草案并经过用户确认。"
+        elif (
+            any(term in message for term in ("设备", "白板", "视频会议"))
+            and "架构评审" not in message
+        ):
+            chunk_id = "chunk_room_equipment_v1"
+            summary = "会议室设备标签用于筛选大屏、白板与视频会议能力。"
         else:
             chunk_id = "chunk_architecture_review_v1"
             summary = "架构评审展示材料时应选择配备大屏的会议室。"

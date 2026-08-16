@@ -1,4 +1,4 @@
-"""CLI entry point for the reproducible Day 7 Agent evaluation report."""
+"""CLI entry point for the reproducible Agent component report."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from app.evaluation.runner import report_as_json, run_day7_evaluation
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run the offline Day 7 Agent evaluation corpus.")
+    parser = argparse.ArgumentParser(description="Run the offline 120-case Agent evaluation.")
     parser.add_argument(
         "--output",
         type=Path,

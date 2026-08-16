@@ -1,4 +1,4 @@
-"""Schema for the deterministic Day 7 offline Agent evaluation report."""
+"""Schemas for the versioned, deterministic Agent evaluation corpus."""
 
 from __future__ import annotations
 
@@ -20,6 +20,18 @@ class EvaluationCategory(StrEnum):
     PREFERENCE_OR_CLARIFICATION = "PREFERENCE_OR_CLARIFICATION"
 
 
+class EvaluationDifficulty(StrEnum):
+    EASY = "EASY"
+    MEDIUM = "MEDIUM"
+    HARD = "HARD"
+
+
+class EvaluationSplit(StrEnum):
+    DEV = "DEV"
+    VALIDATION = "VALIDATION"
+    HOLDOUT = "HOLDOUT"
+
+
 class EvaluationContext(AgentSchema):
     now: datetime
     user_id: int = Field(ge=1)
@@ -39,6 +51,9 @@ class ConstraintExpectation(AgentSchema):
 class EvaluationCase(AgentSchema):
     case_id: str = Field(pattern=r"^[a-z]+-[0-9]{3}$")
     category: EvaluationCategory
+    difficulty: EvaluationDifficulty
+    split: EvaluationSplit
+    tags: list[str] = Field(min_length=1)
     input: str = Field(min_length=1, max_length=500)
     context: EvaluationContext
     expected_intent: Intent
@@ -62,6 +77,8 @@ class EvaluationPrediction(AgentSchema):
 class EvaluationCaseResult(AgentSchema):
     case_id: str
     category: EvaluationCategory
+    difficulty: EvaluationDifficulty
+    split: EvaluationSplit
     intent_match: bool
     constraint_true_positive: int = Field(ge=0)
     constraint_false_positive: int = Field(ge=0)
@@ -79,6 +96,8 @@ class EvaluationCaseResult(AgentSchema):
 class EvaluationMetrics(AgentSchema):
     total_cases: int = Field(ge=0)
     category_counts: dict[EvaluationCategory, int]
+    difficulty_counts: dict[EvaluationDifficulty, int]
+    split_counts: dict[EvaluationSplit, int]
     intent_accuracy: float = Field(ge=0, le=1)
     constraint_precision: float = Field(ge=0, le=1)
     constraint_recall: float = Field(ge=0, le=1)
@@ -91,10 +110,14 @@ class EvaluationMetrics(AgentSchema):
     citations_valid: int = Field(ge=0)
     citation_validity: float = Field(ge=0, le=1)
     component_task_success: float = Field(ge=0, le=1)
+    component_success_by_category: dict[EvaluationCategory, float]
+    component_success_by_difficulty: dict[EvaluationDifficulty, float]
+    component_success_by_split: dict[EvaluationSplit, float]
 
 
 class EvaluationReport(AgentSchema):
     schema_version: str
+    dataset_version: str
     mode: str
     provider: str
     network_calls: int = Field(ge=0)

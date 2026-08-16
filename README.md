@@ -151,20 +151,21 @@ python .\scripts\concurrency-day2.py --mode idempotency --requests 100 --workers
 
 Day 7 的全栈验收证据、指标和环境条件在 [docs/REPORTS.md](docs/REPORTS.md)，受控 Agent Loop 的设计与停止条件在 [docs/11-controlled-agent-loop-design.md](docs/11-controlled-agent-loop-design.md)。跨服务实现状态和下一条允许任务以 [docs/HANDOFF.md](docs/HANDOFF.md) 为准。
 
-真实模型评测另提供两个显式入口，报告层级不得互相替代：
+Agent 评测 V2 使用 120 条版本化组件题、30 条核心题三次复测，以及 8 条隔离
+Tool/HITL 轨迹和 16 条公共 API 多轮场景。详细数据契约和指标定义见
+[Agent 评测 V2 方案](docs/23-agent-evaluation-v2.md)。一键入口会重建 Agent 镜像、执行全部套件并生成统一报告：
 
 ```powershell
-# 无业务写入的真实 DeepSeek component；未配置 Key 时明确 SKIPPED
-Push-Location agent-service
-uv run python -m app.evaluation.live --mode component --suite core --repeats 3 --output ..\artifacts\live-eval\component-core.json
-uv run python -m app.evaluation.live --mode component --suite full --repeats 1 --output ..\artifacts\live-eval\component-full.json
-Pop-Location
-
-# 完整 Compose 上经 Java 公共 API/SSE 运行隔离业务轨迹
-python .\scripts\live-model-trajectory.py --public-base http://localhost --output .\artifacts\live-eval\trajectory-final.json
+powershell -ExecutionPolicy Bypass -File .\scripts\Run-AgentEvaluationV2.ps1
 ```
 
-2026-08-15 最新结果：完整 live-model 40 条 component 门禁 PASS（Route/Intent/Tool/Native Tool/Citation 均 100%，Constraint F1 95.31%，Source Fidelity Violation 0）；公开 API 多轮对抗场景 16/16 PASS。基线与最终脱敏证据位于 `artifacts/live-eval/component-full-*-20260815.json` 和 `artifacts/product-scenario-evaluation*.json`。真实模型仍具有非确定性，Prompt、模型或 Tool Schema 变更后必须重跑门禁。
+2026-08-15 V2 实测：fixture 120/120；真实模型核心 30×3 的任务成功率与稳定题通过率均为
+96.67%；真实模型全量 120×1 的任务成功率为 93.33%、Route 97.50%、Intent 95.00%、
+Constraint F1 100%、Planned Tool Set 97.50%，但 2 条 Source Fidelity Violation 和 Policy
+全对门禁未通过；隔离产品轨迹 8/8，公共 API 多轮场景 13/16。统一发布门禁因此诚实记录为
+**FAIL**，不是把部分指标包装成整体 PASS。脱敏证据和失败 case 位于
+[V2 统一报告](artifacts/agent-eval-v2/report.md)。真实模型具有非确定性，Prompt、模型、
+Tool Schema 或数据集版本变化后必须重跑，禁止挑选最好一次覆盖原始结果。
 
 ## 目录说明
 

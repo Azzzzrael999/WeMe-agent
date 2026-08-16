@@ -220,9 +220,9 @@
 }
 ```
 
-### 6.2 首版数量
+### 6.2 数据集规模
 
-总计30至50条：
+历史 Day 7 最小版本为30至50条，既有实现曾固定为40条：
 
 | 类别 | 数量建议 |
 |---|---:|
@@ -234,6 +234,11 @@
 | 修改取消 | 6 |
 | 偏好与澄清 | 4 |
 
+当前简历展示版升级为版本化 `agent-eval-v2-120`，以
+`docs/23-agent-evaluation-v2.md` 为执行规范。它包含120条唯一组件题：普通预约28、多人协调18、复杂约束18、推荐/冲突14、Policy 14、修改/取消18、偏好/澄清10；难度固定为72条简单、36条中等、12条困难，数据切分固定为80条开发、20条验证和20条冻结测试。另有30条核心题执行3次真实模型稳定性评测，以及8条隔离 Tool/HITL 轨迹和16条公开 API 多轮场景。
+
+唯一题目数、重复执行样本数和产品轨迹数必须分别报告，禁止把重复次数或不同性质的评测简单相加成“题目数量”。
+
 ### 6.3 指标
 
 | 指标 | 计算方式 | 目标 |
@@ -244,6 +249,8 @@
 | Hard Constraint Violation | 非法方案/全部方案 | 0% |
 | Citation Validity | 有效引用/全部引用 | 100% |
 | Component Task Success | 完成组件预期终态/总数 | 报告真实值，不称 E2E |
+
+V2 额外报告 `difficultyCounts`、`splitCounts`、按类别/难度/切分的组件成功率、真实模型 `taskSuccessRate` 和核心集 `stableCaseRate`。原 `Tool Selection Accuracy` 若由结构化 State 推导，必须命名为 `Planned Tool Set Accuracy`；只有从真实 Trace 读取 Tool 名称、参数、顺序和副作用的指标才能称为实际 Tool 轨迹准确率。
 
 真实模型另要求 Route Accuracy >= 95%（Policy 必须全对）、Source Fidelity Violation=0、Native Tool Protocol=100%、Citation Validity=100%，以及隔离公共 API 自然语言轨迹成功率 >= 80%。
 

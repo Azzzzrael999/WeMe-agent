@@ -86,3 +86,27 @@
 | live-model component core | PASS | 12 条 × 3：Route 100%、Intent 97.22%、Constraint 100%、Tool 94.44%、Native Tool/Citation 100%、Source violation 0。 |
 | live-model component full | **FAIL** | 40 条 × 1：Tool 80%、Source violation 1、Citation 80% 未过门禁；整体 component 结论因此仍是 FAIL。 |
 | live-model trajectory | PASS | 公共 Java API 8 条隔离轨迹 7 条通过，87.5%；固定 ID 9001 不存在的准确负例保留为失败。 |
+
+## 2026-08-15 Agent 评测 V2（120 题）
+
+本节替代前述 40 题结果作为当前 Agent 能力基线，但不修改历史报告。数据集版本为
+`agent-eval-v2-120`，固定包含 120 条唯一组件题；72 条 EASY、36 条 MEDIUM、12 条
+HARD，切分为 80 DEV / 20 VALIDATION / 20 HOLDOUT。完整方案见
+[23-agent-evaluation-v2.md](23-agent-evaluation-v2.md)，原始脱敏证据和统一报告见
+[artifacts/agent-eval-v2/report.md](../artifacts/agent-eval-v2/report.md)。
+
+| 分层 | 样本 | 结论 | 关键结果 |
+|---|---:|---|---|
+| deterministic fixture | 120 | PASS | Component/Intent/Constraint/Planned Tool/Citation 均 100%；硬约束检查 192 个候选、违规 0；网络调用 0。 |
+| DeepSeek core stability | 30 题 × 3 | PASS | 90 样本 Task Success 96.67%；Stable Case 29/30（96.67%）；Route 100%；Constraint F1 100%；P50/P95 3.22s/4.13s。 |
+| DeepSeek full component | 120 题 × 1 | **FAIL** | Task Success 93.33%；Route 97.50%；Intent 95.00%；Constraint F1 100%；Planned Tool Set 97.50%；2 条 Source Fidelity Violation，Policy 全对门禁失败。 |
+| isolated Tool/HITL trajectory | 8 | PASS | 8/8；覆盖缺字段澄清、CREATE/MODIFY/CANCEL 的 ACCEPT/REJECT、引用和不存在目标的安全拒绝；P50/P95 6.19s/8.56s。 |
+| public API multi-turn | 16 | **FAIL** | 13/16（81.25%）；三条失败分别为中英混合输入未补齐、明确改期进入澄清、歧义目标未先澄清。 |
+
+统一门禁最终为 **FAIL**。这表示评测开发和能力测量已经完成，但当前模型/Prompt 组合尚未满足全部发布条件；不能因为 120 题 Task Success 已超过 90% 就把总体结论写成 PASS。核心稳定集唯一稳定失败为 `recommend-006`，三次都出现只读共同空闲意图误判。全量集共有 8 个失败 case，公共 API 多轮共有 3 个失败 case；原始报告保留具体 caseId、失败类型、延迟、模型/Prompt/Schema 版本和 Token 汇总。
+
+当前结果使用 `deepseek/deepseek-v4-flash`、`meeting-agent-prompts-v11` 和
+`meeting-agent-state-v7`。组件 Tool 指标是结构化 State 推导的 **Planned Tool Set
+Accuracy**；只有 8+16 条产品轨迹读取真实 Tool/业务终态，因此不把组件指标误称为真实
+Tool 轨迹准确率。工作区运行时含未提交评测变更，统一 JSON 已如实记录
+`workingTreeDirty=true`；若作为对外审计证据，应在提交后按相同版本再运行一次。

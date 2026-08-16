@@ -1,4 +1,4 @@
-"""Offline, deterministic evaluator for the versioned Day 7 corpus.
+"""Offline, deterministic evaluator for the versioned Agent corpus.
 
 The runner exercises the structured fixture provider, the in-memory policy
 retriever, and the independent OR-Tools hard-constraint validator.  It makes
@@ -15,14 +15,23 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
-from app.evaluation.corpus import EXPECTED_CATEGORY_COUNTS, load_day7_cases
+from app.evaluation.corpus import (
+    DATASET_VERSION,
+    EXPECTED_CATEGORY_COUNTS,
+    EXPECTED_DIFFICULTY_COUNTS,
+    EXPECTED_SPLIT_COUNTS,
+    load_evaluation_cases,
+)
 from app.evaluation.models import (
     ConstraintExpectation,
     EvaluationCase,
     EvaluationCaseResult,
+    EvaluationCategory,
+    EvaluationDifficulty,
     EvaluationMetrics,
     EvaluationPrediction,
     EvaluationReport,
+    EvaluationSplit,
 )
 from app.providers.base import ModelRequest, StructuredModelRunner
 from app.providers.fixture import FixtureModelProvider
@@ -54,10 +63,11 @@ class OfflineEvaluationRunner:
         self._validator = HardConstraintValidator()
 
     def run(self, cases: tuple[EvaluationCase, ...] | None = None) -> EvaluationReport:
-        resolved_cases = cases or load_day7_cases()
+        resolved_cases = cases or load_evaluation_cases()
         results = [self._evaluate_case(case) for case in resolved_cases]
         return EvaluationReport(
-            schema_version="component-fixture-evaluation-v2",
+            schema_version="component-fixture-evaluation-v3",
+            dataset_version=DATASET_VERSION,
             mode="component-fixture",
             provider="FixtureModelProvider + InMemoryPolicyRetriever + ScheduleSolver",
             network_calls=0,
@@ -67,6 +77,8 @@ class OfflineEvaluationRunner:
                 "model.",
                 "It does not replace the Java/Docker end-to-end smoke tests for business writes.",
                 "Citation validation is limited to the versioned in-memory policy seed corpus.",
+                "Tool selection is a deterministic component plan, not an observed LangGraph "
+                "Tool trajectory.",
             ],
             metrics=_metrics(results),
             results=results,
@@ -127,6 +139,8 @@ class OfflineEvaluationRunner:
         return EvaluationCaseResult(
             case_id=case.case_id,
             category=case.category,
+            difficulty=case.difficulty,
+            split=case.split,
             intent_match=intent_match,
             constraint_true_positive=0,
             constraint_false_positive=0,
@@ -181,6 +195,8 @@ class OfflineEvaluationRunner:
         return EvaluationCaseResult(
             case_id=case.case_id,
             category=case.category,
+            difficulty=case.difficulty,
+            split=case.split,
             intent_match=intent_match,
             constraint_true_positive=true_positive,
             constraint_false_positive=false_positive,
@@ -244,7 +260,13 @@ class OfflineEvaluationRunner:
 
 
 def run_day7_evaluation() -> EvaluationReport:
-    """Run the fixed corpus and return a JSON-serialisable report."""
+    """Backward-compatible entry point for the fixed v2 corpus."""
+
+    return OfflineEvaluationRunner().run()
+
+
+def run_component_fixture_evaluation() -> EvaluationReport:
+    """Run the deterministic 120-case component evaluation."""
 
     return OfflineEvaluationRunner().run()
 
@@ -278,13 +300,27 @@ def _selected_tools(extraction: RequirementExtraction) -> list[str]:
         return []
     if request.intent is Intent.CREATE_MEETING:
         return [
-            "resolve_employees",
+            *(["resolve_employees"] if request.required_participants else []),
             "get_employee_free_busy",
             "search_available_rooms",
             "create_booking_draft",
         ]
-    if request.required_participants:
-        return ["resolve_employees"]
+    if request.intent is Intent.MODIFY_MEETING:
+        return [
+            *(["resolve_employees"] if request.required_participants else []),
+            "get_recent_meeting",
+            "get_employee_free_busy",
+            "search_available_rooms",
+            "create_reschedule_draft",
+        ]
+    if request.intent is Intent.CANCEL_MEETING:
+        return ["get_recent_meeting", "create_cancellation_preview"]
+    if request.intent in {Intent.FIND_COMMON_TIME, Intent.RECOMMEND_ROOM}:
+        return [
+            *(["resolve_employees"] if request.required_participants else []),
+            "get_employee_free_busy",
+            "search_available_rooms",
+        ]
     return []
 
 
@@ -298,9 +334,7 @@ def _terminal_status(extraction: RequirementExtraction) -> RunStatus:
 
 def _tools_match(case: EvaluationCase, selected_tools: list[str]) -> bool:
     selected = set(selected_tools)
-    return set(case.expected_tools).issubset(selected) and not selected.intersection(
-        case.forbidden_tools
-    )
+    return selected == set(case.expected_tools) and not selected.intersection(case.forbidden_tools)
 
 
 def _constraint_scores(
@@ -308,10 +342,7 @@ def _constraint_scores(
 ) -> tuple[int, int, int]:
     expected_values = expected.model_dump(exclude_none=True, mode="json")
     observed_values = observed.model_dump(exclude_none=True, mode="json")
-    expected_tokens = {
-        _constraint_token(field, value)
-        for field, value in expected_values.items()
-    }
+    expected_tokens = {_constraint_token(field, value) for field, value in expected_values.items()}
     observed_tokens = {
         _constraint_token(field, observed_values[field])
         for field in expected_values
@@ -361,6 +392,8 @@ def _schedule_probe(request: MeetingRequest) -> SchedulingProblem:
 def _metrics(results: list[EvaluationCaseResult]) -> EvaluationMetrics:
     total = len(results)
     category_counts = Counter(result.category for result in results)
+    difficulty_counts = Counter(result.difficulty for result in results)
+    split_counts = Counter(result.split for result in results)
     true_positive = sum(result.constraint_true_positive for result in results)
     false_positive = sum(result.constraint_false_positive for result in results)
     false_negative = sum(result.constraint_false_negative for result in results)
@@ -376,6 +409,11 @@ def _metrics(results: list[EvaluationCaseResult]) -> EvaluationMetrics:
         category_counts={
             category: category_counts.get(category, 0) for category in EXPECTED_CATEGORY_COUNTS
         },
+        difficulty_counts={
+            difficulty: difficulty_counts.get(difficulty, 0)
+            for difficulty in EXPECTED_DIFFICULTY_COUNTS
+        },
+        split_counts={split: split_counts.get(split, 0) for split in EXPECTED_SPLIT_COUNTS},
         intent_accuracy=_ratio(sum(result.intent_match for result in results), total),
         constraint_precision=precision,
         constraint_recall=recall,
@@ -390,7 +428,27 @@ def _metrics(results: list[EvaluationCaseResult]) -> EvaluationMetrics:
         citations_valid=citations_valid,
         citation_validity=_ratio(citations_valid, citations_checked),
         component_task_success=_ratio(sum(result.component_success for result in results), total),
+        component_success_by_category={
+            category: _group_success(results, "category", category)
+            for category in EXPECTED_CATEGORY_COUNTS
+        },
+        component_success_by_difficulty={
+            difficulty: _group_success(results, "difficulty", difficulty)
+            for difficulty in EXPECTED_DIFFICULTY_COUNTS
+        },
+        component_success_by_split={
+            split: _group_success(results, "split", split) for split in EXPECTED_SPLIT_COUNTS
+        },
     )
+
+
+def _group_success(
+    results: list[EvaluationCaseResult],
+    field: str,
+    value: EvaluationCategory | EvaluationDifficulty | EvaluationSplit,
+) -> float:
+    grouped = [result for result in results if getattr(result, field) is value]
+    return _ratio(sum(result.component_success for result in grouped), len(grouped))
 
 
 def _ratio(numerator: int | float, denominator: int | float) -> float:
