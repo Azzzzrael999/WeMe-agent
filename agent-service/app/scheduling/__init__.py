@@ -1,4 +1,4 @@
-"""Deterministic Day 5 scheduling components.
+"""Deterministic scheduling components.
 
 This package contains candidate construction, the OR-Tools single-selection
 model, and an independent post-solve hard-constraint validator.  It is a

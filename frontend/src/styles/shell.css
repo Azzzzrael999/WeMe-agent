@@ -185,9 +185,6 @@
 }
 .topbar-title { display: flex; align-items: baseline; gap: 8px; font-weight: 650; }
 .topbar-title small { color: var(--muted); font-size: 10px; font-weight: 500; }
-.topbar-actions { margin-left: auto; }
-.live-indicator { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
-.live-indicator > span { width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
 .workspace-content { width: min(100%, 1440px); margin: 0 auto; padding: 24px 28px 48px; }
 .mobile-toggle, .mobile-close, .mobile-backdrop { display: none; }
 
@@ -224,5 +221,5 @@
 
 @media (max-width: 520px) {
   .workspace-content { padding: 16px 12px 32px; }
-  .topbar-title small, .live-indicator { display: none; }
+  .topbar-title small { display: none; }
 }

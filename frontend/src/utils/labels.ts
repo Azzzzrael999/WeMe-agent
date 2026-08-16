@@ -30,6 +30,16 @@ const ROOM_TYPE_LABELS: Record<string, string> = {
   FOCUS: '专注讨论室',
 }
 
+const AGENT_INTENT_LABELS: Record<string, string> = {
+  CREATE_MEETING: '创建会议',
+  FIND_COMMON_TIME: '协调共同时间',
+  RECOMMEND_ROOM: '推荐会议室',
+  MODIFY_MEETING: '调整会议',
+  CANCEL_MEETING: '取消会议',
+  QUERY_POLICY: '查询会议制度',
+  UPDATE_PREFERENCE: '更新调度偏好',
+}
+
 export const meetingTypeOptions = Object.entries(MEETING_TYPE_LABELS)
   .filter(([value]) => value !== 'CONCURRENCY_TEST')
   .map(([value, label]) => ({ value, label }))
@@ -43,6 +53,12 @@ export function meetingTypeLabel(value: string): string {
 
 export function roomTypeLabel(value: string): string {
   return ROOM_TYPE_LABELS[value] ?? '其他会议空间'
+}
+
+export function agentIntentLabel(value: string | null | undefined): string {
+  return value === null || value === undefined || value.length === 0
+    ? '智能编排任务'
+    : AGENT_INTENT_LABELS[value] ?? '其他智能编排任务'
 }
 
 export function isTechnicalDemoMeeting(title: string, meetingType: string): boolean {

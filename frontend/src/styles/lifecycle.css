@@ -45,7 +45,6 @@
 .lifecycle-preparation-editor--materials { grid-column: 1 / -1; }
 .lifecycle-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
 .lifecycle-section-heading > div:first-child { min-width: 0; }
-.lifecycle-version { flex: 0 0 auto; border-radius: 999px; padding: 3px 8px; color: var(--muted); background: var(--accent); font-size: 11px; font-weight: 650; }
 .lifecycle-heading-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 
 .lifecycle-checklist ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }

@@ -11,7 +11,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import time
 import uuid
 from datetime import datetime, timedelta
 from typing import Any

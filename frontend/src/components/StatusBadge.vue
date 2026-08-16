@@ -13,7 +13,7 @@ const labels: Record<string, string> = {
   READY: '准备就绪', NEEDS_ATTENTION: '需要处理', PENDING_REVIEW: '待审核',
   ACCEPTED: '已接受', REJECTED: '已拒绝',
 }
-const label = computed(() => props.label ?? labels[props.status] ?? props.status)
+const label = computed(() => props.label ?? labels[props.status] ?? '状态待确认')
 const tone = computed(() => {
   if (['SUCCESS', 'CONFIRMED', 'COMPLETED', 'SUCCEEDED', 'ACTIVE', 'RESOLVED', 'RESTORED', 'READY', 'ACCEPTED', 'DONE'].includes(props.status)) return 'success'
   if (props.status === 'RUNNING') return 'info'

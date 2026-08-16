@@ -1,4 +1,4 @@
-"""Day 5 LangGraph orchestration for exactly four specialised runtime Agents.
+"""LangGraph orchestration for exactly four specialised runtime Agents.
 
 ``SupervisorAgent``, ``RequirementAgent``, ``PolicyAgent`` and
 ``SchedulingAgent`` remain the only runtime Agents.  Solver, HITL and booking

@@ -9,7 +9,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-
 EXPECTED_CATEGORY_COUNTS = {
     "NORMAL_BOOKING": 28,
     "MULTI_PARTY_COORDINATION": 18,

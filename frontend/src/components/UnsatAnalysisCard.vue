@@ -4,7 +4,7 @@
       <span><TriangleAlert :size="16" aria-hidden="true" /></span>
       <div>
         <strong>未找到满足全部硬约束的方案</strong>
-        <small>{{ categoryLabel }} <code>{{ analysis.category }}</code></small>
+        <small>{{ categoryLabel }}</small>
       </div>
     </header>
     <dl class="unsat-card__request">
@@ -27,8 +27,7 @@
             <p><span>本次待排请求</span>{{ requestRange }}</p>
             <p>
               <span>冲突对象</span>
-              <b>{{ blocker.resourceName ?? resourceFallback(blocker.resourceType, blocker.resourceId) }}的已有安排</b>
-              <code v-if="blocker.meetingId !== null">会议 {{ blocker.meetingId }}</code>
+              <b>{{ blocker.resourceName ?? resourceFallback(blocker.resourceType) }}的已有安排</b>
               {{ formatRange(blocker.startAt, blocker.endAt) }}
             </p>
             <p><span>重叠时段</span>{{ overlapRange(blocker.startAt, blocker.endAt) }}</p>
@@ -64,7 +63,7 @@ const categoryLabel = computed(() => ({
   FACILITY_CAPACITY: '会议室容量或设备不满足',
   TIME_WINDOW_DURATION: '时间窗口无法容纳会议',
   POLICY: '会议制度硬约束冲突',
-}[props.analysis.category] ?? props.analysis.category))
+}[props.analysis.category] ?? '其他硬约束冲突'))
 
 function formatRange(start: string, end: string): string {
   const startAt = new Date(start)
@@ -86,8 +85,8 @@ function formatRange(start: string, end: string): string {
   return `${date} ${time.format(startAt)}–${time.format(endAt)}`
 }
 
-function resourceFallback(type: string, id: number | null): string {
-  return `${type === 'ROOM' ? '会议室' : '资源'}${id === null ? '' : ` ${id}`}`
+function resourceFallback(type: string): string {
+  return type === 'ROOM' ? '相关会议室' : '相关资源'
 }
 
 function overlapRange(start: string, end: string): string {

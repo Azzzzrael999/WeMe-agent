@@ -1,1 +1,1 @@
-"""Meeting Agent Service package."""
+"""WeMe Agent Service package."""

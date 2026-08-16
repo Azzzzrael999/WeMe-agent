@@ -28,7 +28,7 @@ function fieldLabel(field: string): string {
     durationMinutes: '会议时长',
     requiredParticipants: '参会人员',
     optionalRequirements: '设备与其他要求',
-  } as Record<string, string>)[field] ?? field
+  } as Record<string, string>)[field] ?? '其他要求'
 }
 
 function statusLabel(status: string): string {
@@ -42,6 +42,6 @@ function statusLabel(status: string): string {
     CONFLICT: '有冲突',
     UNSPECIFIED: '未说明',
     CLOSED: '已结束',
-  } as Record<string, string>)[status] ?? status
+  } as Record<string, string>)[status] ?? '待确认'
 }
 </script>

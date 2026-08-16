@@ -27,6 +27,12 @@ def clear_dependency_state() -> Iterator[None]:
     get_settings.cache_clear()
 
 
+def test_application_metadata_is_release_ready() -> None:
+    assert app.title == "WeMe Agent Service"
+    assert app.version == "1.0.0"
+    assert app.description == "Internal multi-agent meeting orchestration and policy runtime."
+
+
 def test_health_is_degraded_without_deepseek_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     app.dependency_overrides[get_checkpoint_saver] = lambda: FakeCheckpointSaver(True)

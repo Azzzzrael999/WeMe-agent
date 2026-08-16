@@ -44,7 +44,7 @@ class RoomManagementIntegrationTest {
         DELETE FROM employee_busy_slot
         WHERE meeting_id IN (
             SELECT id FROM meeting
-            WHERE room_id IN (SELECT id FROM meeting_room WHERE code LIKE 'D6-%')
+            WHERE room_id IN (SELECT id FROM meeting_room WHERE code LIKE 'TST-ROOM-%')
         )
         """);
     jdbcTemplate.update(
@@ -52,38 +52,38 @@ class RoomManagementIntegrationTest {
         DELETE FROM meeting_participant
         WHERE meeting_id IN (
             SELECT id FROM meeting
-            WHERE room_id IN (SELECT id FROM meeting_room WHERE code LIKE 'D6-%')
+            WHERE room_id IN (SELECT id FROM meeting_room WHERE code LIKE 'TST-ROOM-%')
         )
         """);
     jdbcTemplate.update(
         """
         DELETE FROM meeting_room_slot
-        WHERE room_id IN (SELECT id FROM meeting_room WHERE code LIKE 'D6-%')
+        WHERE room_id IN (SELECT id FROM meeting_room WHERE code LIKE 'TST-ROOM-%')
         """);
     jdbcTemplate.update(
         """
         DELETE FROM meeting
-        WHERE room_id IN (SELECT id FROM meeting_room WHERE code LIKE 'D6-%')
+        WHERE room_id IN (SELECT id FROM meeting_room WHERE code LIKE 'TST-ROOM-%')
         """);
     jdbcTemplate.update(
         """
         DELETE FROM meeting_room_feature
-        WHERE room_id IN (SELECT id FROM meeting_room WHERE code LIKE 'D6-%')
+        WHERE room_id IN (SELECT id FROM meeting_room WHERE code LIKE 'TST-ROOM-%')
         """);
-    jdbcTemplate.update("DELETE FROM meeting_room WHERE code LIKE 'D6-%'");
+    jdbcTemplate.update("DELETE FROM meeting_room WHERE code LIKE 'TST-ROOM-%'");
   }
 
   @Test
   void adminCanManageRoomAndEmployeeOnlySeesActiveRooms() throws Exception {
     String adminToken = loginAs("admin");
     String employeeToken = loginAs("zhangsan");
-    long roomId = createRoom(adminToken, "D6-MGMT", List.of("WHITEBOARD"));
+    long roomId = createRoom(adminToken, "TST-ROOM-MGMT", List.of("WHITEBOARD"));
 
     mockMvc
         .perform(
             get("/api/v1/rooms/{roomId}", roomId).header("Authorization", bearer(employeeToken)))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.data.code").value("D6-MGMT"))
+        .andExpect(jsonPath("$.data.code").value("TST-ROOM-MGMT"))
         .andExpect(jsonPath("$.data.version").value(0));
 
     mockMvc
@@ -91,9 +91,9 @@ class RoomManagementIntegrationTest {
             put("/api/v1/admin/rooms/{roomId}", roomId)
                 .header("Authorization", bearer(adminToken))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(roomBody("D6-MGMT", "Day 6 更新", 12, true, List.of("LARGE_SCREEN"), 0)))
+                .content(roomBody("TST-ROOM-MGMT", "会议室更新", 12, true, List.of("LARGE_SCREEN"), 0)))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.data.name").value("Day 6 更新"))
+        .andExpect(jsonPath("$.data.name").value("会议室更新"))
         .andExpect(jsonPath("$.data.capacity").value(12))
         .andExpect(jsonPath("$.data.isHot").value(true))
         .andExpect(jsonPath("$.data.version").value(1))
@@ -133,7 +133,7 @@ class RoomManagementIntegrationTest {
   void availabilityUsesHalfHourExclusiveEndSlotsAndValidatesWindow() throws Exception {
     String adminToken = loginAs("admin");
     String employeeToken = loginAs("zhangsan");
-    long roomId = createRoom(adminToken, "D6-AVAIL", List.of());
+    long roomId = createRoom(adminToken, "TST-ROOM-AVAIL", List.of());
     insertOccupiedSlots(roomId);
 
     mockMvc
@@ -177,7 +177,7 @@ class RoomManagementIntegrationTest {
   void enforcesAdminRoleAndReturnsNotFoundWithoutLeakingInactiveRooms() throws Exception {
     String adminToken = loginAs("admin");
     String employeeToken = loginAs("zhangsan");
-    String body = roomBody("D6-AUTH", "权限测试", 8, false, List.of(), null);
+    String body = roomBody("TST-ROOM-AUTH", "权限测试", 8, false, List.of(), null);
 
     mockMvc
         .perform(post("/api/v1/admin/rooms").contentType(MediaType.APPLICATION_JSON).content(body))
@@ -201,7 +201,7 @@ class RoomManagementIntegrationTest {
             put("/api/v1/admin/rooms/{roomId}", 999999L)
                 .header("Authorization", bearer(adminToken))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(roomBody("D6-NOT-FOUND", "不存在", 8, false, List.of(), 0)))
+                .content(roomBody("TST-ROOM-NOT-FOUND", "不存在", 8, false, List.of(), 0)))
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.code").value("ROOM_NOT_FOUND"));
   }
@@ -209,14 +209,14 @@ class RoomManagementIntegrationTest {
   @Test
   void validatesFeaturesAndMapsRoomCodeAndVersionConflicts() throws Exception {
     String adminToken = loginAs("admin");
-    long roomId = createRoom(adminToken, "D6-CONFLICT", List.of("WHITEBOARD"));
+    long roomId = createRoom(adminToken, "TST-ROOM-CONFLICT", List.of("WHITEBOARD"));
 
     mockMvc
         .perform(
             post("/api/v1/admin/rooms")
                 .header("Authorization", bearer(adminToken))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(roomBody("D6-CONFLICT", "重复编码", 8, false, List.of(), null)))
+                .content(roomBody("TST-ROOM-CONFLICT", "重复编码", 8, false, List.of(), null)))
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.code").value("ROOM_CODE_CONFLICT"));
     mockMvc
@@ -224,7 +224,8 @@ class RoomManagementIntegrationTest {
             post("/api/v1/admin/rooms")
                 .header("Authorization", bearer(adminToken))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(roomBody("D6-BAD-FEATURE", "错误设备", 8, false, List.of("UNKNOWN"), null)))
+                .content(
+                    roomBody("TST-ROOM-BAD-FEATURE", "错误设备", 8, false, List.of("UNKNOWN"), null)))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
         .andExpect(jsonPath("$.details[0].field").value("featureCodes"))
@@ -234,7 +235,7 @@ class RoomManagementIntegrationTest {
             put("/api/v1/admin/rooms/{roomId}", roomId)
                 .header("Authorization", bearer(adminToken))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(roomBody("D6-CONFLICT", "过期版本", 8, false, List.of(), 7)))
+                .content(roomBody("TST-ROOM-CONFLICT", "过期版本", 8, false, List.of(), 7)))
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.code").value("ROOM_STATE_CONFLICT"));
     mockMvc
@@ -255,7 +256,7 @@ class RoomManagementIntegrationTest {
                 post("/api/v1/admin/rooms")
                     .header("Authorization", bearer(adminToken))
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(roomBody(code, "Day 6 " + code, 8, false, featureCodes, null)))
+                    .content(roomBody(code, "测试会议室 " + code, 8, false, featureCodes, null)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.version").value(0))
             .andReturn();
@@ -264,7 +265,7 @@ class RoomManagementIntegrationTest {
 
   private void insertOccupiedSlots(long roomId) {
     LocalDateTime firstSlot = LocalDateTime.of(2026, 9, 17, 13, 0);
-    String meetingNo = "D6-AVAIL-MEETING-" + roomId;
+    String meetingNo = "TST-ROOM-AVAIL-MTG-" + roomId;
     jdbcTemplate.update(
         """
         INSERT INTO meeting (

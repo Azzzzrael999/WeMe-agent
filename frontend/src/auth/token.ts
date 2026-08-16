@@ -1,4 +1,4 @@
-const ACCESS_TOKEN_KEY = 'meeting-scheduler.access-token'
+const ACCESS_TOKEN_KEY = 'weme.access-token'
 
 export function readAccessToken(): string | null {
   return window.sessionStorage.getItem(ACCESS_TOKEN_KEY)

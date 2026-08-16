@@ -22,7 +22,6 @@ from urllib.error import HTTPError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
-
 CREATE_CAPACITY = "帮我预约2026年8月20日下午3点到4点的会议室，6个人，要白板，先给我候选。"
 CREATE_NAMED = (
     "请安排张三和李四在2026年8月20日15:00到16:00开一小时架构评审，"

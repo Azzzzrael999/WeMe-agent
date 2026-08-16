@@ -1,6 +1,6 @@
 [project]
 name = "meeting-agent-service"
-version = "0.1.0"
+version = "1.0.0"
 description = "FastAPI Multi-Agent orchestration service for the meeting scheduler."
 requires-python = ">=3.11"
 dependencies = [
@@ -51,6 +51,7 @@ select = ["B", "E", "F", "I", "SIM", "UP"]
 
 [tool.ruff.lint.per-file-ignores]
 "alembic/versions/*.py" = ["E501"]
+"../scripts/*.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.11"

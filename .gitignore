@@ -21,9 +21,9 @@ business-service/.mvn/wrapper/maven-wrapper.jar
 agent-service/.venv/
 agent-service/build/
 agent-service/*.egg-info/
-agent-service/.pytest_cache/
-agent-service/.mypy_cache/
-agent-service/.ruff_cache/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
 agent-service/.coverage
 agent-service/htmlcov/
 **/__pycache__/
@@ -40,3 +40,6 @@ npm-debug.log*
 coverage/
 reports/generated/
 *.pid
+
+# Local high-resolution showcase source (GitHub has a 100 MiB file limit)
+/showcase/001.mp4

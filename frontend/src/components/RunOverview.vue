@@ -3,7 +3,7 @@
     <header class="run-overview__header">
       <div>
         <p class="eyebrow">运行摘要</p>
-        <h2 id="run-overview-title">{{ run.intent || 'Agent 任务' }}</h2>
+        <h2 id="run-overview-title">{{ agentIntentLabel(run.intent) }}</h2>
         <p>{{ run.questionSummary }}</p>
       </div>
       <StatusBadge :status="run.status" />
@@ -32,6 +32,7 @@ import { computed } from 'vue'
 
 import type { AgentRunSummary } from '@/api/types'
 import { formatDuration } from '@/utils/format'
+import { agentIntentLabel } from '@/utils/labels'
 import StatusBadge from './StatusBadge.vue'
 
 const props = defineProps<{ run: AgentRunSummary }>()

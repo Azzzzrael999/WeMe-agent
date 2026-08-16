@@ -63,7 +63,7 @@ const createDraft = computed(() => proposedDraft(props.draft))
 const operationLabel = computed(() => ({ CREATE: '创建会议', RESCHEDULE: '改期会议', CANCEL: '取消会议' })[props.actionType])
 const operationHelp = computed(() => ({
   CREATE: '确认前不会创建正式会议或占用槽位。',
-  RESCHEDULE: '确认前原会议保持不变，After 方案会再次经过业务校验。',
+  RESCHEDULE: '确认前原会议保持不变，调整后方案会再次经过业务校验。',
   CANCEL: '确认前目标会议保持有效，不会释放槽位。',
 })[props.actionType])
 const operationStatus = computed(() => props.actionType === 'CANCEL' ? 'CONFLICT' : 'PENDING')

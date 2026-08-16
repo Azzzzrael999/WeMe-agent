@@ -465,7 +465,7 @@ function requirementFieldLabel(field: string): string {
     durationMinutes: '会议时长',
     requiredParticipants: '参会人员',
     optionalRequirements: '其他要求',
-  }[field] ?? field
+  }[field] ?? '其他要求'
 }
 
 function requirementStatusLabel(status: string): string {
@@ -479,7 +479,7 @@ function requirementStatusLabel(status: string): string {
     CONFLICT: '有冲突',
     UNSPECIFIED: '未说明',
     CLOSED: '已结束',
-  }[status] ?? status
+  }[status] ?? '待确认'
 }
 
 function handleSseMessage(messageEvent: SseMessage): void {

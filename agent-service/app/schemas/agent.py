@@ -1,4 +1,4 @@
-"""Structured contracts exchanged by the four Day 4 agents.
+"""Structured contracts exchanged by WeMe's four runtime agents.
 
 The models deliberately use ``extra='forbid'``.  They are used both for
 model-output validation and for the state passed between LangGraph nodes, so
@@ -414,7 +414,7 @@ class PolicySelection(AgentSchema):
 class CandidateCostBreakdown(AgentSchema):
     """Weighted, user-visible cost components for one schedule candidate.
 
-    Each value already includes the fixed weight from the Day 5 OR-Tools
+    Each value already includes the fixed weight from the OR-Tools
     objective. Keeping the weighted values in the schema makes the returned
     plan directly explainable without exposing internal solver state.
     """
@@ -441,7 +441,7 @@ class CandidateCostBreakdown(AgentSchema):
 
 
 class ScheduleCandidate(AgentSchema):
-    """A candidate safe for the Day 5 ``plan.candidates`` SSE event."""
+    """A candidate safe for the ``plan.candidates`` SSE event."""
 
     candidate_id: str = Field(min_length=1, max_length=64)
     room_id: int = Field(ge=1)

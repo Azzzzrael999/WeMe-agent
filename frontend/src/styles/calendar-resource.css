@@ -94,8 +94,6 @@
 .calendar-empty strong { color: #18181b; font-size: 15px; }
 .calendar-empty span { max-width: 420px; font-size: 12px; }
 .calendar-empty .ui-button { margin-top: 8px; }
-.calendar-workspace__footer { border-top: 1px solid #e4e4e7; padding: 10px 16px; color: #71717a; font-size: 11px; }
-
 .meeting-calendar__scroller,
 .resource-timeline__scroller {
   overflow: auto;
@@ -164,8 +162,6 @@
 .meeting-calendar__event span { font-size: 9px; }
 .meeting-calendar__event--pending { border-color: #fde68a; color: #92400e; background: #fffbeb; }
 .meeting-calendar__event--inactive { border-color: #e4e4e7; color: #71717a; background: #f4f4f5; }
-.meeting-calendar__note { margin: 0; border-top: 1px solid #e4e4e7; padding: 8px 16px; color: #71717a; font-size: 10px; }
-
 .meeting-list-view { display: grid; }
 .meeting-list-row {
   display: grid;

@@ -88,7 +88,7 @@
 .trace-detail-facts dd { margin: 3px 0 0; overflow-wrap: anywhere; }
 .trace-detail-sheet section { margin-top: 20px; }
 .trace-detail-sheet section h3 { font-size: 14px; }
-.trace-detail-sheet pre, .sanitized-args { max-height: 260px; overflow: auto; border-radius: 10px; padding: 12px; background: var(--accent); white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.5 ui-monospace, monospace; }
+.trace-detail-sheet pre { max-height: 260px; overflow: auto; border-radius: 10px; padding: 12px; background: var(--accent); white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.5 ui-monospace, monospace; }
 .trace-security-note { display: flex; gap: 8px; margin-top: 20px; border: 1px solid var(--border); border-radius: 10px; padding: 12px; color: var(--muted); background: #fafafa; }
 .drawer-help { color: var(--muted); font-size: 12px; }
 .trace-drawer .user-progress { margin: 16px 0; }

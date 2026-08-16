@@ -189,7 +189,7 @@ services:
     logging: *default-logging
 
   rag-init:
-    image: meeting-scheduler-agent-service:${APP_IMAGE_TAG:-day7}
+    image: meeting-scheduler-agent-service:${APP_IMAGE_TAG:-1.0.0}
     build:
       context: ./agent-service
       args:
@@ -233,7 +233,7 @@ services:
     logging: *default-logging
 
   business-service:
-    image: meeting-scheduler-business-service:${APP_IMAGE_TAG:-day7}
+    image: meeting-scheduler-business-service:${APP_IMAGE_TAG:-1.0.0}
     build:
       context: ./business-service
       args:
@@ -295,7 +295,7 @@ services:
     logging: *default-logging
 
   agent-service:
-    image: meeting-scheduler-agent-service:${APP_IMAGE_TAG:-day7}
+    image: meeting-scheduler-agent-service:${APP_IMAGE_TAG:-1.0.0}
     build:
       context: ./agent-service
       args:
@@ -366,7 +366,7 @@ services:
     logging: *default-logging
 
   frontend:
-    image: meeting-scheduler-frontend:${APP_IMAGE_TAG:-day7}
+    image: meeting-scheduler-frontend:${APP_IMAGE_TAG:-1.0.0}
     build:
       context: ./frontend
       args:

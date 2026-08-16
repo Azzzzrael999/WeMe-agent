@@ -1,4 +1,4 @@
-"""Internal, deterministic structures used by the Day 5 scheduling node."""
+"""Internal, deterministic structures used by the scheduling node."""
 
 from __future__ import annotations
 

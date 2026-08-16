@@ -6,7 +6,7 @@
     </template>
     <section class="run-page" aria-labelledby="trace-title">
       <header class="run-page__identity">
-        <div><p class="eyebrow">任务活动</p><h2 id="trace-title">{{ run?.intent ?? '智能编排任务' }}</h2><p>{{ run?.questionSummary ?? '正在加载任务摘要…' }}</p></div>
+        <div><p class="eyebrow">任务活动</p><h2 id="trace-title">{{ agentIntentLabel(run?.intent) }}</h2><p>{{ run?.questionSummary ?? '正在加载任务摘要…' }}</p></div>
         <StatusBadge v-if="run" :status="run.status" />
       </header>
 
@@ -41,6 +41,7 @@ import { RouterLink, useRoute } from 'vue-router'
 import { ApiError, apiRequest } from '../api/client'
 import { readHitlDraft } from '../api/agent-view'
 import type { AgentRunRecovery, AgentTrace } from '../api/types'
+import { agentIntentLabel } from '../utils/labels'
 import AppShell from '../components/AppShell.vue'
 import AgentTimeline from '../components/AgentTimeline.vue'
 import ErrorState from '../components/ErrorState.vue'

@@ -19,7 +19,6 @@ from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-
 DOCUMENT_ID = "doc_rag_management_smoke"
 FILE_NAME = "rag-management-smoke.md"
 
@@ -115,7 +114,7 @@ def markdown(title: str, body: str) -> bytes:
         "timezone: Asia/Shanghai\n"
         "---\n\n"
         f"# {title}\n\n{body}\n"
-    ).encode("utf-8")
+    ).encode()
 
 
 def multipart_file(file_content: bytes) -> tuple[bytes, str]:

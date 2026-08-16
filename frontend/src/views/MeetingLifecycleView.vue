@@ -500,7 +500,7 @@ function parseMeetingId(value: unknown): number | null {
 }
 
 function meetingOptionLabel(meeting: Meeting): string {
-  const status = meeting.status === 'CONFIRMED' ? '已确认' : meeting.status === 'COMPLETED' ? '已完成' : meeting.status === 'CANCELLED' ? '已取消' : meeting.status
+  const status = meeting.status === 'CONFIRMED' ? '已确认' : meeting.status === 'COMPLETED' ? '已完成' : meeting.status === 'CANCELLED' ? '已取消' : '其他状态'
   return `${formatDateTime(meeting.startAt)} · ${meeting.title} · ${status}`
 }
 
@@ -513,7 +513,7 @@ function checklistLabel(code: string): string {
     ROOM_ACTIVE: '会议室可用',
     PARTICIPANTS_PRESENT: '必需参会者有效',
   }
-  return labels[code] ?? code
+  return labels[code] ?? '其他准备项'
 }
 
 function actionStatusLabel(status: MeetingActionItemStatus): string {
@@ -522,7 +522,10 @@ function actionStatusLabel(status: MeetingActionItemStatus): string {
 
 function employeeName(employeeId: number | null | undefined): string {
   if (employeeId === null || employeeId === undefined) return '—'
-  return meetingPeople.value.find((person) => person.id === employeeId)?.name ?? `员工 ${employeeId}`
+  const meetingPerson = meetingPeople.value.find((person) => person.id === employeeId)
+  if (meetingPerson !== undefined) return meetingPerson.name
+  const currentUser = authStore.state.user
+  return currentUser?.id === employeeId ? currentUser.displayName : '已授权审核人'
 }
 
 function sortMeetings(items: Meeting[]): Meeting[] {

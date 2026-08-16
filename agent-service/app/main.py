@@ -42,9 +42,9 @@ def create_app() -> FastAPI:
                     await keepalive_task
 
     application = FastAPI(
-        title="Meeting Agent Service",
-        version="0.4.0",
-        description="Day 4 structured multi-agent scheduling runtime.",
+        title="WeMe Agent Service",
+        version="1.0.0",
+        description="Internal multi-agent meeting orchestration and policy runtime.",
         lifespan=lifespan,
     )
     application.include_router(internal_router)
