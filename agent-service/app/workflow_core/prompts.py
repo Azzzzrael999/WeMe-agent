@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-PROMPT_VERSION = "meeting-agent-prompts-v11"
+PROMPT_VERSION = "meeting-agent-prompts-v12"
 SCHEMA_VERSION = "meeting-agent-state-v7"
 POST_MEETING_PROMPT_VERSION: Literal["post-meeting-analysis-v1"] = "post-meeting-analysis-v1"
 POST_MEETING_SCHEMA_VERSION: Literal["post-meeting-draft-v1"] = "post-meeting-draft-v1"

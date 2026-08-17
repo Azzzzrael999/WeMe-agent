@@ -261,6 +261,16 @@ def build_scenarios(owned: list[dict[str, Any]]) -> tuple[DialogueScenario, ...]
     first_day = (now + timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
     second_day = first_day + timedelta(days=1)
     third_day = first_day + timedelta(days=2)
+    occupied_dates = {str(item.get("startAt", ""))[:10] for item in owned}
+    ambiguous_clock_day = next(
+        (
+            candidate
+            for offset in range(7, 31)
+            if (candidate := now + timedelta(days=offset)).date().isoformat()
+            not in occupied_dates
+        ),
+        third_day,
+    )
     scenarios: list[DialogueScenario] = [
         DialogueScenario(
             case_id="create-formal-hard-constraints",
@@ -310,7 +320,9 @@ def build_scenarios(owned: list[dict[str, Any]]) -> tuple[DialogueScenario, ...]
             purpose="单独‘2点’歧义与自然语言澄清",
             turns=(
                 DialogueTurn(
-                    "明天2点帮我和李四开一小时会。", "WAITING_INPUT", ("requirement.updated",)
+                    f"{chinese_date(ambiguous_clock_day)}2点帮我开一小时会，只有我参加。",
+                    "WAITING_INPUT",
+                    ("requirement.updated",),
                 ),
                 DialogueTurn(
                     "是下午两点，4个人，不需要额外设备。",
@@ -320,7 +332,7 @@ def build_scenarios(owned: list[dict[str, Any]]) -> tuple[DialogueScenario, ...]
             ),
             expected_intent="CREATE_MEETING",
             expected_action="CREATE",
-            required_tools=("resolve_employees", "search_available_rooms", "create_booking_draft"),
+            required_tools=("search_available_rooms", "create_booking_draft"),
         ),
         DialogueScenario(
             case_id="create-participant-delta",

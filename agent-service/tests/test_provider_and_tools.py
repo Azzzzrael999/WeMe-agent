@@ -140,6 +140,29 @@ def test_supervisor_normalizes_direct_scheduling_to_requirement_boundary() -> No
     assert updated.meeting_request is None
 
 
+def test_supervisor_fills_missing_intent_from_high_confidence_source_anchor() -> None:
+    provider = QueueProvider(
+        ['{"route":"REQUIREMENT","summary":"Read-only availability lookup."}']
+    )
+    state = AgentState(
+        thread_id="thread_supervisor_intent_fallback",
+        run_id="run_supervisor_intent_fallback",
+        trace_id="trc_supervisor_intent_fallback",
+        user_id=1001,
+        roles=["EMPLOYEE"],
+        message="张三和李四下周三上午能否找到120分钟共同空闲？",
+        request_time=datetime.fromisoformat("2026-08-15T10:00:00+08:00"),
+    )
+
+    updated, _, calls = SupervisorAgent(
+        provider=provider, runner=StructuredModelRunner()
+    ).execute(state)
+
+    assert calls == 1
+    assert updated.next_route is Route.REQUIREMENT
+    assert updated.intent is Intent.FIND_COMMON_TIME
+
+
 def test_policy_agent_answers_from_openable_evidence_content() -> None:
     provider = QueueProvider(
         [
@@ -178,17 +201,19 @@ def test_policy_agent_answers_from_openable_evidence_content() -> None:
 
 
 def test_policy_agent_returns_explicit_unverified_result_when_no_chunk_is_selected() -> None:
+    empty_selection = json.dumps(
+        {
+            "answerSummary": "周五禁止开会。",
+            "selectedChunkIds": [],
+            "confidence": 0.8,
+            "constraints": [],
+        },
+        ensure_ascii=False,
+    )
     provider = QueueProvider(
         [
-            json.dumps(
-                {
-                    "answerSummary": "周五禁止开会。",
-                    "selectedChunkIds": [],
-                    "confidence": 0.8,
-                    "constraints": [],
-                },
-                ensure_ascii=False,
-            )
+            empty_selection,
+            empty_selection,
         ]
     )
     state = AgentState(
@@ -202,17 +227,63 @@ def test_policy_agent_returns_explicit_unverified_result_when_no_chunk_is_select
         intent=Intent.QUERY_POLICY,
     )
 
-    updated, summary, _ = PolicyAgent(
+    updated, summary, calls = PolicyAgent(
         provider=provider,
         runner=StructuredModelRunner(),
         retriever=InMemoryPolicyRetriever(),
     ).execute(state)
 
+    assert calls == 2
     assert summary == "未找到可验证的会议制度证据。"
     assert updated.policy_result is not None
     assert updated.policy_result.verification_status == "UNVERIFIED"
     assert updated.policy_result.confidence == 0.0
     assert updated.citations == []
+
+
+def test_policy_agent_rechecks_an_empty_selection_before_returning_unverified() -> None:
+    provider = QueueProvider(
+        [
+            json.dumps(
+                {
+                    "answerSummary": "未找到依据。",
+                    "selectedChunkIds": [],
+                    "confidence": 0.0,
+                    "constraints": [],
+                },
+                ensure_ascii=False,
+            ),
+            json.dumps(
+                {
+                    "answerSummary": "VIP会议室使用前需要管理员审批。",
+                    "selectedChunkIds": ["chunk_vip_room_v1"],
+                    "confidence": 0.95,
+                    "constraints": [],
+                },
+                ensure_ascii=False,
+            ),
+        ]
+    )
+    state = AgentState(
+        thread_id="thread_policy_retry",
+        run_id="run_policy_retry",
+        trace_id="trc_policy_retry",
+        user_id=1001,
+        roles=["EMPLOYEE"],
+        message="VIP会议室预约前有哪些审批规则？",
+        request_time=datetime.fromisoformat("2026-08-15T10:00:00+08:00"),
+        intent=Intent.QUERY_POLICY,
+    )
+
+    updated, summary, calls = PolicyAgent(
+        provider=provider,
+        runner=StructuredModelRunner(),
+        retriever=InMemoryPolicyRetriever(),
+    ).execute(state)
+
+    assert calls == 2
+    assert summary == "VIP会议室使用前需要管理员审批。"
+    assert [item.chunk_id for item in updated.citations] == ["chunk_vip_room_v1"]
 
 
 def test_deepseek_provider_retries_temporary_failure_without_real_network(
@@ -742,7 +813,33 @@ def test_route_evaluator_distinguishes_mutation_rules_from_mutation_request() ->
         Route.POLICY,
         Intent.QUERY_POLICY,
     )
+    assert evaluator.fallback("会议改期规则是否要求再次确认？给我制度依据。") == (
+        Route.POLICY,
+        Intent.QUERY_POLICY,
+    )
+    assert evaluator.fallback("取消会议时是否必须展示预览并确认？请引用政策。") == (
+        Route.POLICY,
+        Intent.QUERY_POLICY,
+    )
+    assert evaluator.fallback("张三和李四下周三上午能否找到共同空闲？") == (
+        Route.REQUIREMENT,
+        Intent.FIND_COMMON_TIME,
+    )
+    assert evaluator.fallback(
+        "先不要创建会议，帮李四和王经理找下周三下午120分钟共同空闲，12人。"
+    ) == (Route.REQUIREMENT, Intent.FIND_COMMON_TIME)
+    assert evaluator.fallback(
+        "帮王经理推荐明天下午可容纳6人的白板会议室，30分钟，不要代我预订。"
+    ) == (Route.REQUIREMENT, Intent.RECOMMEND_ROOM)
     assert evaluator.fallback("取消会议 ID 9001，先给我预览。") == (
+        Route.REQUIREMENT,
+        Intent.CANCEL_MEETING,
+    )
+    assert evaluator.fallback("把 227 号会议撤掉，不过先让我看清楚目标。") == (
+        Route.REQUIREMENT,
+        Intent.CANCEL_MEETING,
+    )
+    assert evaluator.fallback("请根据制度要求取消会议 ID 9001，先给我预览。") == (
         Route.REQUIREMENT,
         Intent.CANCEL_MEETING,
     )
@@ -761,6 +858,14 @@ def test_route_evaluator_distinguishes_mutation_rules_from_mutation_request() ->
     assert evaluator.fallback("Please book a sync with 李四.") == (
         Route.REQUIREMENT,
         Intent.CREATE_MEETING,
+    )
+    assert evaluator.fallback("下周三上午替王经理预留30分钟会议室。") == (
+        Route.REQUIREMENT,
+        Intent.CREATE_MEETING,
+    )
+    assert evaluator.fallback("把会议ID 121挪到8月26日上午10点。") == (
+        Route.REQUIREMENT,
+        Intent.MODIFY_MEETING,
     )
     assert evaluator.fallback("明天下午帮我跟李四碰一下，先让我挑房间。") == (
         Route.REQUIREMENT,
@@ -823,6 +928,10 @@ def test_requirement_deterministically_normalizes_mixed_language_explicit_facts(
     assert updated.meeting_request.duration_minutes == 30
     assert updated.meeting_request.minimum_capacity == 4
     assert updated.meeting_request.required_features == ["WHITEBOARD"]
+    assert updated.meeting_request.time_window == TimeWindow(
+        start=datetime.fromisoformat("2026-08-23T12:00:00+08:00"),
+        end=datetime.fromisoformat("2026-08-23T18:00:00+08:00"),
+    )
     assert updated.missing_fields == []
 
 
@@ -861,6 +970,48 @@ def test_requirement_preserves_recent_meeting_reference_after_model_omission() -
     assert updated.meeting_request is not None
     assert updated.meeting_request.target_meeting_reference == "刚才那个会议"
     assert updated.missing_fields == []
+
+
+def test_requirement_rejects_hallucinated_target_id_and_uses_source_selector() -> None:
+    provider = QueueProvider(
+        [
+            json.dumps(
+                {
+                    "requirementDraft": {
+                        "intent": "MODIFY_MEETING",
+                        "durationMinutes": None,
+                        "targetMeetingId": 121,
+                        "targetMeetingReference": "架构评审",
+                        "requiredParticipantNames": [],
+                        "requiredFeatures": [],
+                        "fieldEvidence": [],
+                        "summary": "改期",
+                    },
+                    "missingFields": [],
+                },
+                ensure_ascii=False,
+            )
+        ]
+    )
+    source = "把8月25日下午的会挪到第二天上午，其他照旧。"
+    state = AgentState(
+        thread_id="thread_safe_target_selector",
+        run_id="run_safe_target_selector",
+        trace_id="trc_safe_target_selector",
+        user_id=1001,
+        roles=["EMPLOYEE"],
+        message=source,
+        request_time=datetime.fromisoformat("2026-08-15T10:00:00+08:00"),
+        intent=Intent.MODIFY_MEETING,
+    )
+
+    updated, _, _, _ = RequirementAgent(
+        provider=provider, runner=StructuredModelRunner()
+    ).execute(state)
+
+    assert updated.meeting_request is not None
+    assert updated.meeting_request.target_meeting_id is None
+    assert updated.meeting_request.target_meeting_reference == "把8月25日下午的会"
 
 
 def test_requirement_defaults_remove_stale_model_missing_fields() -> None:

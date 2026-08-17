@@ -1,10 +1,10 @@
 {
   "schemaVersion": "agent-evaluation-summary-v2",
-  "generatedAt": "2026-08-15T14:30:16.528466+00:00",
-  "gitCommit": "d9c164e3aec7fdf7d234f2d4d60b174e207ebca8",
+  "generatedAt": "2026-08-17T21:39:09.425798+00:00",
+  "gitCommit": "6e28c3515ba76bc8ccb0950030ce8fa2219c606c",
   "workingTreeDirty": true,
   "datasetVersion": "agent-eval-v2-120",
-  "status": "FAIL",
+  "status": "PASS",
   "scope": {
     "componentUniqueCases": 120,
     "liveCoreUniqueCases": 30,
@@ -20,36 +20,36 @@
     "responseModels": [
       "deepseek-v4-flash"
     ],
-    "promptVersion": "meeting-agent-prompts-v11",
+    "promptVersion": "meeting-agent-prompts-v12",
     "agentSchemaVersion": "meeting-agent-state-v7"
   },
   "quality": {
     "fixtureComponentTaskSuccess": 1.0,
-    "liveFullTaskSuccessRate": 0.9333333333333333,
-    "liveCoreTaskSuccessRate": 0.9666666666666667,
+    "liveFullTaskSuccessRate": 0.9916666666666667,
+    "liveCoreTaskSuccessRate": 0.9888888888888889,
     "liveCoreStableCaseRate": 0.9666666666666667,
-    "routeAccuracy": 0.975,
-    "intentAccuracy": 0.95,
+    "routeAccuracy": 1.0,
+    "intentAccuracy": 1.0,
     "constraintFieldF1": 1.0,
-    "plannedToolSetAccuracy": 0.975,
-    "sourceFidelityViolations": 2,
+    "plannedToolSetAccuracy": 1.0,
+    "sourceFidelityViolations": 0,
     "citationValidity": 1.0,
     "nativeToolProtocol": 1.0,
     "trajectorySuccess": 1.0,
-    "publicApiScenarioSuccess": 0.8125
+    "publicApiScenarioSuccess": 1.0
   },
   "operations": {
-    "liveFullLatencyP50Ms": 3651.89,
-    "liveFullLatencyP95Ms": 4985.14,
-    "trajectoryLatencyP50Ms": 6191.57,
-    "trajectoryLatencyP95Ms": 8559.68,
-    "publicApiLatencyP50Ms": 8510.37,
-    "publicApiLatencyP95Ms": 14572.23,
+    "liveFullLatencyP50Ms": 3087.54,
+    "liveFullLatencyP95Ms": 4316.27,
+    "trajectoryLatencyP50Ms": 7014.18,
+    "trajectoryLatencyP95Ms": 9332.53,
+    "publicApiLatencyP50Ms": 9032.69,
+    "publicApiLatencyP95Ms": 14606.07,
     "tokenUsage": {
-      "inputTokens": 259407,
-      "outputTokens": 39149,
-      "cacheHitTokens": 239360,
-      "cacheMissTokens": 20047
+      "inputTokens": 255794,
+      "outputTokens": 39248,
+      "cacheHitTokens": 233728,
+      "cacheMissTokens": 22066
     }
   },
   "gates": [
@@ -123,7 +123,7 @@
     },
     {
       "name": "live full report status is PASS",
-      "passed": false
+      "passed": true
     },
     {
       "name": "live full suite is full",
@@ -143,7 +143,7 @@
     },
     {
       "name": "live full source-fidelity violations are zero",
-      "passed": false
+      "passed": true
     },
     {
       "name": "live full native Tool protocol is 100%",
@@ -163,7 +163,7 @@
     },
     {
       "name": "all live full policy cases route correctly",
-      "passed": false
+      "passed": true
     },
     {
       "name": "live full intent accuracy is at least 90%",
@@ -195,7 +195,7 @@
     },
     {
       "name": "public API scenario status is PASS",
-      "passed": false
+      "passed": true
     },
     {
       "name": "public API suite has 16 scenarios",
@@ -203,57 +203,15 @@
     },
     {
       "name": "all public API scenarios pass",
-      "passed": false
+      "passed": true
     }
   ],
   "failures": [
     {
       "suite": "liveCore",
-      "caseId": "recommend-006",
+      "caseId": "normal-001",
       "repeat": 1,
-      "errorType": null,
-      "failure": null
-    },
-    {
-      "suite": "liveCore",
-      "caseId": "recommend-006",
-      "repeat": 2,
-      "errorType": null,
-      "failure": null
-    },
-    {
-      "suite": "liveCore",
-      "caseId": "recommend-006",
-      "repeat": 3,
-      "errorType": null,
-      "failure": null
-    },
-    {
-      "suite": "liveFull",
-      "caseId": "normal-009",
-      "repeat": 1,
-      "errorType": null,
-      "failure": null
-    },
-    {
-      "suite": "liveFull",
-      "caseId": "recommend-006",
-      "repeat": 1,
-      "errorType": null,
-      "failure": null
-    },
-    {
-      "suite": "liveFull",
-      "caseId": "recommend-012",
-      "repeat": 1,
-      "errorType": null,
-      "failure": null
-    },
-    {
-      "suite": "liveFull",
-      "caseId": "recommend-013",
-      "repeat": 1,
-      "errorType": null,
+      "errorType": "MODEL_UNAVAILABLE",
       "failure": null
     },
     {
@@ -262,48 +220,6 @@
       "repeat": 1,
       "errorType": null,
       "failure": null
-    },
-    {
-      "suite": "liveFull",
-      "caseId": "policy-007",
-      "repeat": 1,
-      "errorType": null,
-      "failure": null
-    },
-    {
-      "suite": "liveFull",
-      "caseId": "policy-009",
-      "repeat": 1,
-      "errorType": null,
-      "failure": null
-    },
-    {
-      "suite": "liveFull",
-      "caseId": "policy-013",
-      "repeat": 1,
-      "errorType": null,
-      "failure": null
-    },
-    {
-      "suite": "product",
-      "caseId": "create-mixed-language",
-      "repeat": null,
-      "errorType": null,
-      "failure": "turn 1 expected HITL, got WAITING_INPUT"
-    },
-    {
-      "suite": "product",
-      "caseId": "modify-explicit-id-reject",
-      "repeat": null,
-      "errorType": null,
-      "failure": "turn 1 expected HITL, got WAITING_INPUT"
-    },
-    {
-      "suite": "product",
-      "caseId": "modify-ambiguous-target-clarified",
-      "repeat": null,
-      "errorType": null,
-      "failure": "turn 1 expected WAITING_INPUT, got HITL"
     }
   ],
   "evidence": {

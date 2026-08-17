@@ -4,37 +4,37 @@
   "mode": "live-model-component",
   "suite": "full",
   "repeats": 1,
-  "generatedAt": "2026-08-15T14:12:26.038331+00:00",
+  "generatedAt": "2026-08-17T21:01:36.115851+00:00",
   "provider": "deepseek",
   "configuredModel": "deepseek-v4-flash",
-  "promptVersion": "meeting-agent-prompts-v11",
+  "promptVersion": "meeting-agent-prompts-v12",
   "agentSchemaVersion": "meeting-agent-state-v7",
-  "status": "FAIL",
+  "status": "PASS",
   "responseModels": [
     "deepseek-v4-flash"
   ],
   "tokenUsage": {
-    "inputTokens": 259407,
-    "outputTokens": 39149,
-    "cacheHitTokens": 239360,
-    "cacheMissTokens": 20047
+    "inputTokens": 255794,
+    "outputTokens": 39248,
+    "cacheHitTokens": 233728,
+    "cacheMissTokens": 22066
   },
   "metrics": {
     "samples": 120,
     "uniqueCases": 120,
-    "routeAccuracy": 0.975,
-    "policyRouteAllCorrect": false,
-    "intentAccuracy": 0.95,
+    "routeAccuracy": 1.0,
+    "policyRouteAllCorrect": true,
+    "intentAccuracy": 1.0,
     "constraintFieldF1": 1.0,
-    "plannedToolSetAccuracy": 0.975,
-    "toolSelectionAccuracy": 0.975,
-    "sourceFidelityViolations": 2,
+    "plannedToolSetAccuracy": 1.0,
+    "toolSelectionAccuracy": 1.0,
+    "sourceFidelityViolations": 0,
     "nativeToolProtocol": 1.0,
     "citationValidity": 1.0,
-    "taskSuccessRate": 0.9333333333333333,
-    "stableCaseRate": 0.9333333333333333,
-    "latencyP50Ms": 3651.89,
-    "latencyP95Ms": 4985.14
+    "taskSuccessRate": 0.9916666666666667,
+    "stableCaseRate": 0.9916666666666667,
+    "latencyP50Ms": 3087.54,
+    "latencyP95Ms": 4316.27
   },
   "results": [
     {
@@ -64,7 +64,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4575.35,
+      "latencyMs": 3585.52,
       "errorType": null,
       "casePass": true
     },
@@ -95,7 +95,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3475.26,
+      "latencyMs": 2691.57,
       "errorType": null,
       "casePass": true
     },
@@ -126,7 +126,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4514.8,
+      "latencyMs": 3587.26,
       "errorType": null,
       "casePass": true
     },
@@ -157,7 +157,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3470.03,
+      "latencyMs": 3205.38,
       "errorType": null,
       "casePass": true
     },
@@ -188,7 +188,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4221.1,
+      "latencyMs": 3817.9,
       "errorType": null,
       "casePass": true
     },
@@ -219,7 +219,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3247.0,
+      "latencyMs": 3459.57,
       "errorType": null,
       "casePass": true
     },
@@ -250,7 +250,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3637.83,
+      "latencyMs": 3317.99,
       "errorType": null,
       "casePass": true
     },
@@ -281,7 +281,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3435.91,
+      "latencyMs": 3811.99,
       "errorType": null,
       "casePass": true
     },
@@ -299,22 +299,22 @@
       "repeat": 1,
       "terminal": "SCHEDULING",
       "routeMatch": true,
-      "intentMatch": false,
+      "intentMatch": true,
       "constraintCounts": {
         "tp": 4,
         "fp": 0,
         "fn": 0
       },
-      "plannedToolSetMatch": false,
-      "toolSelectionMatch": false,
+      "plannedToolSetMatch": true,
+      "toolSelectionMatch": true,
       "sourceFidelityViolations": 0,
       "feedbackCodes": [],
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3577.84,
+      "latencyMs": 3805.13,
       "errorType": null,
-      "casePass": false
+      "casePass": true
     },
     {
       "caseId": "normal-010",
@@ -343,7 +343,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 2706.47,
+      "latencyMs": 2972.11,
       "errorType": null,
       "casePass": true
     },
@@ -374,7 +374,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3179.32,
+      "latencyMs": 2493.28,
       "errorType": null,
       "casePass": true
     },
@@ -405,7 +405,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 6018.3,
+      "latencyMs": 4717.41,
       "errorType": null,
       "casePass": true
     },
@@ -436,7 +436,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3976.61,
+      "latencyMs": 3117.59,
       "errorType": null,
       "casePass": true
     },
@@ -467,7 +467,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3943.27,
+      "latencyMs": 3908.41,
       "errorType": null,
       "casePass": true
     },
@@ -498,7 +498,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4056.45,
+      "latencyMs": 3937.24,
       "errorType": null,
       "casePass": true
     },
@@ -529,7 +529,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4176.4,
+      "latencyMs": 4006.77,
       "errorType": null,
       "casePass": true
     },
@@ -560,7 +560,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3848.64,
+      "latencyMs": 3925.92,
       "errorType": null,
       "casePass": true
     },
@@ -591,7 +591,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3673.23,
+      "latencyMs": 3673.06,
       "errorType": null,
       "casePass": true
     },
@@ -622,7 +622,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 2610.53,
+      "latencyMs": 2610.05,
       "errorType": null,
       "casePass": true
     },
@@ -654,7 +654,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3390.72,
+      "latencyMs": 3735.7,
       "errorType": null,
       "casePass": true
     },
@@ -685,7 +685,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 2814.86,
+      "latencyMs": 3154.23,
       "errorType": null,
       "casePass": true
     },
@@ -716,7 +716,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3281.37,
+      "latencyMs": 3725.96,
       "errorType": null,
       "casePass": true
     },
@@ -747,7 +747,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 2587.37,
+      "latencyMs": 2843.99,
       "errorType": null,
       "casePass": true
     },
@@ -778,7 +778,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3260.47,
+      "latencyMs": 3801.34,
       "errorType": null,
       "casePass": true
     },
@@ -809,7 +809,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3171.9,
+      "latencyMs": 3727.01,
       "errorType": null,
       "casePass": true
     },
@@ -840,7 +840,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3209.19,
+      "latencyMs": 3357.03,
       "errorType": null,
       "casePass": true
     },
@@ -871,7 +871,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3692.12,
+      "latencyMs": 3245.4,
       "errorType": null,
       "casePass": true
     },
@@ -902,7 +902,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3235.81,
+      "latencyMs": 2497.75,
       "errorType": null,
       "casePass": true
     },
@@ -933,7 +933,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3652.83,
+      "latencyMs": 3002.45,
       "errorType": null,
       "casePass": true
     },
@@ -964,7 +964,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3559.86,
+      "latencyMs": 3349.04,
       "errorType": null,
       "casePass": true
     },
@@ -995,7 +995,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4985.14,
+      "latencyMs": 4593.81,
       "errorType": null,
       "casePass": true
     },
@@ -1026,7 +1026,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3836.14,
+      "latencyMs": 4240.56,
       "errorType": null,
       "casePass": true
     },
@@ -1057,7 +1057,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4112.73,
+      "latencyMs": 4084.69,
       "errorType": null,
       "casePass": true
     },
@@ -1088,7 +1088,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3754.87,
+      "latencyMs": 3978.49,
       "errorType": null,
       "casePass": true
     },
@@ -1119,7 +1119,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4523.03,
+      "latencyMs": 3576.96,
       "errorType": null,
       "casePass": true
     },
@@ -1150,7 +1150,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3747.85,
+      "latencyMs": 2860.49,
       "errorType": null,
       "casePass": true
     },
@@ -1181,7 +1181,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3167.51,
+      "latencyMs": 3106.95,
       "errorType": null,
       "casePass": true
     },
@@ -1212,7 +1212,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3478.59,
+      "latencyMs": 3917.55,
       "errorType": null,
       "casePass": true
     },
@@ -1243,7 +1243,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3932.26,
+      "latencyMs": 4521.83,
       "errorType": null,
       "casePass": true
     },
@@ -1275,7 +1275,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3769.84,
+      "latencyMs": 4432.13,
       "errorType": null,
       "casePass": true
     },
@@ -1306,7 +1306,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3024.17,
+      "latencyMs": 3525.91,
       "errorType": null,
       "casePass": true
     },
@@ -1337,7 +1337,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3841.98,
+      "latencyMs": 4471.56,
       "errorType": null,
       "casePass": true
     },
@@ -1368,7 +1368,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 5834.24,
+      "latencyMs": 3375.66,
       "errorType": null,
       "casePass": true
     },
@@ -1399,7 +1399,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4394.53,
+      "latencyMs": 2665.64,
       "errorType": null,
       "casePass": true
     },
@@ -1430,7 +1430,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3241.87,
+      "latencyMs": 2371.77,
       "errorType": null,
       "casePass": true
     },
@@ -1461,7 +1461,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3475.71,
+      "latencyMs": 2959.02,
       "errorType": null,
       "casePass": true
     },
@@ -1492,7 +1492,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3940.31,
+      "latencyMs": 3179.52,
       "errorType": null,
       "casePass": true
     },
@@ -1523,7 +1523,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3596.27,
+      "latencyMs": 3488.0,
       "errorType": null,
       "casePass": true
     },
@@ -1554,7 +1554,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4185.95,
+      "latencyMs": 3239.39,
       "errorType": null,
       "casePass": true
     },
@@ -1585,7 +1585,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3651.89,
+      "latencyMs": 3005.36,
       "errorType": null,
       "casePass": true
     },
@@ -1616,7 +1616,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4063.9,
+      "latencyMs": 3093.26,
       "errorType": null,
       "casePass": true
     },
@@ -1647,7 +1647,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4610.49,
+      "latencyMs": 3371.33,
       "errorType": null,
       "casePass": true
     },
@@ -1678,7 +1678,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 5598.28,
+      "latencyMs": 2516.64,
       "errorType": null,
       "casePass": true
     },
@@ -1709,7 +1709,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3430.18,
+      "latencyMs": 2384.48,
       "errorType": null,
       "casePass": true
     },
@@ -1740,7 +1740,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4197.22,
+      "latencyMs": 3360.57,
       "errorType": null,
       "casePass": true
     },
@@ -1771,7 +1771,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4238.39,
+      "latencyMs": 3537.82,
       "errorType": null,
       "casePass": true
     },
@@ -1802,7 +1802,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4074.41,
+      "latencyMs": 3522.63,
       "errorType": null,
       "casePass": true
     },
@@ -1833,7 +1833,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 6485.14,
+      "latencyMs": 3084.77,
       "errorType": null,
       "casePass": true
     },
@@ -1864,7 +1864,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4298.32,
+      "latencyMs": 3087.54,
       "errorType": null,
       "casePass": true
     },
@@ -1895,7 +1895,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4587.71,
+      "latencyMs": 3694.9,
       "errorType": null,
       "casePass": true
     },
@@ -1926,7 +1926,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3582.62,
+      "latencyMs": 3353.77,
       "errorType": null,
       "casePass": true
     },
@@ -1957,7 +1957,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4035.17,
+      "latencyMs": 3285.84,
       "errorType": null,
       "casePass": true
     },
@@ -1988,7 +1988,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4348.94,
+      "latencyMs": 4205.18,
       "errorType": null,
       "casePass": true
     },
@@ -2019,7 +2019,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4178.12,
+      "latencyMs": 4805.47,
       "errorType": null,
       "casePass": true
     },
@@ -2049,7 +2049,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3933.97,
+      "latencyMs": 3188.08,
       "errorType": null,
       "casePass": true
     },
@@ -2079,7 +2079,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3542.68,
+      "latencyMs": 2592.04,
       "errorType": null,
       "casePass": true
     },
@@ -2109,7 +2109,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4390.69,
+      "latencyMs": 3040.54,
       "errorType": null,
       "casePass": true
     },
@@ -2139,7 +2139,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3916.59,
+      "latencyMs": 2617.38,
       "errorType": null,
       "casePass": true
     },
@@ -2169,7 +2169,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3915.76,
+      "latencyMs": 3586.79,
       "errorType": null,
       "casePass": true
     },
@@ -2186,22 +2186,22 @@
       "repeat": 1,
       "terminal": "SCHEDULING",
       "routeMatch": true,
-      "intentMatch": false,
+      "intentMatch": true,
       "constraintCounts": {
         "tp": 4,
         "fp": 0,
         "fn": 0
       },
-      "plannedToolSetMatch": false,
-      "toolSelectionMatch": false,
+      "plannedToolSetMatch": true,
+      "toolSelectionMatch": true,
       "sourceFidelityViolations": 0,
       "feedbackCodes": [],
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4842.55,
+      "latencyMs": 3113.34,
       "errorType": null,
-      "casePass": false
+      "casePass": true
     },
     {
       "caseId": "recommend-007",
@@ -2229,7 +2229,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4671.52,
+      "latencyMs": 3439.85,
       "errorType": null,
       "casePass": true
     },
@@ -2259,7 +2259,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3810.39,
+      "latencyMs": 3113.12,
       "errorType": null,
       "casePass": true
     },
@@ -2289,7 +2289,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4060.07,
+      "latencyMs": 3757.2,
       "errorType": null,
       "casePass": true
     },
@@ -2319,7 +2319,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3935.65,
+      "latencyMs": 3212.29,
       "errorType": null,
       "casePass": true
     },
@@ -2349,7 +2349,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3741.23,
+      "latencyMs": 3008.13,
       "errorType": null,
       "casePass": true
     },
@@ -2364,9 +2364,9 @@
         "tool-plan"
       ],
       "repeat": 1,
-      "terminal": "CLARIFICATION",
-      "routeMatch": false,
-      "intentMatch": false,
+      "terminal": "SCHEDULING",
+      "routeMatch": true,
+      "intentMatch": true,
       "constraintCounts": {
         "tp": 4,
         "fp": 0,
@@ -2374,20 +2374,14 @@
       },
       "plannedToolSetMatch": true,
       "toolSelectionMatch": true,
-      "sourceFidelityViolations": 2,
-      "feedbackCodes": [
-        "EVIDENCE_NOT_IN_SOURCE",
-        "INTENT_SOURCE_MISMATCH"
-      ],
-      "missingFields": [
-        "EVIDENCE_NOT_IN_SOURCE",
-        "INTENT_SOURCE_MISMATCH"
-      ],
+      "sourceFidelityViolations": 0,
+      "feedbackCodes": [],
+      "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 6966.81,
+      "latencyMs": 2252.93,
       "errorType": null,
-      "casePass": false
+      "casePass": true
     },
     {
       "caseId": "recommend-013",
@@ -2402,22 +2396,22 @@
       "repeat": 1,
       "terminal": "SCHEDULING",
       "routeMatch": true,
-      "intentMatch": false,
+      "intentMatch": true,
       "constraintCounts": {
         "tp": 4,
         "fp": 0,
         "fn": 0
       },
-      "plannedToolSetMatch": false,
-      "toolSelectionMatch": false,
+      "plannedToolSetMatch": true,
+      "toolSelectionMatch": true,
       "sourceFidelityViolations": 0,
       "feedbackCodes": [],
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4580.92,
+      "latencyMs": 3010.46,
       "errorType": null,
-      "casePass": false
+      "casePass": true
     },
     {
       "caseId": "recommend-014",
@@ -2445,7 +2439,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3337.0,
+      "latencyMs": 2699.65,
       "errorType": null,
       "casePass": true
     },
@@ -2475,7 +2469,7 @@
       "missingFields": [],
       "citationsChecked": 1,
       "citationsValid": 1,
-      "latencyMs": 2957.89,
+      "latencyMs": 2107.61,
       "errorType": null,
       "casePass": true
     },
@@ -2505,7 +2499,7 @@
       "missingFields": [],
       "citationsChecked": 2,
       "citationsValid": 2,
-      "latencyMs": 2896.67,
+      "latencyMs": 2338.7,
       "errorType": null,
       "casePass": true
     },
@@ -2535,7 +2529,7 @@
       "missingFields": [],
       "citationsChecked": 1,
       "citationsValid": 1,
-      "latencyMs": 3034.83,
+      "latencyMs": 2097.71,
       "errorType": null,
       "casePass": true
     },
@@ -2565,7 +2559,7 @@
       "missingFields": [],
       "citationsChecked": 1,
       "citationsValid": 1,
-      "latencyMs": 2769.12,
+      "latencyMs": 4316.27,
       "errorType": null,
       "casePass": true
     },
@@ -2595,7 +2589,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 2401.64,
+      "latencyMs": 2674.89,
       "errorType": null,
       "casePass": false
     },
@@ -2625,7 +2619,7 @@
       "missingFields": [],
       "citationsChecked": 1,
       "citationsValid": 1,
-      "latencyMs": 2638.41,
+      "latencyMs": 1836.96,
       "errorType": null,
       "casePass": true
     },
@@ -2641,9 +2635,9 @@
         "hitl"
       ],
       "repeat": 1,
-      "terminal": "SCHEDULING",
-      "routeMatch": false,
-      "intentMatch": false,
+      "terminal": "FINAL",
+      "routeMatch": true,
+      "intentMatch": true,
       "constraintCounts": {
         "tp": 0,
         "fp": 0,
@@ -2656,9 +2650,9 @@
       "missingFields": [],
       "citationsChecked": 1,
       "citationsValid": 1,
-      "latencyMs": 4153.36,
+      "latencyMs": 2434.46,
       "errorType": null,
-      "casePass": false
+      "casePass": true
     },
     {
       "caseId": "policy-008",
@@ -2684,9 +2678,9 @@
       "sourceFidelityViolations": 0,
       "feedbackCodes": [],
       "missingFields": [],
-      "citationsChecked": 1,
-      "citationsValid": 1,
-      "latencyMs": 2935.91,
+      "citationsChecked": 2,
+      "citationsValid": 2,
+      "latencyMs": 2982.2,
       "errorType": null,
       "casePass": true
     },
@@ -2714,11 +2708,11 @@
       "sourceFidelityViolations": 0,
       "feedbackCodes": [],
       "missingFields": [],
-      "citationsChecked": 0,
-      "citationsValid": 0,
-      "latencyMs": 2641.22,
+      "citationsChecked": 1,
+      "citationsValid": 1,
+      "latencyMs": 2256.76,
       "errorType": null,
-      "casePass": false
+      "casePass": true
     },
     {
       "caseId": "policy-010",
@@ -2746,7 +2740,7 @@
       "missingFields": [],
       "citationsChecked": 2,
       "citationsValid": 2,
-      "latencyMs": 4146.77,
+      "latencyMs": 2447.41,
       "errorType": null,
       "casePass": true
     },
@@ -2776,7 +2770,7 @@
       "missingFields": [],
       "citationsChecked": 1,
       "citationsValid": 1,
-      "latencyMs": 2794.03,
+      "latencyMs": 2190.92,
       "errorType": null,
       "casePass": true
     },
@@ -2806,7 +2800,7 @@
       "missingFields": [],
       "citationsChecked": 1,
       "citationsValid": 1,
-      "latencyMs": 3459.82,
+      "latencyMs": 2246.39,
       "errorType": null,
       "casePass": true
     },
@@ -2821,9 +2815,9 @@
         "hitl"
       ],
       "repeat": 1,
-      "terminal": "SCHEDULING",
-      "routeMatch": false,
-      "intentMatch": false,
+      "terminal": "FINAL",
+      "routeMatch": true,
+      "intentMatch": true,
       "constraintCounts": {
         "tp": 0,
         "fp": 0,
@@ -2836,9 +2830,9 @@
       "missingFields": [],
       "citationsChecked": 1,
       "citationsValid": 1,
-      "latencyMs": 4406.46,
+      "latencyMs": 2375.98,
       "errorType": null,
-      "casePass": false
+      "casePass": true
     },
     {
       "caseId": "policy-014",
@@ -2866,7 +2860,7 @@
       "missingFields": [],
       "citationsChecked": 1,
       "citationsValid": 1,
-      "latencyMs": 2956.38,
+      "latencyMs": 2198.27,
       "errorType": null,
       "casePass": true
     },
@@ -2896,7 +2890,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3703.69,
+      "latencyMs": 2190.74,
       "errorType": null,
       "casePass": true
     },
@@ -2926,7 +2920,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3454.73,
+      "latencyMs": 2502.2,
       "errorType": null,
       "casePass": true
     },
@@ -2956,7 +2950,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3017.44,
+      "latencyMs": 2289.61,
       "errorType": null,
       "casePass": true
     },
@@ -2986,7 +2980,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 2588.62,
+      "latencyMs": 2122.55,
       "errorType": null,
       "casePass": true
     },
@@ -3016,7 +3010,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 5030.16,
+      "latencyMs": 3468.89,
       "errorType": null,
       "casePass": true
     },
@@ -3046,7 +3040,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4385.91,
+      "latencyMs": 4083.65,
       "errorType": null,
       "casePass": true
     },
@@ -3076,7 +3070,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3870.49,
+      "latencyMs": 2879.62,
       "errorType": null,
       "casePass": true
     },
@@ -3107,7 +3101,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3532.97,
+      "latencyMs": 2395.71,
       "errorType": null,
       "casePass": true
     },
@@ -3137,7 +3131,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3572.56,
+      "latencyMs": 2344.39,
       "errorType": null,
       "casePass": true
     },
@@ -3167,7 +3161,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4805.71,
+      "latencyMs": 3893.02,
       "errorType": null,
       "casePass": true
     },
@@ -3197,7 +3191,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3339.72,
+      "latencyMs": 2187.25,
       "errorType": null,
       "casePass": true
     },
@@ -3227,7 +3221,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3227.17,
+      "latencyMs": 2054.41,
       "errorType": null,
       "casePass": true
     },
@@ -3257,7 +3251,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4148.48,
+      "latencyMs": 3064.21,
       "errorType": null,
       "casePass": true
     },
@@ -3288,7 +3282,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3249.03,
+      "latencyMs": 2158.14,
       "errorType": null,
       "casePass": true
     },
@@ -3318,7 +3312,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3799.89,
+      "latencyMs": 2608.13,
       "errorType": null,
       "casePass": true
     },
@@ -3348,7 +3342,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3051.23,
+      "latencyMs": 2078.19,
       "errorType": null,
       "casePass": true
     },
@@ -3378,7 +3372,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3405.0,
+      "latencyMs": 2068.2,
       "errorType": null,
       "casePass": true
     },
@@ -3410,7 +3404,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3147.5,
+      "latencyMs": 2485.98,
       "errorType": null,
       "casePass": true
     },
@@ -3439,7 +3433,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 2955.61,
+      "latencyMs": 2048.08,
       "errorType": null,
       "casePass": true
     },
@@ -3468,7 +3462,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 2900.67,
+      "latencyMs": 2024.08,
       "errorType": null,
       "casePass": true
     },
@@ -3497,7 +3491,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 2849.67,
+      "latencyMs": 2298.14,
       "errorType": null,
       "casePass": true
     },
@@ -3526,7 +3520,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 4107.48,
+      "latencyMs": 3037.8,
       "errorType": null,
       "casePass": true
     },
@@ -3557,7 +3551,7 @@
       ],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 2496.82,
+      "latencyMs": 2272.72,
       "errorType": null,
       "casePass": true
     },
@@ -3588,7 +3582,7 @@
       ],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 2078.25,
+      "latencyMs": 2254.83,
       "errorType": null,
       "casePass": true
     },
@@ -3617,7 +3611,7 @@
       "missingFields": [],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3193.41,
+      "latencyMs": 2739.92,
       "errorType": null,
       "casePass": true
     },
@@ -3651,7 +3645,7 @@
       ],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 2099.38,
+      "latencyMs": 1870.64,
       "errorType": null,
       "casePass": true
     },
@@ -3682,7 +3676,7 @@
       ],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 2252.88,
+      "latencyMs": 2539.24,
       "errorType": null,
       "casePass": true
     },
@@ -3719,7 +3713,7 @@
       ],
       "citationsChecked": 0,
       "citationsValid": 0,
-      "latencyMs": 3021.88,
+      "latencyMs": 3809.79,
       "errorType": null,
       "casePass": true
     }
@@ -3728,7 +3722,7 @@
     {
       "repeat": 1,
       "valid": true,
-      "latencyMs": 767.33,
+      "latencyMs": 1254.36,
       "errorType": null
     }
   ],

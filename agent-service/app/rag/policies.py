@@ -77,7 +77,10 @@ SEED_CHUNKS: tuple[PolicyChunk, ...] = (
         title="会议室设备说明",
         heading_path=("设备", "大屏与白板"),
         page=1,
-        content="需要演示材料时应选择具备LARGE_SCREEN设备的会议室；白板需求应作为房间硬约束。",
+        content=(
+            "需要演示材料时应选择具备LARGE_SCREEN设备的会议室；白板需求应作为房间硬约束；"
+            "需要远程参会时应选择具备VIDEO_CONFERENCE设备的会议室。"
+        ),
     ),
     PolicyChunk(
         chunk_id="chunk_meeting_mutation_v1",

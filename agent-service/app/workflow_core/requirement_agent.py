@@ -120,14 +120,14 @@ class RequirementAgent:
             output_type=RequirementExtraction,
         )
         draft = extraction.requirement_draft
-        draft = _apply_explicit_meeting_defaults(
-            draft, state.message, request_time=state.request_time
-        )
-        draft = _apply_current_user_participation(draft, state.message)
         if state.intent is not None and (
             not state.continuation_turn or not _source_changes_intent(state.message)
         ):
             draft = draft.model_copy(update={"intent": state.intent})
+        draft = _apply_explicit_meeting_defaults(
+            draft, state.message, request_time=state.request_time
+        )
+        draft = _apply_current_user_participation(draft, state.message)
         if (
             state.continuation_turn
             and state.requirement_draft is not None
@@ -181,14 +181,14 @@ class RequirementAgent:
             )
             completions.extend(repair_completions)
             draft = extraction.requirement_draft
-            draft = _apply_explicit_meeting_defaults(
-                draft, state.message, request_time=state.request_time
-            )
-            draft = _apply_current_user_participation(draft, state.message)
             if state.intent is not None and (
                 not state.continuation_turn or not _source_changes_intent(state.message)
             ):
                 draft = draft.model_copy(update={"intent": state.intent})
+            draft = _apply_explicit_meeting_defaults(
+                draft, state.message, request_time=state.request_time
+            )
+            draft = _apply_current_user_participation(draft, state.message)
             if (
                 state.continuation_turn
                 and state.requirement_draft is not None

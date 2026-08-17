@@ -33,10 +33,14 @@ def _apply_explicit_meeting_defaults(
         or _is_exception_replanning(source)
     ):
         updates["target_meeting_id"] = explicit_meeting_id
+    elif draft.intent in {Intent.MODIFY_MEETING, Intent.CANCEL_MEETING}:
+        # Meeting IDs may only come from the user's text or a later Java
+        # lookup.  Never let the extraction model guess a target ID.
+        updates["target_meeting_id"] = None
     normalized_source = _normalize_chinese_clock_tokens(source)
     time_source = normalized_source
     if draft.intent is Intent.MODIFY_MEETING:
-        mutation = re.search(r"改到|调整到|移到|改为", source)
+        mutation = re.search(r"改到|调整到|移到|挪到|改为", source)
         if mutation is not None:
             selector_source = source[: mutation.start()].strip()
             destination_source = source[mutation.end() :].strip()
@@ -52,6 +56,10 @@ def _apply_explicit_meeting_defaults(
                 if selector_clock is not None:
                     normalized_destination = normalized_destination + " " + selector_clock.group(0)
             time_source = normalized_destination
+        elif draft.target_meeting_reference and draft.target_meeting_reference not in source:
+            # A model-generated title/reference that is absent from the
+            # request could silently select one of several visible meetings.
+            updates["target_meeting_reference"] = None
     if "架构评审" in source:
         if not draft.title:
             updates["title"] = "架构评审"
@@ -293,7 +301,7 @@ def _normalize_chinese_clock_tokens(source: str) -> str:
 def _deterministic_target_date(source: str, request_time: datetime) -> Any:
     compact = re.sub(r"\s+", "", source)
     try:
-        iso_date = re.search(r"\b(\d{4})-(\d{2})-(\d{2})\b", compact)
+        iso_date = re.search(r"(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)", compact)
         if iso_date is not None:
             return request_time.date().replace(
                 year=int(iso_date.group(1)),

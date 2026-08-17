@@ -1,11 +1,11 @@
 # Agent 评测 V2 报告
 
-- 总结：**FAIL**
+- 总结：**PASS**
 - 数据集：`agent-eval-v2-120`
-- Git commit：`d9c164e3aec7fdf7d234f2d4d60b174e207ebca8`
+- Git commit：`6e28c3515ba76bc8ccb0950030ce8fa2219c606c`
 - 工作区含未提交变更：`True`
 - 模型：`deepseek/deepseek-v4-flash`
-- Prompt / Schema：`meeting-agent-prompts-v11` / `meeting-agent-state-v7`
+- Prompt / Schema：`meeting-agent-prompts-v12` / `meeting-agent-state-v7`
 
 ## 评测规模
 
@@ -21,50 +21,34 @@
 | 指标 | 结果 |
 |---|---:|
 | Fixture Component Task Success | 100.00% |
-| Live Full Task Success | 93.33% |
-| Core Task Success | 96.67% |
+| Live Full Task Success | 99.17% |
+| Core Task Success | 98.89% |
 | Core Stable Case Rate | 96.67% |
-| Route Accuracy | 97.50% |
-| Intent Accuracy | 95.00% |
+| Route Accuracy | 100.00% |
+| Intent Accuracy | 100.00% |
 | Constraint Field F1 | 100.00% |
-| Planned Tool Set Accuracy | 97.50% |
+| Planned Tool Set Accuracy | 100.00% |
 | Citation Validity | 100.00% |
 | Native Tool Protocol | 100.00% |
 | 隔离轨迹成功率 | 100.00% |
-| 公开 API 多轮成功率 | 81.25% |
+| 公开 API 多轮成功率 | 100.00% |
 
 ## 性能
 
 | 指标 | P50 | P95 |
 |---|---:|---:|
-| Live Full Component | 3651.89 ms | 4985.14 ms |
-| 隔离产品轨迹 | 6191.57 ms | 8559.68 ms |
-| 公开 API 多轮 | 8510.37 ms | 14572.23 ms |
+| Live Full Component | 3087.54 ms | 4316.27 ms |
+| 隔离产品轨迹 | 7014.18 ms | 9332.53 ms |
+| 公开 API 多轮 | 9032.69 ms | 14606.07 ms |
 
 ## 失败门禁
 
-- live full report status is PASS
-- live full source-fidelity violations are zero
-- all live full policy cases route correctly
-- public API scenario status is PASS
-- all public API scenarios pass
+- 无失败门禁。
 
 ## 失败样本
 
-- `liveCore/recommend-006`: case failed
-- `liveCore/recommend-006`: case failed
-- `liveCore/recommend-006`: case failed
-- `liveFull/normal-009`: case failed
-- `liveFull/recommend-006`: case failed
-- `liveFull/recommend-012`: case failed
-- `liveFull/recommend-013`: case failed
+- `liveCore/normal-001`: MODEL_UNAVAILABLE
 - `liveFull/policy-005`: case failed
-- `liveFull/policy-007`: case failed
-- `liveFull/policy-009`: case failed
-- `liveFull/policy-013`: case failed
-- `product/create-mixed-language`: turn 1 expected HITL, got WAITING_INPUT
-- `product/modify-explicit-id-reject`: turn 1 expected HITL, got WAITING_INPUT
-- `product/modify-ambiguous-target-clarified`: turn 1 expected WAITING_INPUT, got HITL
 
 ## 口径限制
 

@@ -20,7 +20,7 @@ def _source_changes_intent(source: str) -> bool:
         _explicit_meeting_id(source)
         or re.search(r"(?:把|将).{0,40}(?:会议|评审|周会|例会|那场|那个)", source)
     )
-    return explicit_target and bool(re.search(r"(?:改期|改到|调整到|重新安排)", source))
+    return explicit_target and bool(re.search(r"(?:改期|改到|调整到|挪到|重新安排)", source))
 
 
 def _source_has_ambiguous_single_time(source: str) -> bool:
@@ -127,7 +127,10 @@ def _explicit_meeting_id(source: str) -> int | None:
         source,
         re.IGNORECASE,
     )
-    return int(match.group(1)) if match is not None else None
+    if match is not None:
+        return int(match.group(1))
+    colloquial = re.search(r"(?<!\d)(\d{1,9})\s*号会议", source)
+    return int(colloquial.group(1)) if colloquial is not None else None
 
 
 def _is_exception_replanning(source: str) -> bool:
@@ -175,7 +178,7 @@ def _source_changes_time_constraints(source: str) -> bool:
     return bool(
         re.search(
             r"(?:顺延|延后|推迟)\s*(?:30|60|90|120)\s*分钟|"
-            r"(?:改到|调整到|移到|改为)",
+            r"(?:改到|调整到|移到|挪到|改为)",
             source,
         )
     )

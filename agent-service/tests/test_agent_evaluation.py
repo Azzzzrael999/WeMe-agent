@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from app.agent_loop import RouteEvaluator
 from app.evaluation.__main__ import main
 from app.evaluation.corpus import (
     DATASET_VERSION,
@@ -17,7 +18,7 @@ from app.evaluation.corpus import (
     validate_evaluation_corpus,
 )
 from app.evaluation.runner import report_as_json, run_day7_evaluation
-from app.schemas.agent import Intent
+from app.schemas.agent import Intent, Route
 
 
 def test_day7_corpus_has_exact_documented_shape() -> None:
@@ -48,6 +49,19 @@ def test_v2_corpus_forbids_post_hitl_writes_and_has_consistent_tools() -> None:
             assert case.expected_citation_ids
         else:
             assert not case.expected_citation_ids
+
+
+def test_v2_corpus_high_confidence_routes_are_deterministic() -> None:
+    evaluator = RouteEvaluator()
+
+    for case in load_day7_cases():
+        expected_route = (
+            Route.POLICY if case.expected_intent is Intent.QUERY_POLICY else Route.REQUIREMENT
+        )
+        assert evaluator.fallback(case.input) == (
+            expected_route,
+            case.expected_intent,
+        ), case.case_id
 
 
 def test_v2_corpus_validator_rejects_a_write_tool_before_hitl() -> None:

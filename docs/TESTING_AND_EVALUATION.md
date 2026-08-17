@@ -315,34 +315,36 @@ flowchart LR
 - 固定会议 ID 9001 在保留数据中不存在，因此该用例记录为准确负例。
 - P50 9,164.86 ms；P95 11,602.02 ms。
 
-### 12.4 时间更晚的综合门禁
+### 12.4 最新综合门禁
 
-`artifacts/agent-eval-v2/summary.json` 生成于 2026-08-15 22:30，状态为 **FAIL**。这是判断“是否通过综合发布门禁”时更重要的证据。
+`artifacts/agent-eval-v2/summary.json` 生成于 2026-08-18 05:31（Asia/Shanghai），状态为 **PASS**。这是判断当前版本是否通过综合发布门禁的最新证据。
 
 主要质量结果：
 
 | 指标 | 结果 |
 | --- | ---: |
 | Fixture Component Task Success | 100% |
-| Live Full Task Success | 93.33% |
-| Live Core Task Success | 96.67% |
-| Route Accuracy | 97.5% |
-| Intent Accuracy | 95% |
+| Live Full Task Success | 99.17% |
+| Live Core Task Success | 98.89% |
+| Core Stable Case Rate | 96.67% |
+| Route Accuracy | 100% |
+| Intent Accuracy | 100% |
 | Constraint Field F1 | 100% |
-| Planned Tool Set Accuracy | 97.5% |
+| Planned Tool Set Accuracy | 100% |
+| Source Fidelity Violations | 0 |
 | Citation Validity | 100% |
 | Native Tool Protocol | 100% |
 | Trajectory Success | 100% |
-| Public API Scenario Success | 81.25% |
+| Public API Scenario Success | 100% |
 
-门禁失败原因：
+门禁通过依据：
 
-- Live Full 报告不是 PASS。
-- Live Full 出现 2 次来源忠实违规。
-- 并非所有 Policy Case 都正确路由。
-- 16 条公共 API 场景中有 3 条终态不符合预期：中英混合创建、显式 ID 修改、歧义目标修改。
+- Live Core 与 Live Full 报告均为 PASS。
+- Live Full 来源忠实违规为 0，Policy Case 路由全部正确。
+- 8 条隔离写入/HITL 轨迹全部通过安全门禁。
+- 16 条公共 API 多轮场景全部通过，受保护会议前后快照一致。
 
-这与较早的专项 PASS 不矛盾：它们记录了不同时间、模型调用和 Prompt/Schema 版本的随机性与演进状态。
+较早的专项快照保留用于展示演进历史；发布判断以本节最新综合产物为准。
 
 ## 13. 如何解释结果
 
@@ -350,12 +352,12 @@ flowchart LR
 
 - 硬约束候选、Tool 协议、引用合法性和大多数真实模型任务已有系统性覆盖。
 - 公共 API 场景和真实模型轨迹已有可复现脚本与安全清理策略。
-- 最新综合产物暴露了路由、来源忠实和多轮终态的剩余问题。
+- 最新综合发布门禁已通过，来源忠实、Policy 路由和公共 API 多轮终态均满足门禁。
 
 不能陈述：
 
-- “当前版本所有测试通过”。
-- “16/16 的早期快照证明最新代码已生产就绪”。
+- “综合门禁 PASS 等价于所有随机模型样本永远 100% 成功”。
+- “16/16 的公共 API 快照单独证明最新代码已生产就绪”。
 - “Fixture 100% 等价于 DeepSeek 100%”。
 - “组件评测通过证明事务、MQ 和 HITL 写入安全”。
 

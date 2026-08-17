@@ -11,16 +11,16 @@
     "deepseek-v4-flash"
   ],
   "promptVersions": [
-    "meeting-agent-prompts-v11"
+    "meeting-agent-prompts-v12"
   ],
   "agentSchemaVersions": [
     "meeting-agent-state-v7"
   ],
   "tokenUsage": {
-    "inputTokens": 36198,
+    "inputTokens": 34140,
     "outputTokens": 4069,
-    "cacheHitTokens": 27648,
-    "cacheMissTokens": 8550
+    "cacheHitTokens": 19968,
+    "cacheMissTokens": 14172
   },
   "status": "PASS",
   "metrics": {
@@ -29,15 +29,15 @@
     "passed": 8,
     "trajectorySuccess": 1.0,
     "safetyGatePass": true,
-    "p50LatencyMs": 6191.57,
-    "p95LatencyMs": 8559.68
+    "p50LatencyMs": 7014.18,
+    "p95LatencyMs": 9332.53
   },
   "results": [
     {
       "caseId": "required-create-capacity-clarification",
       "status": "PASS",
       "terminal": "WAITING_USER_INPUT",
-      "latencyMs": 4290.23,
+      "latencyMs": 20456.72,
       "details": {
         "status": "WAITING_USER_INPUT",
         "intent": "CREATE_MEETING",
@@ -46,17 +46,17 @@
         "responseModels": [
           "deepseek-v4-flash"
         ],
-        "promptVersion": "meeting-agent-prompts-v11",
+        "promptVersion": "meeting-agent-prompts-v12",
         "schemaVersion": "meeting-agent-state-v7",
         "modelCallCount": 3,
         "toolCallCount": 0,
         "tokenUsage": {
           "inputTokens": 2666,
-          "outputTokens": 453,
+          "outputTokens": 440,
           "cacheHitTokens": 2432,
           "cacheMissTokens": 234
         },
-        "durationMs": 4165,
+        "durationMs": 20185,
         "tools": []
       }
     },
@@ -64,7 +64,7 @@
       "caseId": "required-create-named-accept",
       "status": "PASS",
       "terminal": "CONFIRMED",
-      "latencyMs": 8559.68,
+      "latencyMs": 9332.53,
       "details": {
         "status": "SUCCEEDED",
         "intent": "CREATE_MEETING",
@@ -73,17 +73,17 @@
         "responseModels": [
           "deepseek-v4-flash"
         ],
-        "promptVersion": "meeting-agent-prompts-v11",
+        "promptVersion": "meeting-agent-prompts-v12",
         "schemaVersion": "meeting-agent-state-v7",
         "modelCallCount": 4,
         "toolCallCount": 5,
         "tokenUsage": {
           "inputTokens": 5735,
-          "outputTokens": 938,
-          "cacheHitTokens": 4352,
-          "cacheMissTokens": 1383
+          "outputTokens": 910,
+          "cacheHitTokens": 3200,
+          "cacheMissTokens": 2535
         },
-        "durationMs": 224,
+        "durationMs": 443,
         "tools": [
           "resolve_employees",
           "search_available_rooms",
@@ -97,7 +97,7 @@
       "caseId": "required-policy-citations",
       "status": "PASS",
       "terminal": "SUCCEEDED",
-      "latencyMs": 5519.09,
+      "latencyMs": 7099.44,
       "details": {
         "status": "SUCCEEDED",
         "intent": "QUERY_POLICY",
@@ -106,17 +106,17 @@
         "responseModels": [
           "deepseek-v4-flash"
         ],
-        "promptVersion": "meeting-agent-prompts-v11",
+        "promptVersion": "meeting-agent-prompts-v12",
         "schemaVersion": "meeting-agent-state-v7",
-        "modelCallCount": 2,
+        "modelCallCount": 3,
         "toolCallCount": 0,
         "tokenUsage": {
-          "inputTokens": 1608,
-          "outputTokens": 257,
-          "cacheHitTokens": 640,
-          "cacheMissTokens": 968
+          "inputTokens": 2837,
+          "outputTokens": 715,
+          "cacheHitTokens": 1792,
+          "cacheMissTokens": 1045
         },
-        "durationMs": 5409,
+        "durationMs": 6992,
         "tools": []
       }
     },
@@ -124,7 +124,7 @@
       "caseId": "required-modify-recent-reject",
       "status": "PASS",
       "terminal": "CANCELLED",
-      "latencyMs": 9876.23,
+      "latencyMs": 6928.93,
       "details": {
         "status": "CANCELLED",
         "intent": "MODIFY_MEETING",
@@ -133,17 +133,17 @@
         "responseModels": [
           "deepseek-v4-flash"
         ],
-        "promptVersion": "meeting-agent-prompts-v11",
+        "promptVersion": "meeting-agent-prompts-v12",
         "schemaVersion": "meeting-agent-state-v7",
-        "modelCallCount": 5,
+        "modelCallCount": 4,
         "toolCallCount": 4,
         "tokenUsage": {
-          "inputTokens": 9137,
-          "outputTokens": 1038,
-          "cacheHitTokens": 6144,
-          "cacheMissTokens": 2993
+          "inputTokens": 5894,
+          "outputTokens": 685,
+          "cacheHitTokens": 2048,
+          "cacheMissTokens": 3846
         },
-        "durationMs": 77,
+        "durationMs": 93,
         "tools": [
           "get_recent_meeting",
           "get_employee_free_busy",
@@ -156,7 +156,7 @@
       "caseId": "required-modify-recent-accept",
       "status": "PASS",
       "terminal": "CONFIRMED",
-      "latencyMs": 6905.85,
+      "latencyMs": 7952.370000000001,
       "details": {
         "status": "SUCCEEDED",
         "intent": "MODIFY_MEETING",
@@ -165,20 +165,19 @@
         "responseModels": [
           "deepseek-v4-flash"
         ],
-        "promptVersion": "meeting-agent-prompts-v11",
+        "promptVersion": "meeting-agent-prompts-v12",
         "schemaVersion": "meeting-agent-state-v7",
         "modelCallCount": 4,
-        "toolCallCount": 6,
+        "toolCallCount": 5,
         "tokenUsage": {
-          "inputTokens": 5953,
-          "outputTokens": 682,
-          "cacheHitTokens": 5632,
-          "cacheMissTokens": 321
+          "inputTokens": 5894,
+          "outputTokens": 665,
+          "cacheHitTokens": 3072,
+          "cacheMissTokens": 2822
         },
-        "durationMs": 213,
+        "durationMs": 239,
         "tools": [
           "get_recent_meeting",
-          "resolve_employees",
           "get_employee_free_busy",
           "search_available_rooms",
           "create_reschedule_draft",
@@ -190,7 +189,7 @@
       "caseId": "required-cancel-9001",
       "status": "PASS",
       "terminal": "WAITING_USER_INPUT",
-      "latencyMs": 3055.09,
+      "latencyMs": 3743.93,
       "details": {
         "status": "WAITING_USER_INPUT",
         "intent": "CANCEL_MEETING",
@@ -199,17 +198,17 @@
         "responseModels": [
           "deepseek-v4-flash"
         ],
-        "promptVersion": "meeting-agent-prompts-v11",
+        "promptVersion": "meeting-agent-prompts-v12",
         "schemaVersion": "meeting-agent-state-v7",
         "modelCallCount": 3,
         "toolCallCount": 1,
         "tokenUsage": {
           "inputTokens": 3271,
-          "outputTokens": 187,
-          "cacheHitTokens": 3072,
-          "cacheMissTokens": 199
+          "outputTokens": 184,
+          "cacheHitTokens": 2048,
+          "cacheMissTokens": 1223
         },
-        "durationMs": 2956,
+        "durationMs": 3640,
         "tools": [
           "get_recent_meeting"
         ]
@@ -219,7 +218,7 @@
       "caseId": "isolated-cancel-reject",
       "status": "PASS",
       "terminal": "CANCELLED_RUN",
-      "latencyMs": 6864.04,
+      "latencyMs": 3330.23,
       "details": {
         "status": "CANCELLED",
         "intent": "CANCEL_MEETING",
@@ -228,17 +227,17 @@
         "responseModels": [
           "deepseek-v4-flash"
         ],
-        "promptVersion": "meeting-agent-prompts-v11",
+        "promptVersion": "meeting-agent-prompts-v12",
         "schemaVersion": "meeting-agent-state-v7",
-        "modelCallCount": 4,
+        "modelCallCount": 3,
         "toolCallCount": 2,
         "tokenUsage": {
-          "inputTokens": 4561,
-          "outputTokens": 336,
-          "cacheHitTokens": 2304,
-          "cacheMissTokens": 2257
+          "inputTokens": 3267,
+          "outputTokens": 158,
+          "cacheHitTokens": 2048,
+          "cacheMissTokens": 1219
         },
-        "durationMs": 83,
+        "durationMs": 73,
         "tools": [
           "get_recent_meeting",
           "create_cancellation_preview"
@@ -249,7 +248,7 @@
       "caseId": "isolated-cancel-accept",
       "status": "PASS",
       "terminal": "CANCELLED_MEETING",
-      "latencyMs": 3302.2599999999998,
+      "latencyMs": 5402.2300000000005,
       "details": {
         "status": "SUCCEEDED",
         "intent": "CANCEL_MEETING",
@@ -258,17 +257,17 @@
         "responseModels": [
           "deepseek-v4-flash"
         ],
-        "promptVersion": "meeting-agent-prompts-v11",
+        "promptVersion": "meeting-agent-prompts-v12",
         "schemaVersion": "meeting-agent-state-v7",
-        "modelCallCount": 3,
+        "modelCallCount": 4,
         "toolCallCount": 3,
         "tokenUsage": {
-          "inputTokens": 3267,
-          "outputTokens": 178,
-          "cacheHitTokens": 3072,
-          "cacheMissTokens": 195
+          "inputTokens": 4576,
+          "outputTokens": 312,
+          "cacheHitTokens": 3328,
+          "cacheMissTokens": 1248
         },
-        "durationMs": 189,
+        "durationMs": 238,
         "tools": [
           "get_recent_meeting",
           "create_cancellation_preview",

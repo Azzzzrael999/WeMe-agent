@@ -1458,6 +1458,70 @@ def test_reschedule_ambiguous_target_asks_user_before_availability_reads(
     assert fixture_tools.calls == ["get_recent_meeting"]
 
 
+def test_historical_product_gate_regressions_reach_expected_terminals(
+    configured_app: None,
+    fixture_tools: FakeJavaTools,
+) -> None:
+    fixture_tools.room_sequences = [
+        [
+            {
+                **ROOM_103,
+                "features": ["LARGE_SCREEN", "WHITEBOARD", "VIDEO_CONFERENCE"],
+            }
+        ]
+    ]
+    with TestClient(app) as client:
+        mixed_events = _start_with_message(
+            client,
+            f"run_{uuid.uuid4().hex}",
+            f"trc_{uuid.uuid4().hex}",
+            (
+                "Please book a 30-minute sync with 李四 on 2026-08-23 afternoon, "
+                "4 people, whiteboard required. Show options first."
+            ),
+        )
+        explicit_events = _start_with_message(
+            client,
+            f"run_{uuid.uuid4().hex}",
+            f"trc_{uuid.uuid4().hex}",
+            "把会议ID 122挪到8月26日上午10点，时长、人员和设备都不变，先给我看变更草案。",
+        )
+        cancel_events = _start_with_message(
+            client,
+            f"run_{uuid.uuid4().hex}",
+            f"trc_{uuid.uuid4().hex}",
+            "把 121 号会议撤掉，不过先让我看清楚会取消哪一场，别直接动。",
+        )
+
+        fixture_tools.recent_meetings = [
+            MEETING_122,
+            {
+                **MEETING_122,
+                "id": 123,
+                "meetingNo": "MTG202608250003",
+                "title": "另一个架构评审",
+            },
+        ]
+        ambiguous_events = _start_with_message(
+            client,
+            f"run_{uuid.uuid4().hex}",
+            f"trc_{uuid.uuid4().hex}",
+            "把8月25日下午的会挪到第二天上午，其他照旧。",
+        )
+
+    assert mixed_events[-1][0] == "hitl.required", json.dumps(
+        mixed_events[-4:], ensure_ascii=False, indent=2
+    )
+    assert explicit_events[-1][0] == "hitl.required", explicit_events
+    assert cancel_events[-1][0] == "hitl.required", cancel_events
+    ambiguous_completed = next(
+        payload for name, payload in ambiguous_events if name == "run.completed"
+    )
+    assert ambiguous_completed["status"] == "WAITING_USER_INPUT"
+    assert "会议 122" in ambiguous_completed["answerSummary"]
+    assert "会议 123" in ambiguous_completed["answerSummary"]
+
+
 def test_trajectory_integration_exposes_bounded_native_tool_loop(
     configured_app: None,
 ) -> None:
