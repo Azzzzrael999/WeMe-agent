@@ -522,8 +522,6 @@ WeMe/
 
 本轮评测累计使用 255,794 个 input tokens 和 39,248 个 output tokens，其中 233,728 个 input tokens 命中缓存，缓存命中率为 91.37%。
 
-综合门禁当前为 **PASS**；16 个公共 API 场景全部通过，原 3 个 HITL/WAITING_INPUT 终态问题已修复并完成重新评测。
-
 [评测方法与复现命令](docs/TESTING_AND_EVALUATION.md) · [完整报告](artifacts/agent-eval-v2/report.md) · [结构化摘要](artifacts/agent-eval-v2/summary.json) · [原始评测产物](artifacts/agent-eval-v2/)
 
 ## 文档索引
