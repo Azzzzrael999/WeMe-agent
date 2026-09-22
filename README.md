@@ -8,17 +8,8 @@
 
 &emsp;&emsp;Agent 负责理解和规划，Java 业务系统负责权限、事务和最终执行。模型只能通过受约束的 Tool Gateway 查询授权数据，OR-Tools 和确定性规则负责校验时间、容量、设备及必需参会人等硬约束；创建、改期和取消只会先生成预览草案，经用户确认后才由 Spring Boot 服务写入正式业务数据。MySQL 唯一约束、Redis 占位、幂等控制和异步消息链路进一步处理并发预约、重复请求与故障恢复，使 Agent 的每次决策和业务操作都可验证、可恢复、可追溯。
 
-## 项目演示
-
-<div align="center">
-
-https://github.com/user-attachments/assets/a50d30f6-a52a-4945-9599-5beab7f2a41f
-
-</div>
-
 ## 目录
 
-- [项目演示](#项目演示)
 - [核心能力](#核心能力)
 - [设计思路](#设计思路)
 - [系统架构与设计](#系统架构与设计)
@@ -441,7 +432,6 @@ WeMe/
 ├─ scripts/                           # 环境、Smoke、并发、演示与评测脚本
 ├─ artifacts/                         # 已记录的评测结果
 ├─ docs/                              # 架构、流程、部署和运维文档
-├─ showcase/001-github.mp4            # GitHub 产品演示视频
 ├─ .env.example                       # 完整运行配置模板
 ├─ compose.yaml                       # 完整部署拓扑
 └─ compose.dev.yaml                   # 宿主机开发端口覆盖
