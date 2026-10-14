@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
@@ -19,10 +19,18 @@ from pydantic import Field, model_validator
 from app.config import Settings
 from app.schemas.agent import AgentSchema, BookingDraft, MeetingView
 from app.security import AgentContext
+from app.tools.transport import JavaToolError as JavaToolError
+from app.tools.transport import ToolTransport
 
 
 class ToolInput(AgentSchema):
     """Strict schema base for every Java Tool argument."""
+
+
+class ConfirmInput(ToolInput):
+    confirmation_token: str = Field(
+        min_length=1, max_length=80, serialization_alias="confirmationToken"
+    )
 
 
 class ResolveEmployeesInput(ToolInput):
@@ -84,6 +92,7 @@ class CreateBookingDraftInput(ToolInput):
     optional_participant_ids: list[int] = Field(
         default_factory=list, max_length=100, serialization_alias="optionalParticipantIds"
     )
+
     @model_validator(mode="after")
     def validate_draft_window(self) -> CreateBookingDraftInput:
         if self.end_at <= self.start_at:
@@ -148,13 +157,6 @@ class ConfirmBookingResponse(AgentSchema):
         return self
 
 
-class JavaToolError(RuntimeError):
-    def __init__(self, code: str, *, details: dict[str, str] | None = None) -> None:
-        super().__init__(code)
-        self.code = code
-        self.details = details or {}
-
-
 @dataclass(frozen=True)
 class ToolOutcome:
     tool_call_id: str
@@ -165,6 +167,8 @@ class ToolOutcome:
     duration_ms: int
     idempotency_key: str | None = None
     http_status: int | None = None
+    transport: str = "rest"
+    attempts: int = 1
 
 
 @dataclass
@@ -173,6 +177,20 @@ class JavaReadToolClient:
 
     settings: Settings
     http_client: httpx.Client | None = None
+    transport: ToolTransport | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.transport is None:
+            if self.settings.agent_tool_transport == "rest":
+                from app.tools.rest_transport import RestToolTransport
+
+                self.transport = RestToolTransport(self.settings, self.http_client)
+            else:
+                if self.http_client is not None:
+                    raise ValueError("A synchronous HTTP client requires explicit rest transport")
+                from app.tools.mcp_transport import McpToolTransport
+
+                self.transport = McpToolTransport(self.settings)
 
     def resolve_employees(
         self,
@@ -186,7 +204,6 @@ class JavaReadToolClient:
         outcome = self._invoke(
             context=context,
             tool_name="resolve_employees",
-            path="/internal/v1/tools/resolve-employees",
             payload=payload,
             risk_level="READ",
             tool_call_id=tool_call_id,
@@ -203,7 +220,6 @@ class JavaReadToolClient:
         outcome = self._invoke(
             context=context,
             tool_name="resolve_participant_scope",
-            path="/internal/v1/tools/resolve-participant-scope",
             payload=ResolveParticipantScopeInput(),
             risk_level="READ",
             tool_call_id=tool_call_id,
@@ -226,7 +242,6 @@ class JavaReadToolClient:
         outcome = self._invoke(
             context=context,
             tool_name="get_employee_free_busy",
-            path="/internal/v1/tools/get-employee-free-busy",
             payload=FreeBusyInput(
                 employee_ids=employee_ids,
                 from_=from_,
@@ -255,7 +270,6 @@ class JavaReadToolClient:
         outcome = self._invoke(
             context=context,
             tool_name="search_available_rooms",
-            path="/internal/v1/tools/search-available-rooms",
             payload=SearchRoomsInput(
                 from_=from_,
                 to=to,
@@ -274,7 +288,6 @@ class JavaReadToolClient:
         outcome = self._invoke(
             context=context,
             tool_name="get_recent_meeting",
-            path="/internal/v1/tools/get-recent-meeting",
             payload=RecentMeetingInput(limit=limit),
             risk_level="READ",
             tool_call_id=tool_call_id,
@@ -297,7 +310,6 @@ class JavaReadToolClient:
         outcome = self._invoke(
             context=context,
             tool_name="create_booking_draft",
-            path="/internal/v1/tools/booking-drafts",
             payload=payload,
             risk_level="DRAFT",
             tool_call_id=tool_call_id,
@@ -331,8 +343,7 @@ class JavaReadToolClient:
         outcome = self._invoke(
             context=context,
             tool_name="confirm_booking",
-            path=f"/internal/v1/tools/booking-drafts/{confirmation_token}/confirm",
-            payload=ToolInput(),
+            payload=ConfirmInput(confirmation_token=confirmation_token),
             risk_level="WRITE",
             idempotency_key=stable_idempotency_key,
             tool_call_id=stable_tool_call_id,
@@ -357,7 +368,6 @@ class JavaReadToolClient:
         outcome = self._invoke(
             context=context,
             tool_name="create_reschedule_draft",
-            path="/internal/v1/tools/reschedule-drafts",
             payload=payload,
             risk_level="DRAFT",
             tool_call_id=tool_call_id,
@@ -378,7 +388,6 @@ class JavaReadToolClient:
         outcome = self._invoke(
             context=context,
             tool_name="create_cancellation_preview",
-            path="/internal/v1/tools/cancellation-previews",
             payload=CancellationPreviewInput(meeting_id=meeting_id),
             risk_level="DRAFT",
             tool_call_id=tool_call_id,
@@ -401,7 +410,6 @@ class JavaReadToolClient:
             context=context,
             confirmation_token=confirmation_token,
             operation="confirm_reschedule",
-            path_prefix="/internal/v1/tools/reschedule-drafts",
             tool_call_id=tool_call_id,
             idempotency_key=idempotency_key,
         )
@@ -418,7 +426,6 @@ class JavaReadToolClient:
             context=context,
             confirmation_token=confirmation_token,
             operation="confirm_cancellation",
-            path_prefix="/internal/v1/tools/cancellation-previews",
             tool_call_id=tool_call_id,
             idempotency_key=idempotency_key,
         )
@@ -429,7 +436,6 @@ class JavaReadToolClient:
         context: AgentContext,
         confirmation_token: str,
         operation: str,
-        path_prefix: str,
         tool_call_id: str,
         idempotency_key: str,
     ) -> tuple[ToolOutcome, ConfirmBookingResponse]:
@@ -438,8 +444,7 @@ class JavaReadToolClient:
         outcome = self._invoke(
             context=context,
             tool_name=operation,
-            path=f"{path_prefix}/{confirmation_token}/confirm",
-            payload=ToolInput(),
+            payload=ConfirmInput(confirmation_token=confirmation_token),
             risk_level="WRITE",
             idempotency_key=idempotency_key,
             tool_call_id=tool_call_id,
@@ -458,7 +463,6 @@ class JavaReadToolClient:
         *,
         context: AgentContext,
         tool_name: str,
-        path: str,
         payload: ToolInput,
         risk_level: Literal["READ", "DRAFT", "WRITE"],
         idempotency_key: str | None = None,
@@ -475,13 +479,12 @@ class JavaReadToolClient:
         }
         if idempotency_key is not None:
             headers["Idempotency-Key"] = idempotency_key
-        status_code, body = self._post_with_retry(
-            path=path,
-            headers=headers,
-            payload=payload.model_dump(by_alias=True, mode="json"),
+        assert self.transport is not None
+        result = self.transport.call(
+            tool_name, payload.model_dump(by_alias=True, mode="json"), headers
         )
         duration_ms = int((time.perf_counter() - started) * 1000)
-        data = body.get("data")
+        data = result.data
         if not isinstance(data, dict):
             raise JavaToolError("TOOL_RESPONSE_INVALID")
         return ToolOutcome(
@@ -492,102 +495,14 @@ class JavaReadToolClient:
             summary="Java Tool completed",
             duration_ms=duration_ms,
             idempotency_key=idempotency_key,
-            http_status=status_code,
+            http_status=result.http_status,
+            transport=self.settings.agent_tool_transport,
+            attempts=result.attempts,
         )
-
-    def _post_with_retry(
-        self, *, path: str, headers: dict[str, str], payload: dict[str, Any]
-    ) -> tuple[int, dict[str, Any]]:
-        owned_client = self.http_client is None
-        client = self.http_client or httpx.Client(timeout=self.settings.model_timeout_seconds)
-        try:
-            for attempt in range(self.settings.model_max_retries + 1):
-                try:
-                    response = client.post(
-                        self.settings.business_service_url.rstrip("/") + path,
-                        headers=headers,
-                        json=payload,
-                    )
-                    if response.status_code == 503 and attempt < self.settings.model_max_retries:
-                        time.sleep(0.1 * (2**attempt))
-                        continue
-                    if response.status_code in (401, 403):
-                        raise JavaToolError("TOOL_FORBIDDEN")
-                    if response.status_code == 409:
-                        conflict_details = _conflict_details(response)
-                        if conflict_details is not None:
-                            raise JavaToolError("TOOL_CONFLICT", details=conflict_details)
-                        raise JavaToolError("TOOL_REJECTED")
-                    if response.status_code == 503:
-                        raise JavaToolError("TOOL_UNAVAILABLE")
-                    if response.status_code >= 400:
-                        raise JavaToolError(_java_error_code(response) or "TOOL_REJECTED")
-                    body = response.json()
-                    if not isinstance(body, dict):
-                        raise JavaToolError("TOOL_RESPONSE_INVALID")
-                    return response.status_code, body
-                except httpx.TimeoutException as exc:
-                    if attempt < self.settings.model_max_retries:
-                        time.sleep(0.1 * (2**attempt))
-                        continue
-                    raise JavaToolError("TOOL_TIMEOUT") from exc
-                except httpx.RequestError as exc:
-                    if attempt < self.settings.model_max_retries:
-                        time.sleep(0.1 * (2**attempt))
-                        continue
-                    raise JavaToolError("TOOL_UNAVAILABLE") from exc
-        finally:
-            if owned_client:
-                client.close()
-        raise JavaToolError("TOOL_UNAVAILABLE")
-
-
-def _java_error_code(response: httpx.Response) -> str | None:
-    try:
-        body = response.json()
-    except ValueError:
-        return None
-    if not isinstance(body, dict):
-        return None
-    code = body.get("code")
-    return code if isinstance(code, str) and 1 <= len(code) <= 64 else None
 
 
 def _with_summary(outcome: ToolOutcome, summary: str) -> ToolOutcome:
-    return ToolOutcome(
-        tool_call_id=outcome.tool_call_id,
-        tool_name=outcome.tool_name,
-        risk_level=outcome.risk_level,
-        data=outcome.data,
-        summary=summary,
-        duration_ms=outcome.duration_ms,
-        idempotency_key=outcome.idempotency_key,
-        http_status=outcome.http_status,
-    )
-
-
-def _conflict_details(response: httpx.Response) -> dict[str, str] | None:
-    """Parse only the documented conflict evidence from a Java ApiError."""
-
-    try:
-        body = response.json()
-    except ValueError:
-        return None
-    if not isinstance(body, dict) or body.get("code") != "BOOKING_CONFLICT":
-        return None
-    raw_details = body.get("details")
-    if not isinstance(raw_details, list):
-        return {}
-    allowed = {"conflict.type", "conflict.roomId", "conflict.slots"}
-    parsed: dict[str, str] = {}
-    for item in raw_details:
-        if not isinstance(item, dict):
-            continue
-        field = item.get("field")
-        reason = item.get("reason")
-        if field in allowed and isinstance(reason, str) and len(reason) <= 256:
-            parsed[field] = reason
-    return parsed
+    return replace(outcome, summary=summary)
 
 
 def stable_tool_identity(run_id: str, operation: str, stable_input: str) -> str:

@@ -1,0 +1,1916 @@
+{
+  "resolve_employees": {
+    "description": "resolve employees (trusted business workflow)",
+    "riskLevel": "READ",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "names": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Names",
+          "type": "array"
+        },
+        "departmentNames": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Departmentnames",
+          "type": "array"
+        }
+      },
+      "required": [
+        "names"
+      ],
+      "title": "ResolveEmployeesInput",
+      "type": "object"
+    },
+    "outputSchema": {
+      "type": "object",
+      "$defs": {},
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": true
+            },
+            "data": {
+              "type": "object",
+              "properties": {
+                "employees": {
+                  "type": "array"
+                },
+                "unresolvedNames": {
+                  "type": "array"
+                }
+              },
+              "required": [
+                "employees",
+                "unresolvedNames"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "ok",
+            "data"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": false
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "details": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "field": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "reason"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "code",
+                "message",
+                "details"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "ok",
+            "error"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "get_employee_free_busy": {
+    "description": "get employee free busy (trusted business workflow)",
+    "riskLevel": "READ",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "employeeIds": {
+          "items": {
+            "type": "integer"
+          },
+          "maxItems": 50,
+          "minItems": 1,
+          "title": "Employeeids",
+          "type": "array"
+        },
+        "from": {
+          "format": "date-time",
+          "title": "From",
+          "type": "string"
+        },
+        "to": {
+          "format": "date-time",
+          "title": "To",
+          "type": "string"
+        },
+        "excludeMeetingId": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Excludemeetingid"
+        }
+      },
+      "required": [
+        "employeeIds",
+        "from",
+        "to"
+      ],
+      "title": "FreeBusyInput",
+      "type": "object"
+    },
+    "outputSchema": {
+      "type": "object",
+      "$defs": {},
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": true
+            },
+            "data": {
+              "type": "object",
+              "properties": {
+                "employees": {
+                  "type": "array"
+                }
+              },
+              "required": [
+                "employees"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "ok",
+            "data"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": false
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "details": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "field": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "reason"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "code",
+                "message",
+                "details"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "ok",
+            "error"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "search_available_rooms": {
+    "description": "search available rooms (trusted business workflow)",
+    "riskLevel": "READ",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "format": "date-time",
+          "title": "From",
+          "type": "string"
+        },
+        "to": {
+          "format": "date-time",
+          "title": "To",
+          "type": "string"
+        },
+        "minimumCapacity": {
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Minimumcapacity",
+          "type": "integer"
+        },
+        "requiredFeatures": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Requiredfeatures",
+          "type": "array"
+        },
+        "limit": {
+          "default": 50,
+          "maximum": 50,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "excludeMeetingId": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Excludemeetingid"
+        }
+      },
+      "required": [
+        "from",
+        "to",
+        "minimumCapacity"
+      ],
+      "title": "SearchRoomsInput",
+      "type": "object"
+    },
+    "outputSchema": {
+      "type": "object",
+      "$defs": {},
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": true
+            },
+            "data": {
+              "type": "object",
+              "properties": {
+                "rooms": {
+                  "type": "array"
+                }
+              },
+              "required": [
+                "rooms"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "ok",
+            "data"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": false
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "details": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "field": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "reason"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "code",
+                "message",
+                "details"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "ok",
+            "error"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "get_recent_meeting": {
+    "description": "get recent meeting (trusted business workflow)",
+    "riskLevel": "READ",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "default": 5,
+          "maximum": 5,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        }
+      },
+      "title": "RecentMeetingInput",
+      "type": "object"
+    },
+    "outputSchema": {
+      "type": "object",
+      "$defs": {},
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": true
+            },
+            "data": {
+              "type": "object",
+              "properties": {
+                "meetings": {
+                  "type": "array"
+                },
+                "roomFeaturesByMeetingId": {
+                  "type": "object"
+                }
+              },
+              "required": [
+                "meetings",
+                "roomFeaturesByMeetingId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "ok",
+            "data"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": false
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "details": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "field": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "reason"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "code",
+                "message",
+                "details"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "ok",
+            "error"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "resolve_participant_scope": {
+    "description": "resolve participant scope (trusted business workflow)",
+    "riskLevel": "READ",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "const": "MY_DEPARTMENT",
+          "default": "MY_DEPARTMENT",
+          "title": "Scope",
+          "type": "string"
+        }
+      },
+      "title": "ResolveParticipantScopeInput",
+      "type": "object"
+    },
+    "outputSchema": {
+      "type": "object",
+      "$defs": {},
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": true
+            },
+            "data": {
+              "type": "object",
+              "properties": {
+                "members": {
+                  "type": "array"
+                },
+                "scope": {
+                  "type": "string"
+                },
+                "scopeName": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "members",
+                "scope",
+                "scopeName"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "ok",
+            "data"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": false
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "details": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "field": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "reason"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "code",
+                "message",
+                "details"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "ok",
+            "error"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "create_booking_draft": {
+    "description": "create booking draft (trusted business workflow)",
+    "riskLevel": "DRAFT",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "meetingType": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Meetingtype",
+          "type": "string"
+        },
+        "roomId": {
+          "minimum": 1,
+          "title": "Roomid",
+          "type": "integer"
+        },
+        "startAt": {
+          "format": "date-time",
+          "title": "Startat",
+          "type": "string"
+        },
+        "endAt": {
+          "format": "date-time",
+          "title": "Endat",
+          "type": "string"
+        },
+        "requiredParticipantIds": {
+          "items": {
+            "type": "integer"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Requiredparticipantids",
+          "type": "array"
+        },
+        "optionalParticipantIds": {
+          "items": {
+            "type": "integer"
+          },
+          "maxItems": 100,
+          "title": "Optionalparticipantids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "title",
+        "meetingType",
+        "roomId",
+        "startAt",
+        "endAt",
+        "requiredParticipantIds"
+      ],
+      "title": "CreateBookingDraftInput",
+      "type": "object"
+    },
+    "outputSchema": {
+      "type": "object",
+      "$defs": {
+        "BookingDraft": {
+          "additionalProperties": false,
+          "description": "User-visible Java draft kept in the Redis LangGraph checkpoint only.",
+          "properties": {
+            "title": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "Title",
+              "type": "string"
+            },
+            "roomId": {
+              "minimum": 1,
+              "title": "Roomid",
+              "type": "integer"
+            },
+            "roomName": {
+              "maxLength": 64,
+              "minLength": 1,
+              "title": "Roomname",
+              "type": "string"
+            },
+            "startAt": {
+              "format": "date-time",
+              "title": "Startat",
+              "type": "string"
+            },
+            "endAt": {
+              "format": "date-time",
+              "title": "Endat",
+              "type": "string"
+            },
+            "requiredParticipants": {
+              "items": {
+                "$ref": "#/$defs/DraftParticipant"
+              },
+              "maxItems": 100,
+              "title": "Requiredparticipants",
+              "type": "array"
+            },
+            "optionalParticipants": {
+              "items": {
+                "$ref": "#/$defs/DraftParticipant"
+              },
+              "maxItems": 100,
+              "title": "Optionalparticipants",
+              "type": "array"
+            }
+          },
+          "required": [
+            "title",
+            "roomId",
+            "roomName",
+            "startAt",
+            "endAt"
+          ],
+          "title": "BookingDraft",
+          "type": "object"
+        },
+        "DraftParticipant": {
+          "additionalProperties": false,
+          "properties": {
+            "employeeId": {
+              "minimum": 1,
+              "title": "Employeeid",
+              "type": "integer"
+            },
+            "displayName": {
+              "maxLength": 64,
+              "minLength": 1,
+              "title": "Displayname",
+              "type": "string"
+            }
+          },
+          "required": [
+            "employeeId",
+            "displayName"
+          ],
+          "title": "DraftParticipant",
+          "type": "object"
+        }
+      },
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": true
+            },
+            "data": {
+              "additionalProperties": false,
+              "properties": {
+                "confirmationToken": {
+                  "maxLength": 80,
+                  "minLength": 1,
+                  "title": "Confirmationtoken",
+                  "type": "string"
+                },
+                "expiresAt": {
+                  "format": "date-time",
+                  "title": "Expiresat",
+                  "type": "string"
+                },
+                "draft": {
+                  "$ref": "#/$defs/BookingDraft"
+                }
+              },
+              "required": [
+                "confirmationToken",
+                "expiresAt",
+                "draft"
+              ],
+              "title": "CreateBookingDraftResponse",
+              "type": "object"
+            }
+          },
+          "required": [
+            "ok",
+            "data"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": false
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "details": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "field": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "reason"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "code",
+                "message",
+                "details"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "ok",
+            "error"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "create_reschedule_draft": {
+    "description": "create reschedule draft (trusted business workflow)",
+    "riskLevel": "DRAFT",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "meetingType": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Meetingtype",
+          "type": "string"
+        },
+        "roomId": {
+          "minimum": 1,
+          "title": "Roomid",
+          "type": "integer"
+        },
+        "startAt": {
+          "format": "date-time",
+          "title": "Startat",
+          "type": "string"
+        },
+        "endAt": {
+          "format": "date-time",
+          "title": "Endat",
+          "type": "string"
+        },
+        "requiredParticipantIds": {
+          "items": {
+            "type": "integer"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Requiredparticipantids",
+          "type": "array"
+        },
+        "optionalParticipantIds": {
+          "items": {
+            "type": "integer"
+          },
+          "maxItems": 100,
+          "title": "Optionalparticipantids",
+          "type": "array"
+        },
+        "meetingId": {
+          "minimum": 1,
+          "title": "Meetingid",
+          "type": "integer"
+        },
+        "expectedVersion": {
+          "minimum": 0,
+          "title": "Expectedversion",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "title",
+        "meetingType",
+        "roomId",
+        "startAt",
+        "endAt",
+        "requiredParticipantIds",
+        "meetingId",
+        "expectedVersion"
+      ],
+      "title": "RescheduleDraftInput",
+      "type": "object"
+    },
+    "outputSchema": {
+      "type": "object",
+      "$defs": {
+        "BookingDraft": {
+          "additionalProperties": false,
+          "description": "User-visible Java draft kept in the Redis LangGraph checkpoint only.",
+          "properties": {
+            "title": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "Title",
+              "type": "string"
+            },
+            "roomId": {
+              "minimum": 1,
+              "title": "Roomid",
+              "type": "integer"
+            },
+            "roomName": {
+              "maxLength": 64,
+              "minLength": 1,
+              "title": "Roomname",
+              "type": "string"
+            },
+            "startAt": {
+              "format": "date-time",
+              "title": "Startat",
+              "type": "string"
+            },
+            "endAt": {
+              "format": "date-time",
+              "title": "Endat",
+              "type": "string"
+            },
+            "requiredParticipants": {
+              "items": {
+                "$ref": "#/$defs/DraftParticipant"
+              },
+              "maxItems": 100,
+              "title": "Requiredparticipants",
+              "type": "array"
+            },
+            "optionalParticipants": {
+              "items": {
+                "$ref": "#/$defs/DraftParticipant"
+              },
+              "maxItems": 100,
+              "title": "Optionalparticipants",
+              "type": "array"
+            }
+          },
+          "required": [
+            "title",
+            "roomId",
+            "roomName",
+            "startAt",
+            "endAt"
+          ],
+          "title": "BookingDraft",
+          "type": "object"
+        },
+        "DraftParticipant": {
+          "additionalProperties": false,
+          "properties": {
+            "employeeId": {
+              "minimum": 1,
+              "title": "Employeeid",
+              "type": "integer"
+            },
+            "displayName": {
+              "maxLength": 64,
+              "minLength": 1,
+              "title": "Displayname",
+              "type": "string"
+            }
+          },
+          "required": [
+            "employeeId",
+            "displayName"
+          ],
+          "title": "DraftParticipant",
+          "type": "object"
+        },
+        "MeetingParticipantView": {
+          "additionalProperties": false,
+          "properties": {
+            "employeeId": {
+              "minimum": 1,
+              "title": "Employeeid",
+              "type": "integer"
+            },
+            "displayName": {
+              "maxLength": 64,
+              "minLength": 1,
+              "title": "Displayname",
+              "type": "string"
+            },
+            "participantType": {
+              "pattern": "^(REQUIRED|OPTIONAL)$",
+              "title": "Participanttype",
+              "type": "string"
+            }
+          },
+          "required": [
+            "employeeId",
+            "displayName",
+            "participantType"
+          ],
+          "title": "MeetingParticipantView",
+          "type": "object"
+        },
+        "MeetingView": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "minimum": 1,
+              "title": "Id",
+              "type": "integer"
+            },
+            "meetingNo": {
+              "maxLength": 40,
+              "minLength": 1,
+              "title": "Meetingno",
+              "type": "string"
+            },
+            "title": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "Title",
+              "type": "string"
+            },
+            "meetingType": {
+              "maxLength": 32,
+              "minLength": 1,
+              "title": "Meetingtype",
+              "type": "string"
+            },
+            "organizerId": {
+              "minimum": 1,
+              "title": "Organizerid",
+              "type": "integer"
+            },
+            "organizerName": {
+              "maxLength": 64,
+              "minLength": 1,
+              "title": "Organizername",
+              "type": "string"
+            },
+            "roomId": {
+              "minimum": 1,
+              "title": "Roomid",
+              "type": "integer"
+            },
+            "roomCode": {
+              "maxLength": 32,
+              "minLength": 1,
+              "title": "Roomcode",
+              "type": "string"
+            },
+            "roomName": {
+              "maxLength": 64,
+              "minLength": 1,
+              "title": "Roomname",
+              "type": "string"
+            },
+            "startAt": {
+              "format": "date-time",
+              "title": "Startat",
+              "type": "string"
+            },
+            "endAt": {
+              "format": "date-time",
+              "title": "Endat",
+              "type": "string"
+            },
+            "status": {
+              "maxLength": 24,
+              "minLength": 1,
+              "title": "Status",
+              "type": "string"
+            },
+            "source": {
+              "maxLength": 16,
+              "minLength": 1,
+              "title": "Source",
+              "type": "string"
+            },
+            "participants": {
+              "items": {
+                "$ref": "#/$defs/MeetingParticipantView"
+              },
+              "maxItems": 100,
+              "title": "Participants",
+              "type": "array"
+            },
+            "version": {
+              "minimum": 0,
+              "title": "Version",
+              "type": "integer"
+            },
+            "createdAt": {
+              "format": "date-time",
+              "title": "Createdat",
+              "type": "string"
+            },
+            "updatedAt": {
+              "format": "date-time",
+              "title": "Updatedat",
+              "type": "string"
+            },
+            "cancelledAt": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Cancelledat"
+            }
+          },
+          "required": [
+            "id",
+            "meetingNo",
+            "title",
+            "meetingType",
+            "organizerId",
+            "organizerName",
+            "roomId",
+            "roomCode",
+            "roomName",
+            "startAt",
+            "endAt",
+            "status",
+            "source",
+            "version",
+            "createdAt",
+            "updatedAt"
+          ],
+          "title": "MeetingView",
+          "type": "object"
+        }
+      },
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": true
+            },
+            "data": {
+              "additionalProperties": false,
+              "properties": {
+                "confirmationToken": {
+                  "maxLength": 80,
+                  "minLength": 1,
+                  "title": "Confirmationtoken",
+                  "type": "string"
+                },
+                "expiresAt": {
+                  "format": "date-time",
+                  "title": "Expiresat",
+                  "type": "string"
+                },
+                "before": {
+                  "$ref": "#/$defs/MeetingView"
+                },
+                "after": {
+                  "$ref": "#/$defs/BookingDraft"
+                }
+              },
+              "required": [
+                "confirmationToken",
+                "expiresAt",
+                "before",
+                "after"
+              ],
+              "title": "CreateRescheduleDraftResponse",
+              "type": "object"
+            }
+          },
+          "required": [
+            "ok",
+            "data"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": false
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "details": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "field": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "reason"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "code",
+                "message",
+                "details"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "ok",
+            "error"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "create_cancellation_preview": {
+    "description": "create cancellation preview (trusted business workflow)",
+    "riskLevel": "DRAFT",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "meetingId": {
+          "minimum": 1,
+          "title": "Meetingid",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "meetingId"
+      ],
+      "title": "CancellationPreviewInput",
+      "type": "object"
+    },
+    "outputSchema": {
+      "type": "object",
+      "$defs": {
+        "MeetingParticipantView": {
+          "additionalProperties": false,
+          "properties": {
+            "employeeId": {
+              "minimum": 1,
+              "title": "Employeeid",
+              "type": "integer"
+            },
+            "displayName": {
+              "maxLength": 64,
+              "minLength": 1,
+              "title": "Displayname",
+              "type": "string"
+            },
+            "participantType": {
+              "pattern": "^(REQUIRED|OPTIONAL)$",
+              "title": "Participanttype",
+              "type": "string"
+            }
+          },
+          "required": [
+            "employeeId",
+            "displayName",
+            "participantType"
+          ],
+          "title": "MeetingParticipantView",
+          "type": "object"
+        },
+        "MeetingView": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "minimum": 1,
+              "title": "Id",
+              "type": "integer"
+            },
+            "meetingNo": {
+              "maxLength": 40,
+              "minLength": 1,
+              "title": "Meetingno",
+              "type": "string"
+            },
+            "title": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "Title",
+              "type": "string"
+            },
+            "meetingType": {
+              "maxLength": 32,
+              "minLength": 1,
+              "title": "Meetingtype",
+              "type": "string"
+            },
+            "organizerId": {
+              "minimum": 1,
+              "title": "Organizerid",
+              "type": "integer"
+            },
+            "organizerName": {
+              "maxLength": 64,
+              "minLength": 1,
+              "title": "Organizername",
+              "type": "string"
+            },
+            "roomId": {
+              "minimum": 1,
+              "title": "Roomid",
+              "type": "integer"
+            },
+            "roomCode": {
+              "maxLength": 32,
+              "minLength": 1,
+              "title": "Roomcode",
+              "type": "string"
+            },
+            "roomName": {
+              "maxLength": 64,
+              "minLength": 1,
+              "title": "Roomname",
+              "type": "string"
+            },
+            "startAt": {
+              "format": "date-time",
+              "title": "Startat",
+              "type": "string"
+            },
+            "endAt": {
+              "format": "date-time",
+              "title": "Endat",
+              "type": "string"
+            },
+            "status": {
+              "maxLength": 24,
+              "minLength": 1,
+              "title": "Status",
+              "type": "string"
+            },
+            "source": {
+              "maxLength": 16,
+              "minLength": 1,
+              "title": "Source",
+              "type": "string"
+            },
+            "participants": {
+              "items": {
+                "$ref": "#/$defs/MeetingParticipantView"
+              },
+              "maxItems": 100,
+              "title": "Participants",
+              "type": "array"
+            },
+            "version": {
+              "minimum": 0,
+              "title": "Version",
+              "type": "integer"
+            },
+            "createdAt": {
+              "format": "date-time",
+              "title": "Createdat",
+              "type": "string"
+            },
+            "updatedAt": {
+              "format": "date-time",
+              "title": "Updatedat",
+              "type": "string"
+            },
+            "cancelledAt": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Cancelledat"
+            }
+          },
+          "required": [
+            "id",
+            "meetingNo",
+            "title",
+            "meetingType",
+            "organizerId",
+            "organizerName",
+            "roomId",
+            "roomCode",
+            "roomName",
+            "startAt",
+            "endAt",
+            "status",
+            "source",
+            "version",
+            "createdAt",
+            "updatedAt"
+          ],
+          "title": "MeetingView",
+          "type": "object"
+        }
+      },
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": true
+            },
+            "data": {
+              "additionalProperties": false,
+              "properties": {
+                "confirmationToken": {
+                  "maxLength": 80,
+                  "minLength": 1,
+                  "title": "Confirmationtoken",
+                  "type": "string"
+                },
+                "expiresAt": {
+                  "format": "date-time",
+                  "title": "Expiresat",
+                  "type": "string"
+                },
+                "meeting": {
+                  "$ref": "#/$defs/MeetingView"
+                }
+              },
+              "required": [
+                "confirmationToken",
+                "expiresAt",
+                "meeting"
+              ],
+              "title": "CreateCancellationPreviewResponse",
+              "type": "object"
+            }
+          },
+          "required": [
+            "ok",
+            "data"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": false
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "details": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "field": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "reason"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "code",
+                "message",
+                "details"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "ok",
+            "error"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "confirm_booking": {
+    "description": "confirm booking (trusted business workflow)",
+    "riskLevel": "WRITE",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "confirmationToken": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Confirmationtoken",
+          "type": "string"
+        }
+      },
+      "required": [
+        "confirmationToken"
+      ],
+      "title": "ConfirmInput",
+      "type": "object"
+    },
+    "outputSchema": {
+      "type": "object",
+      "$defs": {},
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": true
+            },
+            "data": {
+              "additionalProperties": false,
+              "properties": {
+                "status": {
+                  "enum": [
+                    "SUCCESS",
+                    "PENDING"
+                  ],
+                  "title": "Status",
+                  "type": "string"
+                },
+                "meetingId": {
+                  "anyOf": [
+                    {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Meetingid"
+                },
+                "requestNo": {
+                  "anyOf": [
+                    {
+                      "maxLength": 64,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Requestno"
+                }
+              },
+              "required": [
+                "status"
+              ],
+              "title": "ConfirmBookingResponse",
+              "type": "object"
+            }
+          },
+          "required": [
+            "ok",
+            "data"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": false
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "details": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "field": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "reason"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "code",
+                "message",
+                "details"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "ok",
+            "error"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "confirm_reschedule": {
+    "description": "confirm reschedule (trusted business workflow)",
+    "riskLevel": "WRITE",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "confirmationToken": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Confirmationtoken",
+          "type": "string"
+        }
+      },
+      "required": [
+        "confirmationToken"
+      ],
+      "title": "ConfirmInput",
+      "type": "object"
+    },
+    "outputSchema": {
+      "type": "object",
+      "$defs": {},
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": true
+            },
+            "data": {
+              "additionalProperties": false,
+              "properties": {
+                "status": {
+                  "enum": [
+                    "SUCCESS",
+                    "PENDING"
+                  ],
+                  "title": "Status",
+                  "type": "string"
+                },
+                "meetingId": {
+                  "anyOf": [
+                    {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Meetingid"
+                },
+                "requestNo": {
+                  "anyOf": [
+                    {
+                      "maxLength": 64,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Requestno"
+                }
+              },
+              "required": [
+                "status"
+              ],
+              "title": "ConfirmBookingResponse",
+              "type": "object"
+            }
+          },
+          "required": [
+            "ok",
+            "data"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": false
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "details": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "field": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "reason"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "code",
+                "message",
+                "details"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "ok",
+            "error"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "confirm_cancellation": {
+    "description": "confirm cancellation (trusted business workflow)",
+    "riskLevel": "WRITE",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "confirmationToken": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Confirmationtoken",
+          "type": "string"
+        }
+      },
+      "required": [
+        "confirmationToken"
+      ],
+      "title": "ConfirmInput",
+      "type": "object"
+    },
+    "outputSchema": {
+      "type": "object",
+      "$defs": {},
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": true
+            },
+            "data": {
+              "additionalProperties": false,
+              "properties": {
+                "status": {
+                  "enum": [
+                    "SUCCESS",
+                    "PENDING"
+                  ],
+                  "title": "Status",
+                  "type": "string"
+                },
+                "meetingId": {
+                  "anyOf": [
+                    {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Meetingid"
+                },
+                "requestNo": {
+                  "anyOf": [
+                    {
+                      "maxLength": 64,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Requestno"
+                }
+              },
+              "required": [
+                "status"
+              ],
+              "title": "ConfirmBookingResponse",
+              "type": "object"
+            }
+          },
+          "required": [
+            "ok",
+            "data"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": false
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "details": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "field": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "reason"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "code",
+                "message",
+                "details"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "ok",
+            "error"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

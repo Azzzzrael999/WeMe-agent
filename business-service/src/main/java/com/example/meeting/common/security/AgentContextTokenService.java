@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 import javax.crypto.SecretKey;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -17,10 +18,15 @@ public class AgentContextTokenService {
   private final InternalSecurityProperties properties;
   private final Clock clock;
   private final SecretKey signingKey;
+  private final String mcpAudience;
 
-  public AgentContextTokenService(InternalSecurityProperties properties, Clock clock) {
+  public AgentContextTokenService(
+      InternalSecurityProperties properties,
+      Clock clock,
+      @Value("${app.mcp.audience:meeting-business-mcp}") String mcpAudience) {
     this.properties = properties;
     this.clock = clock;
+    this.mcpAudience = mcpAudience;
     byte[] secret = properties.agentContextSecret().getBytes(StandardCharsets.UTF_8);
     if (secret.length < 32) {
       throw new IllegalStateException(
@@ -38,6 +44,7 @@ public class AgentContextTokenService {
         .claim("runId", runId)
         .audience()
         .add(properties.agentContextAudience())
+        .add(mcpAudience)
         .and()
         .issuedAt(Date.from(issuedAt))
         .expiration(Date.from(issuedAt.plusSeconds(properties.agentContextExpirationSeconds())))
@@ -46,10 +53,18 @@ public class AgentContextTokenService {
   }
 
   public AgentContextIdentity parse(String token) {
+    return parse(token, properties.agentContextAudience());
+  }
+
+  public AgentContextIdentity parseMcp(String token) {
+    return parse(token, mcpAudience);
+  }
+
+  private AgentContextIdentity parse(String token, String audience) {
     Claims claims =
         Jwts.parser()
             .verifyWith(signingKey)
-            .requireAudience(properties.agentContextAudience())
+            .requireAudience(audience)
             .build()
             .parseSignedClaims(token)
             .getPayload();

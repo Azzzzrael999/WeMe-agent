@@ -38,7 +38,8 @@ public class AgentToolSecurityFilter extends OncePerRequestFilter {
 
   @Override
   protected boolean shouldNotFilter(HttpServletRequest request) {
-    return !request.getRequestURI().startsWith(INTERNAL_TOOL_PREFIX);
+    return !request.getRequestURI().startsWith(INTERNAL_TOOL_PREFIX)
+        && !"/internal/v1/mcp".equals(request.getRequestURI());
   }
 
   @Override
@@ -64,7 +65,9 @@ public class AgentToolSecurityFilter extends OncePerRequestFilter {
       throw new IllegalArgumentException("Agent context bearer token is missing");
     }
     AgentContextIdentity identity =
-        tokenService.parse(authorization.substring(BEARER_PREFIX.length()));
+        "/internal/v1/mcp".equals(request.getRequestURI())
+            ? tokenService.parseMcp(authorization.substring(BEARER_PREFIX.length()))
+            : tokenService.parse(authorization.substring(BEARER_PREFIX.length()));
     String traceId = requireHeader(request, "X-Trace-Id", 64);
     String runId = requireHeader(request, "X-Run-Id", 64);
     String toolCallId = requireHeader(request, "X-Tool-Call-Id", 80);

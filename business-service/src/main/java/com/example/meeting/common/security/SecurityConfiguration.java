@@ -26,6 +26,7 @@ public class SecurityConfiguration {
       HttpSecurity http,
       JwtAuthenticationFilter jwtAuthenticationFilter,
       AgentToolSecurityFilter agentToolSecurityFilter,
+      com.example.meeting.agentgateway.mcp.AgentMcpRequestFilter agentMcpRequestFilter,
       SecurityErrorWriter errorWriter)
       throws Exception {
     return http.csrf(csrf -> csrf.disable())
@@ -42,7 +43,7 @@ public class SecurityConfiguration {
                     .permitAll()
                     .requestMatchers("/api/v1/auth/login", "/actuator/health/**")
                     .permitAll()
-                    .requestMatchers("/internal/v1/tools/**")
+                    .requestMatchers("/internal/v1/tools/**", "/internal/v1/mcp")
                     .permitAll()
                     .requestMatchers("/api/v1/admin/**")
                     .hasRole("ADMIN")
@@ -74,6 +75,7 @@ public class SecurityConfiguration {
                             errorWriter.write(request, response, ErrorCode.FORBIDDEN)))
         .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
         .addFilterBefore(agentToolSecurityFilter, JwtAuthenticationFilter.class)
+        .addFilterAfter(agentMcpRequestFilter, AgentToolSecurityFilter.class)
         .build();
   }
 }

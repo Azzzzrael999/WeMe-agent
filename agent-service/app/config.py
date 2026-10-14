@@ -32,6 +32,23 @@ class Settings(BaseSettings):
     business_service_url: str = Field(
         default="http://business-service:8080", validation_alias="BUSINESS_SERVICE_URL"
     )
+    agent_tool_transport: Literal["rest", "mcp"] = Field(
+        default="mcp", validation_alias="AGENT_TOOL_TRANSPORT"
+    )
+    business_mcp_url: str = Field(default="", validation_alias="BUSINESS_MCP_URL")
+    agent_tool_timeout_seconds: float = Field(
+        default=20.0, validation_alias="AGENT_TOOL_TIMEOUT_SECONDS", gt=0, le=120
+    )
+    agent_tool_max_retries: int = Field(
+        default=1, validation_alias="AGENT_TOOL_MAX_RETRIES", ge=0, le=3
+    )
+    agent_tool_max_response_bytes: int = Field(
+        default=262144, validation_alias="AGENT_TOOL_MAX_RESPONSE_BYTES", ge=1024, le=1048576
+    )
+
+    @property
+    def mcp_url(self) -> str:
+        return self.business_mcp_url or self.business_service_url.rstrip("/") + "/internal/v1/mcp"
     agent_checkpoint_redis_url: str = Field(
         default="redis://redis:6379/1", validation_alias="AGENT_CHECKPOINT_REDIS_URL", min_length=1
     )

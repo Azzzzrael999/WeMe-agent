@@ -66,6 +66,9 @@ public class AgentToolAuditService {
           requiresNew.execute(
               ignored -> mapper.find(context.runId(), context.toolCallId(), toolName).orElse(null));
       if (existing != null) {
+        if (existing.getUserId() != context.userId()) {
+          throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
         return replay(existing, requestHash, responseType);
       }
       AgentToolAuditRecord audit = new AgentToolAuditRecord();
@@ -88,6 +91,9 @@ public class AgentToolAuditService {
                     mapper
                         .find(context.runId(), context.toolCallId(), toolName)
                         .orElseThrow(() -> exception));
+        if (concurrent.getUserId() != context.userId()) {
+          throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
         return replay(concurrent, requestHash, responseType);
       }
       long started = System.nanoTime();

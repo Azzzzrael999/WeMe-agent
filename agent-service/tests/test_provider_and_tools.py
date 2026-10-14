@@ -66,6 +66,8 @@ def _settings(*, retries: int = 1) -> Settings:
         DEEPSEEK_BASE_URL="https://api.example.invalid",
         DEEPSEEK_MODEL="test-model",
         MODEL_MAX_RETRIES=retries,
+        AGENT_TOOL_TRANSPORT="rest",
+        AGENT_TOOL_MAX_RETRIES=retries,
         INTERNAL_SERVICE_TOKEN="test-service-token",
         AGENT_CONTEXT_JWT_SECRET="test-agent-context-secret-with-at-least-32-bytes",
     )

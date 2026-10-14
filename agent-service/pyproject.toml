@@ -2,8 +2,10 @@
 name = "meeting-agent-service"
 version = "1.0.0"
 description = "FastAPI Multi-Agent orchestration service for the meeting scheduler."
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 dependencies = [
+    "anyio==4.11.0",
+    "mcp==1.30.0",
     "alembic==1.16.5",
     "fastapi==0.116.1",
     "httpx==0.28.1",

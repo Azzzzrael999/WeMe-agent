@@ -1,8 +1,7 @@
 package com.example.meeting.agentgateway.internal;
 
-import com.example.meeting.agentgateway.audit.AgentToolAuditService;
+import com.example.meeting.agentgateway.application.AgentToolApplicationService;
 import com.example.meeting.agentgateway.internal.AgentToolDtos.CancellationPreviewRequest;
-import com.example.meeting.agentgateway.internal.AgentToolDtos.ConfirmAuditRequest;
 import com.example.meeting.agentgateway.internal.AgentToolDtos.ConfirmBookingResponse;
 import com.example.meeting.agentgateway.internal.AgentToolDtos.CreateCancellationPreviewResponse;
 import com.example.meeting.agentgateway.internal.AgentToolDtos.CreateDraftResponse;
@@ -18,10 +17,6 @@ import com.example.meeting.agentgateway.internal.AgentToolDtos.ResolveParticipan
 import com.example.meeting.agentgateway.internal.AgentToolDtos.ResolveParticipantScopeResponse;
 import com.example.meeting.agentgateway.internal.AgentToolDtos.SearchRoomsRequest;
 import com.example.meeting.agentgateway.internal.AgentToolDtos.SearchRoomsResponse;
-import com.example.meeting.booking.application.BookingConfirmationService;
-import com.example.meeting.booking.application.BookingDraftService;
-import com.example.meeting.booking.application.MutationConfirmationService;
-import com.example.meeting.booking.application.MutationDraftService;
 import com.example.meeting.common.security.AgentToolContext;
 import com.example.meeting.common.web.ApiResponseFactory;
 import com.example.meeting.common.web.ApiSuccess;
@@ -42,28 +37,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/internal/v1/tools")
 public class AgentToolController {
 
-  private final AgentToolQueryService queryService;
-  private final BookingDraftService draftService;
-  private final BookingConfirmationService confirmationService;
-  private final MutationDraftService mutationDraftService;
-  private final MutationConfirmationService mutationConfirmationService;
-  private final AgentToolAuditService auditService;
+  private final AgentToolApplicationService application;
   private final ApiResponseFactory responseFactory;
 
   public AgentToolController(
-      AgentToolQueryService queryService,
-      BookingDraftService draftService,
-      BookingConfirmationService confirmationService,
-      MutationDraftService mutationDraftService,
-      MutationConfirmationService mutationConfirmationService,
-      AgentToolAuditService auditService,
-      ApiResponseFactory responseFactory) {
-    this.queryService = queryService;
-    this.draftService = draftService;
-    this.confirmationService = confirmationService;
-    this.mutationDraftService = mutationDraftService;
-    this.mutationConfirmationService = mutationConfirmationService;
-    this.auditService = auditService;
+      AgentToolApplicationService application, ApiResponseFactory responseFactory) {
+    this.application = application;
     this.responseFactory = responseFactory;
   }
 
@@ -72,14 +51,7 @@ public class AgentToolController {
       @Valid @RequestBody ResolveEmployeesRequest body,
       @RequestAttribute(AgentToolContext.REQUEST_ATTRIBUTE) AgentToolContext context,
       HttpServletRequest request) {
-    ResolveEmployeesResponse result =
-        auditService.execute(
-            context,
-            "resolve_employees",
-            "READ",
-            body,
-            ResolveEmployeesResponse.class,
-            () -> queryService.resolveEmployees(body));
+    ResolveEmployeesResponse result = application.resolveEmployees(body, context);
     return responseFactory.success(result, request);
   }
 
@@ -88,14 +60,7 @@ public class AgentToolController {
       @Valid @RequestBody ResolveParticipantScopeRequest body,
       @RequestAttribute(AgentToolContext.REQUEST_ATTRIBUTE) AgentToolContext context,
       HttpServletRequest request) {
-    ResolveParticipantScopeResponse result =
-        auditService.execute(
-            context,
-            "resolve_participant_scope",
-            "READ",
-            body,
-            ResolveParticipantScopeResponse.class,
-            () -> queryService.resolveParticipantScope(body, context));
+    ResolveParticipantScopeResponse result = application.resolveParticipantScope(body, context);
     return responseFactory.success(result, request);
   }
 
@@ -104,14 +69,7 @@ public class AgentToolController {
       @Valid @RequestBody FreeBusyRequest body,
       @RequestAttribute(AgentToolContext.REQUEST_ATTRIBUTE) AgentToolContext context,
       HttpServletRequest request) {
-    FreeBusyResponse result =
-        auditService.execute(
-            context,
-            "get_employee_free_busy",
-            "READ",
-            body,
-            FreeBusyResponse.class,
-            () -> queryService.getFreeBusy(body, context));
+    FreeBusyResponse result = application.freeBusy(body, context);
     return responseFactory.success(result, request);
   }
 
@@ -120,14 +78,7 @@ public class AgentToolController {
       @Valid @RequestBody SearchRoomsRequest body,
       @RequestAttribute(AgentToolContext.REQUEST_ATTRIBUTE) AgentToolContext context,
       HttpServletRequest request) {
-    SearchRoomsResponse result =
-        auditService.execute(
-            context,
-            "search_available_rooms",
-            "READ",
-            body,
-            SearchRoomsResponse.class,
-            () -> queryService.searchAvailableRooms(body, context));
+    SearchRoomsResponse result = application.searchRooms(body, context);
     return responseFactory.success(result, request);
   }
 
@@ -136,14 +87,7 @@ public class AgentToolController {
       @Valid @RequestBody RecentMeetingRequest body,
       @RequestAttribute(AgentToolContext.REQUEST_ATTRIBUTE) AgentToolContext context,
       HttpServletRequest request) {
-    RecentMeetingResponse result =
-        auditService.execute(
-            context,
-            "get_recent_meeting",
-            "READ",
-            body,
-            RecentMeetingResponse.class,
-            () -> queryService.recentMeetings(body, context));
+    RecentMeetingResponse result = application.recentMeeting(body, context);
     return responseFactory.success(result, request);
   }
 
@@ -152,14 +96,7 @@ public class AgentToolController {
       @Valid @RequestBody CreateMeetingRequest body,
       @RequestAttribute(AgentToolContext.REQUEST_ATTRIBUTE) AgentToolContext context,
       HttpServletRequest request) {
-    CreateDraftResponse result =
-        auditService.execute(
-            context,
-            "create_booking_draft",
-            "DRAFT",
-            body,
-            CreateDraftResponse.class,
-            () -> draftService.create(body, context));
+    CreateDraftResponse result = application.createDraft(body, context);
     return responseFactory.success(result, request);
   }
 
@@ -169,15 +106,8 @@ public class AgentToolController {
       @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
       @RequestAttribute(AgentToolContext.REQUEST_ATTRIBUTE) AgentToolContext context,
       HttpServletRequest request) {
-    ConfirmAuditRequest auditRequest = new ConfirmAuditRequest(confirmationToken, idempotencyKey);
     ConfirmBookingResponse result =
-        auditService.execute(
-            context,
-            "confirm_booking",
-            "WRITE",
-            auditRequest,
-            ConfirmBookingResponse.class,
-            () -> confirmationService.confirm(confirmationToken, idempotencyKey, context));
+        application.confirmDraft(confirmationToken, idempotencyKey, context);
     HttpStatus status = "PENDING".equals(result.status()) ? HttpStatus.ACCEPTED : HttpStatus.OK;
     return ResponseEntity.status(status).body(responseFactory.success(result, request));
   }
@@ -187,14 +117,7 @@ public class AgentToolController {
       @Valid @RequestBody RescheduleDraftRequest body,
       @RequestAttribute(AgentToolContext.REQUEST_ATTRIBUTE) AgentToolContext context,
       HttpServletRequest request) {
-    CreateRescheduleDraftResponse result =
-        auditService.execute(
-            context,
-            "create_reschedule_draft",
-            "DRAFT",
-            body,
-            CreateRescheduleDraftResponse.class,
-            () -> mutationDraftService.createReschedule(body, context));
+    CreateRescheduleDraftResponse result = application.createRescheduleDraft(body, context);
     return responseFactory.success(result, request);
   }
 
@@ -204,17 +127,8 @@ public class AgentToolController {
       @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
       @RequestAttribute(AgentToolContext.REQUEST_ATTRIBUTE) AgentToolContext context,
       HttpServletRequest request) {
-    ConfirmAuditRequest auditRequest = new ConfirmAuditRequest(confirmationToken, idempotencyKey);
     ConfirmBookingResponse result =
-        auditService.execute(
-            context,
-            "confirm_reschedule",
-            "WRITE",
-            auditRequest,
-            ConfirmBookingResponse.class,
-            () ->
-                mutationConfirmationService.confirmReschedule(
-                    confirmationToken, idempotencyKey, context));
+        application.confirmRescheduleDraft(confirmationToken, idempotencyKey, context);
     return responseFactory.success(result, request);
   }
 
@@ -223,14 +137,7 @@ public class AgentToolController {
       @Valid @RequestBody CancellationPreviewRequest body,
       @RequestAttribute(AgentToolContext.REQUEST_ATTRIBUTE) AgentToolContext context,
       HttpServletRequest request) {
-    CreateCancellationPreviewResponse result =
-        auditService.execute(
-            context,
-            "create_cancellation_preview",
-            "DRAFT",
-            body,
-            CreateCancellationPreviewResponse.class,
-            () -> mutationDraftService.createCancellation(body, context));
+    CreateCancellationPreviewResponse result = application.createCancellationPreview(body, context);
     return responseFactory.success(result, request);
   }
 
@@ -240,17 +147,8 @@ public class AgentToolController {
       @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
       @RequestAttribute(AgentToolContext.REQUEST_ATTRIBUTE) AgentToolContext context,
       HttpServletRequest request) {
-    ConfirmAuditRequest auditRequest = new ConfirmAuditRequest(confirmationToken, idempotencyKey);
     ConfirmBookingResponse result =
-        auditService.execute(
-            context,
-            "confirm_cancellation",
-            "WRITE",
-            auditRequest,
-            ConfirmBookingResponse.class,
-            () ->
-                mutationConfirmationService.confirmCancellation(
-                    confirmationToken, idempotencyKey, context));
+        application.confirmCancellationPreview(confirmationToken, idempotencyKey, context);
     return responseFactory.success(result, request);
   }
 }

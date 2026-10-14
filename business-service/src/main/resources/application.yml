@@ -43,6 +43,12 @@ mybatis-plus:
       id-type: auto
 
 app:
+  mcp:
+    enabled: ${BUSINESS_MCP_ENABLED:true}
+    audience: ${BUSINESS_MCP_AUDIENCE:meeting-business-mcp}
+    max-request-bytes: ${BUSINESS_MCP_MAX_REQUEST_BYTES:65536}
+    max-concurrent-requests: ${BUSINESS_MCP_MAX_CONCURRENT_REQUESTS:32}
+    allowed-origins: ${BUSINESS_MCP_ALLOWED_ORIGINS:}
   timezone: ${APP_TIMEZONE:Asia/Shanghai}
   jwt:
     secret: ${JWT_SECRET}
